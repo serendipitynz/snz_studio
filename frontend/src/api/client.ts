@@ -9,6 +9,8 @@ export interface Project {
   title: string;
   description: string;
   systemPrompt: string;
+  sortOrder: number;
+  chatCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -138,6 +140,12 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
+    }),
+  reorderProjects: (projectIds: string[]) =>
+    request<{ projects: Project[] }>("/api/projects/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectIds })
     }),
   updateProjectTitle: (projectId: string, title: string) =>
     request<{ project: Project }>(`/api/projects/${projectId}`, {

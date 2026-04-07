@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useState } from "react";
 import { api, Project, WorkspaceConfiguration } from "../api/client";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import {
@@ -50,6 +50,8 @@ export function ProjectListPage() {
   const [loadingLlmModels, setLoadingLlmModels] = useState(false);
   const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false);
   const [error, setError] = useState("");
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [dropTargetProjectId, setDropTargetProjectId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -150,6 +152,29 @@ export function ProjectListPage() {
     }
   }
 
+  async function handleProjectDrop(targetProjectId: string) {
+    if (!draggedProjectId || draggedProjectId === targetProjectId) {
+      setDraggedProjectId(null);
+      setDropTargetProjectId(null);
+      return;
+    }
+
+    const previousProjects = projects;
+    const nextProjects = reorderProjects(previousProjects, draggedProjectId, targetProjectId);
+    setProjects(nextProjects);
+    setDraggedProjectId(null);
+    setDropTargetProjectId(null);
+    setError("");
+
+    try {
+      const response = await api.reorderProjects(nextProjects.map((project) => project.id));
+      setProjects(response.projects);
+    } catch (nextError) {
+      setProjects(previousProjects);
+      setError(nextError instanceof Error ? nextError.message : "Failed to reorder projects");
+    }
+  }
+
   return (
     <WorkspaceShell>
       <WorkspaceSidebar projects={projects} />
@@ -164,14 +189,54 @@ export function ProjectListPage() {
             <Card>
               <Stack>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <SectionTitle>Available Projects</SectionTitle>
+                  <SectionTitle>Projects</SectionTitle>
                   <Badge tone="accent">{projects.length} projects</Badge>
                 </div>
                 {error ? <Subtle style={{ color: "#ff7a6c" }}>{error}</Subtle> : null}
                 <List>
                   {!loading && projects.length === 0 ? <Item>No projects yet.</Item> : null}
                   {projects.map((project) => (
-                    <Item key={project.id} style={{ padding: 0, overflow: "hidden" }}>
+                    <Item
+                      key={project.id}
+                      draggable
+                      onDragStart={(event) => {
+                        setDraggedProjectId(project.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", project.id);
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        if (draggedProjectId && draggedProjectId !== project.id) {
+                          setDropTargetProjectId(project.id);
+                        }
+                      }}
+                      onDragLeave={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                          setDropTargetProjectId((current) => (current === project.id ? null : current));
+                        }
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        void handleProjectDrop(project.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedProjectId(null);
+                        setDropTargetProjectId(null);
+                      }}
+                      style={{
+                        padding: 0,
+                        overflow: "hidden",
+                        cursor: "grab",
+                        borderColor:
+                          dropTargetProjectId === project.id ? "rgba(42, 161, 152, 0.34)" : "rgba(101, 123, 131, 0.12)",
+                        background:
+                          draggedProjectId === project.id
+                            ? "rgba(42, 161, 152, 0.08)"
+                            : dropTargetProjectId === project.id
+                              ? "rgba(42, 161, 152, 0.06)"
+                              : "rgba(255, 255, 255, 0.42)"
+                      }}
+                    >
                       <RouterLink
                         to={`/projects/${project.id}`}
                         style={{ display: "block", padding: 14, textDecoration: "none", color: "inherit" }}
@@ -345,4 +410,18 @@ export function ProjectListPage() {
       ) : null}
     </WorkspaceShell>
   );
+}
+
+function reorderProjects(projects: Project[], draggedProjectId: string, targetProjectId: string) {
+  const next = [...projects];
+  const draggedIndex = next.findIndex((project) => project.id === draggedProjectId);
+  const targetIndex = next.findIndex((project) => project.id === targetProjectId);
+
+  if (draggedIndex < 0 || targetIndex < 0 || draggedIndex === targetIndex) {
+    return next;
+  }
+
+  const [dragged] = next.splice(draggedIndex, 1);
+  next.splice(targetIndex, 0, dragged);
+  return next;
 }

@@ -37,7 +37,10 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
           <SidebarSectionLabel>Projects</SidebarSectionLabel>
           {props.projects.map((project) => (
             <SidebarLink key={project.id} to={`/projects/${project.id}`} $active={project.id === props.currentProjectId}>
-              <strong>{project.title}</strong>
+              <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+                <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{project.title}</strong>
+                <Subtle style={{ opacity: 0.72, flexShrink: 0 }}>({project.chatCount})</Subtle>
+              </Row>
             </SidebarLink>
           ))}
         </SidebarSection>

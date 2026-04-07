@@ -14,6 +14,7 @@ const migrations = [
         title TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         system_prompt TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -107,7 +108,7 @@ const migrations = [
       CREATE TABLE assistant_message_references (
         id TEXT PRIMARY KEY,
         assistant_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-        source_type TEXT NOT NULL CHECK(source_type IN ('project', 'summary', 'document', 'memory')),
+        source_type TEXT NOT NULL CHECK(source_type IN ('project', 'summary', 'document', 'memory', 'chat')),
         source_id TEXT NOT NULL,
         label TEXT NOT NULL,
         excerpt TEXT NOT NULL DEFAULT '',
@@ -169,6 +170,45 @@ const migrations = [
       SET source = CASE WHEN source_chat_id IS NOT NULL THEN 'chat' ELSE 'manual' END,
           locked = CASE WHEN source_chat_id IS NULL THEN 1 ELSE 0 END
       WHERE source = 'manual' AND locked = 0;
+    `
+  },
+  {
+    id: "006_project_sort_order",
+    sql: `
+      ALTER TABLE projects ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+      UPDATE projects
+      SET sort_order = (
+        SELECT COUNT(*)
+        FROM projects p2
+        WHERE p2.created_at < projects.created_at
+           OR (p2.created_at = projects.created_at AND p2.id < projects.id)
+      );
+    `
+  },
+  {
+    id: "007_chat_reference_source",
+    sql: `
+      CREATE TABLE assistant_message_references_new (
+        id TEXT PRIMARY KEY,
+        assistant_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        source_type TEXT NOT NULL CHECK(source_type IN ('project', 'summary', 'document', 'memory', 'chat')),
+        source_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        excerpt TEXT NOT NULL DEFAULT '',
+        score REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      INSERT INTO assistant_message_references_new (
+        id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at
+      )
+      SELECT
+        id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at
+      FROM assistant_message_references;
+
+      DROP TABLE assistant_message_references;
+      ALTER TABLE assistant_message_references_new RENAME TO assistant_message_references;
+      CREATE INDEX idx_assistant_refs_message ON assistant_message_references(assistant_message_id);
     `
   }
 ];

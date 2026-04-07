@@ -10,6 +10,8 @@ export interface Project {
   title: string;
   description: string;
   systemPrompt: string;
+  sortOrder: number;
+  chatCount: number;
   createdAt: string;
   updatedAt: string;
 }

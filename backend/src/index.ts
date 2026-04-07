@@ -170,6 +170,25 @@ app.post("/api/projects", (req, res) => {
   res.status(201).json({ project });
 });
 
+app.post("/api/projects/reorder", (req, res) => {
+  const projectIds = Array.isArray(req.body?.projectIds)
+    ? req.body.projectIds.map((value: unknown) => String(value))
+    : [];
+
+  if (!projectIds.length) {
+    res.status(400).json({ error: "projectIds are required" });
+    return;
+  }
+
+  const reordered = projects.reorderProjects(projectIds);
+  if (!reordered) {
+    res.status(400).json({ error: "projectIds did not match existing projects" });
+    return;
+  }
+
+  res.json({ projects: reordered });
+});
+
 app.delete("/api/projects/:projectId", (req, res) => {
   const project = projects.getProject(req.params.projectId);
   if (!project) {
