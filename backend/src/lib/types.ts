@@ -3,7 +3,7 @@ export type DocumentCategory = "world" | "character" | "rule" | "plot" | "timeli
 export type MessageRole = "system" | "user" | "assistant";
 export type MemoryKind = "semantic" | "procedural" | "episodic";
 export type MemorySource = "manual" | "chat" | "organized";
-export type ReferenceSourceType = "project" | "summary" | "document" | "memory";
+export type ReferenceSourceType = "project" | "summary" | "document" | "memory" | "chat";
 
 export interface Project {
   id: string;

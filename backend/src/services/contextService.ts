@@ -10,6 +10,7 @@ const QUOTE_REQUEST_PATTERN = /(引用|quote|quoted|引用して|原文|その�
 const FULL_DOCUMENT_REQUEST_PATTERN = /(全文|全体|全内容|全部|全編|full document|entire document|whole document|文書全体|ドキュメント全体)/iu;
 const DOCUMENT_REVIEW_PATTERN = /(要約|まとめ|summary|review|説明|整理|構造|outline|全体像|レビュー)/iu;
 const THIS_DOCUMENT_PATTERN = /(この document|this document|この文書|このドキュメント)/iu;
+const CHAT_REFERENCE_PATTERN = /(チャット|chat)/iu;
 const GENERIC_QUERY_NOISE_PATTERN =
   /(引用|quote|quoted|原文|そのまま|抜き出して|抜粋して|該当箇所|この document|this document|この文書|このドキュメント|全文|全体|要約|まとめ|説明|してください|お願いします)/giu;
 const FULL_DOCUMENT_CHAR_LIMIT = 12000;
@@ -42,6 +43,26 @@ function buildDocumentFocusedQuery(userInput: string, documentTitle: string) {
   return userInput.replaceAll(documentTitle, " ").replace(GENERIC_QUERY_NOISE_PATTERN, " ").trim();
 }
 
+function resolveExplicitChat(userInput: string, chats: ReturnType<ChatRepository["listByProject"]>, currentChatId: string) {
+  if (!CHAT_REFERENCE_PATTERN.test(userInput)) {
+    return null;
+  }
+
+  const normalizedInput = normalizeForMatch(userInput);
+  return chats
+    .filter((chat) => chat.id !== currentChatId)
+    .filter((chat) => {
+      const title = chat.title.trim();
+      if (!title) {
+        return false;
+      }
+
+      const normalizedTitle = normalizeForMatch(title);
+      return normalizedTitle.length >= 2 && normalizedInput.includes(normalizedTitle);
+    })
+    .sort((left, right) => right.title.length - left.title.length)[0] ?? null;
+}
+
 function shouldIncludeFullDocument(userInput: string, document: DocumentRecord) {
   const documentText = document.contentText || document.derivedText || document.note;
   if (!documentText || documentText.length > FULL_DOCUMENT_CHAR_LIMIT) {
@@ -68,6 +89,23 @@ Matched passages:
 ${matchedChunks}${fullDocumentSection}`;
 }
 
+function formatChatContext(input: {
+  title: string;
+  summary: string;
+  recentMessages: ReturnType<ChatRepository["listRecentMessages"]>;
+}) {
+  const recentTurns = input.recentMessages.length
+    ? input.recentMessages.map((message) => `- ${message.role}: ${truncate(message.content, 220)}`).join("\n")
+    : "- no recent turns";
+
+  return `[Referenced chat] ${input.title}
+Summary:
+${input.summary || "No summary available."}
+
+Recent turns:
+${recentTurns}`;
+}
+
 export class ContextService {
   constructor(
     private readonly projects: ProjectRepository,
@@ -91,11 +129,15 @@ export class ContextService {
     const summary = this.chats.getSummary(chatId)?.summary ?? "";
     const proceduralMemories = this.memories.listByProjectAndKind(project.id, "procedural").slice(0, 4);
     const projectDocuments = this.documents.listByProject(project.id);
+    const projectChats = this.chats.listByProject(project.id);
     const explicitDocument = resolveExplicitDocument(userInput, projectDocuments);
+    const explicitChat = resolveExplicitChat(userInput, projectChats, chat.id);
     const isQuoteRequest = QUOTE_REQUEST_PATTERN.test(userInput);
     const documentRefs = await this.retrieval.searchDocuments(project.id, userInput, 4, 3);
     const memoryRefs = await this.retrieval.searchMemories(project.id, userInput, 4);
     const recentMessages = this.chats.listRecentMessages(chatId, 6);
+    const explicitChatSummary = explicitChat ? this.chats.getSummary(explicitChat.id)?.summary ?? "" : "";
+    const explicitChatMessages = explicitChat ? this.chats.listRecentMessages(explicitChat.id, 6) : [];
 
     if (explicitDocument) {
       const focusedQuery = buildDocumentFocusedQuery(userInput, explicitDocument.title);
@@ -143,6 +185,16 @@ export class ContextService {
       });
     }
 
+    if (explicitChat) {
+      references.push({
+        sourceType: "chat",
+        sourceId: explicitChat.id,
+        label: `Chat: ${explicitChat.title || "(undefined)"}`,
+        excerpt: truncate(explicitChatSummary || explicitChatMessages.map((message) => message.content).join(" "), 220),
+        score: 0.9
+      });
+    }
+
     proceduralMemories.forEach((memory, index) => {
       references.push({
         sourceType: "memory",
@@ -171,6 +223,13 @@ export class ContextService {
         : "",
       isQuoteRequest
         ? "Document quote mode is active. Quote only from the provided document passages or full document content. If the exact supporting text is not present, say so plainly."
+        : "",
+      explicitChat
+        ? `Referenced project chat:\n${formatChatContext({
+            title: explicitChat.title || "(undefined)",
+            summary: explicitChatSummary,
+            recentMessages: explicitChatMessages
+          })}`
         : "",
       normalizedDocumentRefs.length
         ? `Relevant project documents:\n${normalizedDocumentRefs

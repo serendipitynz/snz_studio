@@ -73,7 +73,7 @@ export interface ChatSummary {
 export interface AssistantReference {
   id: string;
   assistantMessageId: string;
-  sourceType: "project" | "summary" | "document" | "memory";
+  sourceType: "project" | "summary" | "document" | "memory" | "chat";
   sourceId: string;
   label: string;
   excerpt: string;
