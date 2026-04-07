@@ -41,6 +41,8 @@ interface ChatState {
   messages: MessageRecord[];
 }
 
+const INSPECTOR_STORAGE_KEY = "snz.chat.inspectorCollapsed";
+
 export function ChatPage() {
   const { chatId = "" } = useParams();
   const messageScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -57,6 +59,13 @@ export function ChatPage() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
   const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.localStorage.getItem(INSPECTOR_STORAGE_KEY) === "true";
+  });
   const [titleDraft, setTitleDraft] = useState("");
   const [isComposing, setIsComposing] = useState(false);
   const [documentPickerValue, setDocumentPickerValue] = useState("");
@@ -90,6 +99,10 @@ export function ChatPage() {
   useEffect(() => {
     setTitleDraft(state?.chat.title ?? "");
   }, [state?.chat.title]);
+
+  useEffect(() => {
+    window.localStorage.setItem(INSPECTOR_STORAGE_KEY, String(isInspectorCollapsed));
+  }, [isInspectorCollapsed]);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -333,7 +346,7 @@ export function ChatPage() {
   }
 
   return (
-    <WorkspaceShell>
+    <WorkspaceShell style={isInspectorCollapsed ? { gridTemplateColumns: "280px minmax(0, 1fr)" } : undefined}>
       <WorkspaceSidebar
         projects={projects}
         currentProjectId={state.project.id}
@@ -348,9 +361,18 @@ export function ChatPage() {
             <SectionTitle>{state.chat.title}</SectionTitle>
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
-          <IconButton type="button" aria-label="Edit chat title" onClick={() => setIsTitleModalOpen(true)}>
-            <EditIcon />
-          </IconButton>
+          <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+            <IconButton type="button" aria-label="Edit chat title" onClick={() => setIsTitleModalOpen(true)}>
+              <EditIcon />
+            </IconButton>
+            <IconButton
+              type="button"
+              aria-label={isInspectorCollapsed ? "Show context inspector" : "Hide context inspector"}
+              onClick={() => setIsInspectorCollapsed((current) => !current)}
+            >
+              {isInspectorCollapsed ? <PanelOpenIcon /> : <PanelCloseIcon />}
+            </IconButton>
+          </Row>
         </PaneHeader>
 
         <MessageArea>
@@ -451,44 +473,46 @@ export function ChatPage() {
         </Composer>
       </MainPane>
 
-      <InspectorPane>
-        <SectionTitle>Context Inspector</SectionTitle>
+      {!isInspectorCollapsed ? (
+        <InspectorPane>
+          <SectionTitle>Context Inspector</SectionTitle>
 
-        <Card>
-          <Stack>
-            <Badge tone="accent">Chat summary</Badge>
-            <Subtle>{state.summary?.summary || "No summary yet."}</Subtle>
-          </Stack>
-        </Card>
+          <Card>
+            <Stack>
+              <Badge tone="accent">Chat summary</Badge>
+              <Subtle>{state.summary?.summary || "No summary yet."}</Subtle>
+            </Stack>
+          </Card>
 
-        <Card>
-          <Stack>
-            <Badge tone="warm">Latest references</Badge>
-            {latestAssistantMessage?.references.length ? (
-              <List>
-                {latestAssistantMessage.references.map((reference) => (
-                  <Item key={reference.id}>
-                    <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <strong>{reference.label}</strong>
-                      <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
-                    </Row>
-                    <Subtle>{reference.excerpt || "No excerpt stored"}</Subtle>
-                  </Item>
-                ))}
-              </List>
-            ) : (
-              <Subtle>No assistant references yet.</Subtle>
-            )}
-          </Stack>
-        </Card>
+          <Card>
+            <Stack>
+              <Badge tone="warm">Latest references</Badge>
+              {latestAssistantMessage?.references.length ? (
+                <List>
+                  {latestAssistantMessage.references.map((reference) => (
+                    <Item key={reference.id}>
+                      <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                        <strong>{reference.label}</strong>
+                        <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
+                      </Row>
+                      <Subtle>{reference.excerpt || "No excerpt stored"}</Subtle>
+                    </Item>
+                  ))}
+                </List>
+              ) : (
+                <Subtle>No assistant references yet.</Subtle>
+              )}
+            </Stack>
+          </Card>
 
-        <Card>
-          <Stack>
-            <Badge tone="muted">Project prompt</Badge>
-            <Subtle>{state.project.systemPrompt || "No project system prompt configured."}</Subtle>
-          </Stack>
-        </Card>
-      </InspectorPane>
+          <Card>
+            <Stack>
+              <Badge tone="muted">Project prompt</Badge>
+              <Subtle>{state.project.systemPrompt || "No project system prompt configured."}</Subtle>
+            </Stack>
+          </Card>
+        </InspectorPane>
+      ) : null}
 
       {isTitleModalOpen ? (
         <ModalOverlay onClick={() => setIsTitleModalOpen(false)}>
@@ -583,6 +607,26 @@ function PlusIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PanelCloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M8.25 8 5.75 10.25V5.75L8.25 8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PanelOpenIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M7.75 8 10.25 5.75v4.5L7.75 8Z" fill="currentColor" />
     </svg>
   );
 }
