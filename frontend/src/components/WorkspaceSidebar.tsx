@@ -1,6 +1,9 @@
-import { ChatRecord, Project } from "../api/client";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api, ChatRecord, Project } from "../api/client";
 import {
   Divider,
+  IconButton,
   RouterLink,
   Row,
   SidebarLink,
@@ -19,6 +22,24 @@ interface WorkspaceSidebarProps {
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
+  const navigate = useNavigate();
+  const [creatingChat, setCreatingChat] = useState(false);
+
+  async function handleCreateChat() {
+    if (!props.currentProjectId || creatingChat) {
+      return;
+    }
+
+    setCreatingChat(true);
+
+    try {
+      const response = await api.createChat(props.currentProjectId, { title: "" });
+      navigate(`/chats/${response.chat.id}`);
+    } finally {
+      setCreatingChat(false);
+    }
+  }
+
   return (
     <SidebarPane>
       <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -47,7 +68,18 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 
         {props.currentProjectId ? (
           <SidebarSection>
-            <SidebarSectionLabel>Chats</SidebarSectionLabel>
+            <Row style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap" }}>
+              <SidebarSectionLabel>Chats</SidebarSectionLabel>
+              <IconButton
+                type="button"
+                aria-label="Create chat"
+                onClick={() => void handleCreateChat()}
+                disabled={creatingChat}
+                title="Create chat"
+              >
+                <PlusIcon />
+              </IconButton>
+            </Row>
             {props.chats?.length ? (
               props.chats.map((chat) => (
                 <SidebarLink key={chat.id} to={`/chats/${chat.id}`} $active={chat.id === props.activeChatId}>
@@ -81,6 +113,14 @@ function HomeIcon() {
         strokeWidth="1.35"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
