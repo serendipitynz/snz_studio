@@ -31,8 +31,8 @@ const embeddingSync = new EmbeddingSyncService(documents, memories, embeddingCli
 const retrieval = new RetrievalService(db, embeddingClient);
 const context = new ContextService(projects, chats, documents, memories, retrieval);
 const memoryService = new MemoryService(memories);
-const summaryService = new SummaryService();
 const llm = new LlmClient();
+const summaryService = new SummaryService(llm);
 const chatService = new ChatService(chats, context, llm, summaryService, memoryService, embeddingSync);
 
 const app = express();

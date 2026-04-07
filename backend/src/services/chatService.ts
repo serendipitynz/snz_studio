@@ -52,7 +52,8 @@ export class ChatService {
       assistantContent = await this.llm.createChatCompletion({
         systemPrompt,
         messages: assembled.recentMessages,
-        userInput: content
+        userInput: content,
+        temperature: 0.25
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown LLM error";
@@ -86,7 +87,7 @@ export class ChatService {
     );
 
     const updatedMessages = [...assembled.recentMessages, userMessage, assistantMessage];
-    const updatedSummary = this.summary.updateSummary(assembled.summary, updatedMessages);
+    const updatedSummary = await this.summary.updateSummary(assembled.summary, updatedMessages);
     this.chats.upsertSummary(chatId, updatedSummary);
 
     return assistantMessage;

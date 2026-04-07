@@ -138,10 +138,10 @@ export class LlmClient {
     }
   }
 
-  async createChatCompletion(input: { systemPrompt: string; messages: Message[]; userInput: string }) {
+  async createChatCompletion(input: { systemPrompt: string; messages: Message[]; userInput: string; temperature?: number }) {
     const body = {
       model: config.llmModel,
-      temperature: 0.25,
+      temperature: input.temperature ?? 0.25,
       messages: [
         { role: "system", content: input.systemPrompt },
         ...input.messages.map((message) => ({
@@ -164,7 +164,6 @@ export class LlmClient {
     const timeout = setTimeout(() => controller.abort(), config.llmTimeoutMs);
 
     try {
-      console.log("Sending request to LLM with body:", JSON.stringify(body, null, 2));
       const response = await fetch(`${config.llmBaseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
         headers,
