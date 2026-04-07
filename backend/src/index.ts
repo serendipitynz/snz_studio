@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import cors from "cors";
 import express from "express";
-import { config } from "./config.js";
+import { config, getEditableConfiguration, updateEditableConfiguration } from "./config.js";
 import { getDb } from "./db/connection.js";
 import { ChatRepository } from "./repositories/chatRepository.js";
 import { DocumentRepository } from "./repositories/documentRepository.js";
@@ -43,6 +43,104 @@ app.use("/files", express.static(config.uploadDir));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get("/api/configuration", async (_req, res, next) => {
+  try {
+    const [llmConnected, embeddingConnected] = await Promise.all([
+      llm.checkConnection(),
+      embeddingClient.checkConnection()
+    ]);
+
+    const current = getEditableConfiguration();
+    res.json({
+      configuration: {
+        ...current,
+        llmConnected,
+        embeddingConnected
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/configuration", async (req, res, next) => {
+  try {
+    const llmBaseUrl = String(req.body?.llmBaseUrl ?? "").trim();
+    const llmModel = String(req.body?.llmModel ?? "").trim();
+    const embeddingBaseUrl = String(req.body?.embeddingBaseUrl ?? "").trim();
+    const embeddingModel = String(req.body?.embeddingModel ?? "").trim();
+
+    if (!llmBaseUrl) {
+      res.status(400).json({ error: "LLM endpoint is required" });
+      return;
+    }
+
+    const updated = updateEditableConfiguration({
+      llmBaseUrl,
+      llmModel,
+      embeddingBaseUrl,
+      embeddingModel
+    });
+
+    embeddingClient.refreshConfiguration();
+
+    await Promise.all([
+      llm.ensureModelLoaded(updated.llmModel, updated.llmBaseUrl),
+      embeddingClient.ensureModelLoaded(updated.embeddingModel, updated.embeddingBaseUrl)
+    ]);
+
+    if (embeddingClient.isEnabled()) {
+      void embeddingSync.rebuildAll().catch((error) => {
+        const message = error instanceof Error ? error.message : "unknown embedding rebuild error";
+        console.warn(`Embedding rebuild skipped: ${message}`);
+      });
+    }
+
+    const [llmConnected, embeddingConnected] = await Promise.all([
+      llm.checkConnection(),
+      embeddingClient.checkConnection()
+    ]);
+
+    res.json({
+      configuration: {
+        ...updated,
+        llmConnected,
+        embeddingConnected
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/configuration/models", async (req, res, next) => {
+  try {
+    const kind = String(req.body?.kind ?? "").trim();
+    const baseUrl = String(req.body?.baseUrl ?? "").trim();
+
+    if (!baseUrl) {
+      res.status(400).json({ error: "baseUrl is required" });
+      return;
+    }
+
+    if (kind === "llm") {
+      const models = await llm.listModels(baseUrl);
+      res.json({ models });
+      return;
+    }
+
+    if (kind === "embedding") {
+      const models = await embeddingClient.listModels(baseUrl);
+      res.json({ models });
+      return;
+    }
+
+    res.status(400).json({ error: "invalid configuration kind" });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get("/api/projects", (_req, res) => {

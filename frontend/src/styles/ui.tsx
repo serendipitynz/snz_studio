@@ -262,6 +262,22 @@ export const Field = styled.label`
   color: ${theme.colors.muted};
 `;
 
+export const FieldHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+`;
+
+export const StatusDot = styled.span<{ $connected: boolean }>`
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: ${({ $connected }) => ($connected ? "#2aa198" : "#dc322f")};
+  box-shadow: 0 0 0 3px ${({ $connected }) => ($connected ? "rgba(42, 161, 152, 0.16)" : "rgba(220, 50, 47, 0.12)")};
+`;
+
 export const Button = styled.button<{ variant?: "solid" | "ghost" | "warm" }>`
   border: 1px solid
     ${({ variant }) =>

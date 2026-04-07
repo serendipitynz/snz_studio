@@ -1,5 +1,17 @@
 import { config } from "../config.js";
 
+function createHeaders() {
+  const headers: Record<string, string> = {};
+  if (config.embeddingApiKey) {
+    headers.Authorization = `Bearer ${config.embeddingApiKey}`;
+  }
+  return headers;
+}
+
+function getLmStudioApiRoot(baseUrl: string) {
+  return baseUrl.replace(/\/$/, "").replace(/(\/api)?\/v1$/i, "");
+}
+
 export class EmbeddingClient {
   private unavailableLogged = false;
   private disabled = !config.embeddingModel.trim();
@@ -10,6 +22,140 @@ export class EmbeddingClient {
 
   getModel() {
     return config.embeddingModel.trim();
+  }
+
+  refreshConfiguration() {
+    this.disabled = !config.embeddingModel.trim();
+    this.unavailableLogged = false;
+  }
+
+  async listModels(baseUrl = config.embeddingBaseUrl) {
+    const headers = createHeaders();
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(config.embeddingTimeoutMs, 5000));
+
+    try {
+      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
+        method: "GET",
+        headers,
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`Embedding model list request failed with ${response.status}`);
+      }
+
+      const data = (await response.json()) as {
+        data?: Array<{ id?: string }>;
+      };
+
+      return (data.data?.map((item) => item.id).filter((item): item is string => Boolean(item)) ?? []).sort();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async listAvailableModels(baseUrl = config.embeddingBaseUrl) {
+    const headers = createHeaders();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(config.embeddingTimeoutMs, 5000));
+
+    try {
+      const response = await fetch(`${getLmStudioApiRoot(baseUrl)}/api/v1/models`, {
+        method: "GET",
+        headers,
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`Embedding available model request failed with ${response.status}`);
+      }
+
+      const data = (await response.json()) as {
+        models?: Array<{ type?: string; key?: string }>;
+      };
+
+      return (data.models ?? [])
+        .filter((item) => item.type === "embedding" && item.key)
+        .map((item) => String(item.key))
+        .sort();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async ensureModelLoaded(model: string, baseUrl = config.embeddingBaseUrl) {
+    if (!model.trim()) {
+      return false;
+    }
+
+    const headers = {
+      ...createHeaders(),
+      "Content-Type": "application/json"
+    };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(config.embeddingTimeoutMs, 20000));
+
+    try {
+      const root = getLmStudioApiRoot(baseUrl);
+      const listResponse = await fetch(`${root}/api/v1/models`, {
+        method: "GET",
+        headers: createHeaders(),
+        signal: controller.signal
+      });
+
+      if (!listResponse.ok) {
+        return false;
+      }
+
+      const data = (await listResponse.json()) as {
+        models?: Array<{ type?: string; key?: string; loaded_instances?: Array<{ id?: string }> }>;
+      };
+
+      const modelEntry = (data.models ?? []).find((item) => item.type === "embedding" && item.key === model);
+      if (!modelEntry) {
+        return false;
+      }
+
+      if (modelEntry.loaded_instances?.length) {
+        return true;
+      }
+
+      const loadResponse = await fetch(`${root}/api/v1/models/load`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model
+        }),
+        signal: controller.signal
+      });
+
+      if (!loadResponse.ok) {
+        return false;
+      }
+
+      this.disabled = false;
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async checkConnection() {
+    if (!config.embeddingModel.trim()) {
+      return false;
+    }
+
+    try {
+      const models = await this.listModels();
+      return !models.length || models.includes(config.embeddingModel);
+    } catch {
+      return false;
+    }
   }
 
   async createEmbeddings(inputs: string[]) {

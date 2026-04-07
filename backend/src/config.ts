@@ -10,10 +10,22 @@ const dataDir = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.resolve(cwd, "data");
 
+fs.mkdirSync(dataDir, { recursive: true });
+
+const appConfigPath = path.resolve(dataDir, "app-config.json");
+
+export interface EditableAppConfiguration {
+  llmBaseUrl: string;
+  llmModel: string;
+  embeddingBaseUrl: string;
+  embeddingModel: string;
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 8787),
   appOrigin: process.env.APP_ORIGIN ?? "http://127.0.0.1:5173",
   dataDir,
+  appConfigPath,
   uploadDir: process.env.UPLOAD_DIR
     ? path.resolve(process.env.UPLOAD_DIR)
     : path.resolve(dataDir, "uploads"),
@@ -29,6 +41,47 @@ export const config = {
   embeddingApiKey: process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY ?? "",
   embeddingTimeoutMs: Number(process.env.EMBEDDING_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS ?? 60000)
 };
+
+applyAppConfigOverrides();
+
+export function getEditableConfiguration(): EditableAppConfiguration {
+  return {
+    llmBaseUrl: config.llmBaseUrl,
+    llmModel: config.llmModel,
+    embeddingBaseUrl: config.embeddingBaseUrl,
+    embeddingModel: config.embeddingModel
+  };
+}
+
+export function updateEditableConfiguration(input: EditableAppConfiguration) {
+  config.llmBaseUrl = input.llmBaseUrl.trim();
+  config.llmModel = input.llmModel.trim();
+  config.embeddingBaseUrl = input.embeddingBaseUrl.trim();
+  config.embeddingModel = input.embeddingModel.trim();
+
+  fs.writeFileSync(config.appConfigPath, `${JSON.stringify(getEditableConfiguration(), null, 2)}\n`, "utf8");
+  return getEditableConfiguration();
+}
+
+function applyAppConfigOverrides() {
+  if (!fs.existsSync(appConfigPath)) {
+    return;
+  }
+
+  const overrides = safeJsonParse<Partial<EditableAppConfiguration>>(fs.readFileSync(appConfigPath, "utf8"), {});
+  if (typeof overrides.llmBaseUrl === "string") {
+    config.llmBaseUrl = overrides.llmBaseUrl.trim();
+  }
+  if (typeof overrides.llmModel === "string") {
+    config.llmModel = overrides.llmModel.trim();
+  }
+  if (typeof overrides.embeddingBaseUrl === "string") {
+    config.embeddingBaseUrl = overrides.embeddingBaseUrl.trim();
+  }
+  if (typeof overrides.embeddingModel === "string") {
+    config.embeddingModel = overrides.embeddingModel.trim();
+  }
+}
 
 function loadEnvFile(filePath: string) {
   if (!fs.existsSync(filePath)) {
@@ -55,5 +108,13 @@ function loadEnvFile(filePath: string) {
     if (!(key in process.env)) {
       process.env[key] = value;
     }
+  }
+}
+
+function safeJsonParse<T>(input: string, fallback: T): T {
+  try {
+    return JSON.parse(input) as T;
+  } catch {
+    return fallback;
   }
 }

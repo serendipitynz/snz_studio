@@ -71,6 +71,15 @@ export interface MessageRecord {
   references: AssistantReference[];
 }
 
+export interface WorkspaceConfiguration {
+  llmBaseUrl: string;
+  llmModel: string;
+  embeddingBaseUrl: string;
+  embeddingModel: string;
+  llmConnected: boolean;
+  embeddingConnected: boolean;
+}
+
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);
   if (!response.ok) {
@@ -81,6 +90,24 @@ async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getConfiguration: () => request<{ configuration: WorkspaceConfiguration }>("/api/configuration"),
+  updateConfiguration: (input: {
+    llmBaseUrl: string;
+    llmModel: string;
+    embeddingBaseUrl: string;
+    embeddingModel: string;
+  }) =>
+    request<{ configuration: WorkspaceConfiguration }>("/api/configuration", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }),
+  listConfigurationModels: (input: { kind: "llm" | "embedding"; baseUrl: string }) =>
+    request<{ models: string[] }>("/api/configuration/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }),
   getProjects: () => request<{ projects: Project[] }>("/api/projects"),
   createProject: (input: { title: string; description: string; systemPrompt: string }) =>
     request<{ project: Project }>("/api/projects", {

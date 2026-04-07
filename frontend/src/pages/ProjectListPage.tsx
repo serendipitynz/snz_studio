@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, Project } from "../api/client";
+import { api, Project, WorkspaceConfiguration } from "../api/client";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import {
   Badge,
@@ -7,17 +7,22 @@ import {
   Card,
   ComposerBox,
   Field,
+  FieldHeader,
   Grid,
+  IconButton,
   Input,
   InspectorPane,
   Item,
   List,
   MainPane,
+  ModalCard,
+  ModalOverlay,
   PaneBody,
   PaneHeader,
   RouterLink,
   SectionTitle,
   Stack,
+  StatusDot,
   Subtle,
   Textarea,
   WorkspaceShell
@@ -25,18 +30,38 @@ import {
 
 export function ProjectListPage() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [configuration, setConfiguration] = useState<WorkspaceConfiguration | null>(null);
+  const [configDraft, setConfigDraft] = useState({
+    llmBaseUrl: "",
+    llmModel: "",
+    embeddingBaseUrl: "",
+    embeddingModel: ""
+  });
   const [title, setTitle] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [llmModelOptions, setLlmModelOptions] = useState<string[]>([]);
+  const [embeddingModelOptions, setEmbeddingModelOptions] = useState<string[]>([]);
+  const [loadingLlmModels, setLoadingLlmModels] = useState(false);
+  const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false);
   const [error, setError] = useState("");
 
   async function load() {
     setLoading(true);
     setError("");
     try {
-      const response = await api.getProjects();
-      setProjects(response.projects);
+      const [projectsResponse, configurationResponse] = await Promise.all([api.getProjects(), api.getConfiguration()]);
+      setProjects(projectsResponse.projects);
+      setConfiguration(configurationResponse.configuration);
+      setConfigDraft({
+        llmBaseUrl: configurationResponse.configuration.llmBaseUrl,
+        llmModel: configurationResponse.configuration.llmModel,
+        embeddingBaseUrl: configurationResponse.configuration.embeddingBaseUrl,
+        embeddingModel: configurationResponse.configuration.embeddingModel
+      });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to load projects");
     } finally {
@@ -47,6 +72,40 @@ export function ProjectListPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!isConfigModalOpen || !configDraft.llmBaseUrl.trim()) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setLoadingLlmModels(true);
+      api
+        .listConfigurationModels({ kind: "llm", baseUrl: configDraft.llmBaseUrl })
+        .then((response) => setLlmModelOptions(response.models))
+        .catch(() => setLlmModelOptions([]))
+        .finally(() => setLoadingLlmModels(false));
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [configDraft.llmBaseUrl, isConfigModalOpen]);
+
+  useEffect(() => {
+    if (!isConfigModalOpen || !configDraft.embeddingBaseUrl.trim()) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setLoadingEmbeddingModels(true);
+      api
+        .listConfigurationModels({ kind: "embedding", baseUrl: configDraft.embeddingBaseUrl })
+        .then((response) => setEmbeddingModelOptions(response.models))
+        .catch(() => setEmbeddingModelOptions([]))
+        .finally(() => setLoadingEmbeddingModels(false));
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [configDraft.embeddingBaseUrl, isConfigModalOpen]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -62,6 +121,28 @@ export function ProjectListPage() {
       setError(nextError instanceof Error ? nextError.message : "Failed to create project");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleConfigurationSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSavingConfig(true);
+    setError("");
+
+    try {
+      const response = await api.updateConfiguration(configDraft);
+      setConfiguration(response.configuration);
+      setConfigDraft({
+        llmBaseUrl: response.configuration.llmBaseUrl,
+        llmModel: response.configuration.llmModel,
+        embeddingBaseUrl: response.configuration.embeddingBaseUrl,
+        embeddingModel: response.configuration.embeddingModel
+      });
+      setIsConfigModalOpen(false);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to save configuration");
+    } finally {
+      setSavingConfig(false);
     }
   }
 
@@ -123,26 +204,116 @@ export function ProjectListPage() {
       </MainPane>
 
       <InspectorPane>
-        <SectionTitle>Workspace Notes</SectionTitle>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <SectionTitle>Configuration</SectionTitle>
+          <IconButton type="button" aria-label="Edit configuration" onClick={() => setIsConfigModalOpen(true)}>
+            ✎
+          </IconButton>
+        </div>
         <Card>
           <Stack>
-            <Badge tone="warm">Shared context</Badge>
-            <Subtle>Each project owns its documents, memories, and chats.</Subtle>
-          </Stack>
-        </Card>
-        <Card>
-          <Stack>
-            <Badge tone="accent">Retrieval</Badge>
-            <Subtle>Chats use summary, procedural memory, and FTS-based document retrieval instead of replaying full history.</Subtle>
-          </Stack>
-        </Card>
-        <Card>
-          <Stack>
-            <Badge tone="muted">Why this layout</Badge>
-            <Subtle>The shell mirrors desktop LLM apps: navigation on the left, working surface in the center, context inspector on the right.</Subtle>
+            <Badge tone="accent">App config</Badge>
+            <Field>
+              <FieldHeader>
+                <span>LLM Endpoint</span>
+                <StatusDot $connected={Boolean(configuration?.llmConnected)} />
+              </FieldHeader>
+              <Subtle>{configuration?.llmBaseUrl || "Not configured"}</Subtle>
+            </Field>
+            <Field>
+              <FieldHeader>
+                <span>LLM Model</span>
+                <StatusDot $connected={Boolean(configuration?.llmConnected)} />
+              </FieldHeader>
+              <Subtle>{configuration?.llmModel || "Not configured"}</Subtle>
+            </Field>
+            <Field>
+              <FieldHeader>
+                <span>Embedding Endpoint</span>
+                <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
+              </FieldHeader>
+              <Subtle>{configuration?.embeddingBaseUrl || "Not configured"}</Subtle>
+            </Field>
+            <Field>
+              <FieldHeader>
+                <span>Embedding Model</span>
+                <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
+              </FieldHeader>
+              <Subtle>{configuration?.embeddingModel || "Not configured"}</Subtle>
+            </Field>
           </Stack>
         </Card>
       </InspectorPane>
+
+      {isConfigModalOpen ? (
+        <ModalOverlay onClick={() => setIsConfigModalOpen(false)}>
+          <ModalCard onClick={(event) => event.stopPropagation()}>
+            <Stack as="form" onSubmit={handleConfigurationSubmit}>
+              <SectionTitle>Edit Configuration</SectionTitle>
+              <Field>
+                LLM Endpoint
+                <Input
+                  value={configDraft.llmBaseUrl}
+                  onChange={(event) => setConfigDraft((current) => ({ ...current, llmBaseUrl: event.target.value }))}
+                  placeholder="http://127.0.0.1:1234/v1"
+                />
+              </Field>
+              <Field>
+                LLM Model
+                <Input
+                  list="llm-model-options"
+                  value={configDraft.llmModel}
+                  onChange={(event) => setConfigDraft((current) => ({ ...current, llmModel: event.target.value }))}
+                  placeholder="openai/gpt-oss-20b"
+                />
+                <datalist id="llm-model-options">
+                  {llmModelOptions.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+                <Subtle>{loadingLlmModels ? "Loading model candidates..." : llmModelOptions.length ? `${llmModelOptions.length} candidates found` : "No model candidates available"}</Subtle>
+              </Field>
+              <Field>
+                Embedding Endpoint
+                <Input
+                  value={configDraft.embeddingBaseUrl}
+                  onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingBaseUrl: event.target.value }))}
+                  placeholder="http://127.0.0.1:8080/v1"
+                />
+              </Field>
+              <Field>
+                Embedding Model
+                <Input
+                  list="embedding-model-options"
+                  value={configDraft.embeddingModel}
+                  onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingModel: event.target.value }))}
+                  placeholder="text-embeddings-inference"
+                />
+                <datalist id="embedding-model-options">
+                  {embeddingModelOptions.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+                <Subtle>
+                  {loadingEmbeddingModels
+                    ? "Loading model candidates..."
+                    : embeddingModelOptions.length
+                      ? `${embeddingModelOptions.length} candidates found`
+                      : "No model candidates available"}
+                </Subtle>
+              </Field>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <Button type="button" variant="ghost" onClick={() => setIsConfigModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={savingConfig}>
+                  {savingConfig ? "Saving..." : "Save configuration"}
+                </Button>
+              </div>
+            </Stack>
+          </ModalCard>
+        </ModalOverlay>
+      ) : null}
     </WorkspaceShell>
   );
 }

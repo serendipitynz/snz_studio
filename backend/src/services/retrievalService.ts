@@ -174,8 +174,8 @@ export class RetrievalService {
       const chunkIds = rows.map((row) => row.chunk_id);
       const placeholders = chunkIds.map(() => "?").join(", ");
       const embeddingRows = this.db
-        .prepare(`SELECT chunk_id, embedding_json FROM document_chunk_embeddings WHERE chunk_id IN (${placeholders})`)
-        .all(...chunkIds) as Array<{ chunk_id: string; embedding_json: string }>;
+        .prepare(`SELECT chunk_id, embedding_json FROM document_chunk_embeddings WHERE model = ? AND chunk_id IN (${placeholders})`)
+        .all(this.embeddings.getModel(), ...chunkIds) as Array<{ chunk_id: string; embedding_json: string }>;
 
       for (const row of embeddingRows) {
         const embedding = safeJsonParse<number[]>(row.embedding_json, []);
@@ -278,10 +278,10 @@ export class RetrievalService {
           FROM document_chunk_embeddings e
           JOIN documents d ON d.id = e.document_id
           JOIN document_chunks c ON c.id = e.chunk_id
-          WHERE e.project_id = ?
+          WHERE e.project_id = ? AND e.model = ?
         `
       )
-      .all(projectId) as Array<{
+      .all(projectId, this.embeddings.getModel()) as Array<{
       document_id: string;
       chunk_id: string;
       embedding_json: string;
@@ -373,8 +373,8 @@ export class RetrievalService {
       const memoryIds = rows.map((row) => row.source_id);
       const placeholders = memoryIds.map(() => "?").join(", ");
       const embeddingRows = this.db
-        .prepare(`SELECT memory_id, embedding_json FROM memory_embeddings WHERE memory_id IN (${placeholders})`)
-        .all(...memoryIds) as Array<{ memory_id: string; embedding_json: string }>;
+        .prepare(`SELECT memory_id, embedding_json FROM memory_embeddings WHERE model = ? AND memory_id IN (${placeholders})`)
+        .all(this.embeddings.getModel(), ...memoryIds) as Array<{ memory_id: string; embedding_json: string }>;
 
       for (const row of embeddingRows) {
         const embedding = safeJsonParse<number[]>(row.embedding_json, []);
@@ -404,10 +404,10 @@ export class RetrievalService {
             m.content
           FROM memory_embeddings e
           JOIN memories m ON m.id = e.memory_id
-          WHERE e.project_id = ?
+          WHERE e.project_id = ? AND e.model = ?
         `
       )
-      .all(projectId) as Array<{ memory_id: string; embedding_json: string; title: string; content: string }>;
+      .all(projectId, this.embeddings.getModel()) as Array<{ memory_id: string; embedding_json: string; title: string; content: string }>;
 
     return rows
       .filter((row) => !seenMemoryIds.has(row.memory_id))
