@@ -1,4 +1,5 @@
 import { ChatRepository } from "../repositories/chatRepository.js";
+import { config } from "../config.js";
 import { ContextService } from "./contextService.js";
 import { LlmClient } from "./llmClient.js";
 import { MemoryService } from "./memoryService.js";
@@ -18,11 +19,13 @@ export class ChatService {
 
   async sendMessage(chatId: string, content: string) {
     const prepared = await this.prepareTurn(chatId, content);
+    const promptStats = this.buildPromptStats(prepared.systemPrompt, prepared.assembled.recentMessages, content);
     let generation:
       | { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null }
       | null = null;
 
     try {
+      console.info(`[chat] completion start ${JSON.stringify({ chatId, mode: "sync", ...promptStats })}`);
       generation = await this.llm.createChatCompletion({
         systemPrompt: prepared.systemPrompt,
         messages: prepared.assembled.recentMessages,
@@ -31,6 +34,7 @@ export class ChatService {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown LLM error";
+      console.warn(`[chat] completion failed ${JSON.stringify({ chatId, mode: "sync", reason: message, ...promptStats })}`);
       const fallbackContent = this.buildFallbackResponse(prepared.assembled.references, content, message);
       generation = {
         content: fallbackContent,
@@ -45,11 +49,13 @@ export class ChatService {
 
   async sendMessageStream(chatId: string, content: string, onDelta: (chunk: string) => void) {
     const prepared = await this.prepareTurn(chatId, content);
+    const promptStats = this.buildPromptStats(prepared.systemPrompt, prepared.assembled.recentMessages, content);
     let generation:
       | { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null }
       | null = null;
 
     try {
+      console.info(`[chat] completion start ${JSON.stringify({ chatId, mode: "stream", ...promptStats })}`);
       generation = await this.llm.createChatCompletionStream({
         systemPrompt: prepared.systemPrompt,
         messages: prepared.assembled.recentMessages,
@@ -59,6 +65,7 @@ export class ChatService {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown LLM error";
+      console.warn(`[chat] completion failed ${JSON.stringify({ chatId, mode: "stream", reason: message, ...promptStats })}`);
       const fallbackContent = this.buildFallbackResponse(prepared.assembled.references, content, message);
       generation = {
         content: fallbackContent,
@@ -94,6 +101,9 @@ export class ChatService {
       "You are a local project assistant.",
       "Use the provided project context when it is relevant, but avoid mentioning irrelevant references.",
       "Answer clearly and practically.",
+      config.llmResponseFormat === "llm_jp_thinking"
+        ? "Return only the final user-facing answer. Do not emit analysis, reasoning traces, or any tagged channel markup."
+        : "",
       assembled.isQuoteRequest
         ? `The user is asking for document quotation${assembled.targetDocumentTitle ? ` from "${assembled.targetDocumentTitle}"` : ""}. Quote only from provided document material, preserve the original wording, and say clearly if the exact passage was not found.`
         : "",
@@ -151,5 +161,20 @@ export class ChatService {
         : "No project references were selected for this turn.",
       `User message: ${content}`
     ].join("\n\n");
+  }
+
+  private buildPromptStats(
+    systemPrompt: string,
+    recentMessages: Awaited<ReturnType<ContextService["assemble"]>>["recentMessages"],
+    userInput: string
+  ) {
+    const messageChars = recentMessages.reduce((total, message) => total + message.content.length, 0);
+    return {
+      systemPromptChars: systemPrompt.length,
+      recentMessageCount: recentMessages.length,
+      recentMessageChars: messageChars,
+      userInputChars: userInput.length,
+      totalInputChars: systemPrompt.length + messageChars + userInput.length
+    };
   }
 }

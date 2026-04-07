@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { parseAssistantResponse } from "../lib/llmResponse.js";
 import { Message } from "../lib/types.js";
 
 function createHeaders() {
@@ -32,6 +33,18 @@ function buildGenerationMetrics(content: string, elapsedMs: number, outputTokens
     outputTokens: tokens,
     tokensPerSecond: tokens > 0 ? Number((tokens / (safeElapsedMs / 1000)).toFixed(2)) : 0
   };
+}
+
+function isAbortError(error: unknown) {
+  if (error instanceof DOMException) {
+    return error.name === "AbortError";
+  }
+
+  if (error instanceof Error) {
+    return error.name === "AbortError" || /aborted/i.test(error.message);
+  }
+
+  return false;
 }
 
 export interface ChatCompletionResult {
@@ -209,7 +222,8 @@ export class LlmClient {
         usage?: { completion_tokens?: number };
       };
 
-      const content = data.choices?.[0]?.message?.content?.trim();
+      const rawContent = data.choices?.[0]?.message?.content?.trim();
+      const content = rawContent ? parseAssistantResponse(rawContent) : "";
       if (!content) {
         throw new Error("LLM response did not contain message content");
       }
@@ -218,6 +232,12 @@ export class LlmClient {
         content,
         ...buildGenerationMetrics(content, performance.now() - startedAt, data.usage?.completion_tokens)
       };
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new Error(`LLM request timed out after ${config.llmTimeoutMs} ms`);
+      }
+
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -257,9 +277,14 @@ export class LlmClient {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), config.llmTimeoutMs);
+    let timeout = setTimeout(() => controller.abort(), config.llmTimeoutMs);
+    const resetTimeout = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => controller.abort(), config.llmTimeoutMs);
+    };
 
     try {
+      resetTimeout();
       const response = await fetch(`${config.llmBaseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
         headers,
@@ -278,7 +303,8 @@ export class LlmClient {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let content = "";
+      let rawContent = "";
+      let visibleContent = "";
       let completionTokens: number | null = null;
 
       const handleChunk = (chunk: string) => {
@@ -311,8 +337,13 @@ export class LlmClient {
           return;
         }
 
-        content += delta;
-        input.onDelta(delta);
+        rawContent += delta;
+        const nextVisibleContent = parseAssistantResponse(rawContent);
+        const visibleDelta = nextVisibleContent.slice(visibleContent.length);
+        visibleContent = nextVisibleContent;
+        if (visibleDelta) {
+          input.onDelta(visibleDelta);
+        }
       };
 
       while (true) {
@@ -320,6 +351,8 @@ export class LlmClient {
         if (done) {
           break;
         }
+
+        resetTimeout();
 
         buffer += decoder.decode(value, { stream: true });
 
@@ -339,6 +372,7 @@ export class LlmClient {
         handleChunk(buffer.trim());
       }
 
+      const content = parseAssistantResponse(rawContent);
       if (!content.trim()) {
         throw new Error("LLM stream did not contain message content");
       }
@@ -347,6 +381,12 @@ export class LlmClient {
         content,
         ...buildGenerationMetrics(content, performance.now() - startedAt, completionTokens)
       };
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new Error(`LLM stream timed out after ${config.llmTimeoutMs} ms without receiving data`);
+      }
+
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
