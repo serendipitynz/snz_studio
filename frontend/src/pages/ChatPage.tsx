@@ -261,7 +261,7 @@ export function ChatPage() {
       const payload = JSON.parse(dataText) as
         | { content?: string }
         | { message?: string }
-        | { messages?: MessageRecord[]; summary?: ChatSummary | null };
+        | { chat?: ChatRecord; messages?: MessageRecord[]; summary?: ChatSummary | null };
 
       if (eventName === "delta") {
         const delta = "content" in payload ? payload.content ?? "" : "";
@@ -287,11 +287,15 @@ export function ChatPage() {
           current
             ? {
                 ...current,
+                chat: payload.chat ?? current.chat,
                 messages: payload.messages ?? current.messages,
                 summary: payload.summary ?? current.summary
               }
             : current
         );
+        if (payload.chat) {
+          setProjectChats((current) => current.map((chat) => (chat.id === payload.chat?.id ? payload.chat : chat)));
+        }
         return;
       }
 
@@ -328,7 +332,7 @@ export function ChatPage() {
 
   async function handleUpdateChatTitle(event: FormEvent) {
     event.preventDefault();
-    if (!state || !titleDraft.trim()) {
+    if (!state) {
       return;
     }
 
@@ -521,7 +525,7 @@ export function ChatPage() {
         <PaneHeader>
           <Row style={{ alignItems: "center" }}>
             <ChatIcon />
-            <SectionTitle>{state.chat.title}</SectionTitle>
+            {state.chat.title.trim() ? <SectionTitle>{state.chat.title}</SectionTitle> : <Subtle style={{ opacity: 0.78 }}>(undefined)</Subtle>}
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
           <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
@@ -719,10 +723,10 @@ export function ChatPage() {
                 <Stack>
                   <Field>
                     Title
-                    <Input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} placeholder="Chat title" />
+                    <Input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} placeholder="Leave blank to auto-generate" />
                   </Field>
                   <div>
-                    <Button type="submit" disabled={sending || !titleDraft.trim()}>
+                    <Button type="submit" disabled={sending}>
                       Save title
                     </Button>
                   </div>

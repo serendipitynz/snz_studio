@@ -48,7 +48,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
             {props.chats?.length ? (
               props.chats.map((chat) => (
                 <SidebarLink key={chat.id} to={`/chats/${chat.id}`} $active={chat.id === props.activeChatId}>
-                  <strong>{chat.title}</strong>
+                  {renderChatTitle(chat.title)}
                 </SidebarLink>
               ))
             ) : (
@@ -59,6 +59,14 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
       </Stack>
     </SidebarPane>
   );
+}
+
+function renderChatTitle(title: string) {
+  if (title.trim()) {
+    return <strong>{title}</strong>;
+  }
+
+  return <Subtle style={{ opacity: 0.78 }}>(undefined)</Subtle>;
 }
 
 function HomeIcon() {

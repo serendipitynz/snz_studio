@@ -149,6 +149,13 @@ export class ChatService {
     const updatedSummary = await this.summary.updateSummary(assembled.summary, updatedMessages);
     this.chats.upsertSummary(chatId, updatedSummary);
 
+    if (!assembled.chat.title.trim()) {
+      const nextTitle = await this.summary.generateChatTitle(updatedMessages);
+      if (nextTitle.trim()) {
+        this.chats.updateChatTitle(chatId, nextTitle);
+      }
+    }
+
     return assistantMessage;
   }
 

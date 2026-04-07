@@ -111,7 +111,7 @@ export function ProjectDetailPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      const response = await api.createChat(projectId, { title: chatTitle || "New chat" });
+      const response = await api.createChat(projectId, { title: chatTitle });
       navigate(`/chats/${response.chat.id}`);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to create chat");
@@ -554,7 +554,7 @@ export function ProjectDetailPage() {
                     <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <RouterLink to={`/chats/${chat.id}`}>
-                          <strong>{chat.title}</strong>
+                          {chat.title.trim() ? <strong>{chat.title}</strong> : <Subtle style={{ opacity: 0.78 }}>(undefined)</Subtle>}
                         </RouterLink>
                         <Subtle>{new Date(chat.updatedAt).toLocaleString()}</Subtle>
                       </div>

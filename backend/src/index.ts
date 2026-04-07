@@ -247,7 +247,7 @@ app.post("/api/projects/:projectId/chats", (req, res) => {
     return;
   }
 
-  const title = String(req.body?.title ?? "").trim() || "New chat";
+  const title = String(req.body?.title ?? "");
   const chat = chats.createChat({
     projectId: project.id,
     title
@@ -406,11 +406,7 @@ app.get("/api/chats/:chatId", (req, res) => {
 });
 
 app.patch("/api/chats/:chatId", (req, res) => {
-  const title = String(req.body?.title ?? "").trim();
-  if (!title) {
-    res.status(400).json({ error: "title is required" });
-    return;
-  }
+  const title = String(req.body?.title ?? "");
 
   const chat = chats.updateChatTitle(req.params.chatId, title);
   if (!chat) {
@@ -448,6 +444,7 @@ app.post("/api/chats/:chatId/messages", async (req, res, next) => {
 
     res.status(201).json({
       message: assistantMessage,
+      chat,
       summary: chats.getSummary(chat.id),
       messages: chats.getMessagesWithReferences(chat.id)
     });
@@ -486,6 +483,7 @@ app.post("/api/chats/:chatId/messages/stream", async (req, res) => {
     }
 
     sendEvent("done", {
+      chat,
       messages: chats.getMessagesWithReferences(chat.id),
       summary: chats.getSummary(chat.id)
     });

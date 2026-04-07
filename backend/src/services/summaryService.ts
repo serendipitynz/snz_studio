@@ -62,4 +62,41 @@ export class SummaryService {
       return buildFallbackSummary(existingSummary, recentMessages);
     }
   }
+
+  async generateChatTitle(recentMessages: Message[]) {
+    const transcript = recentMessages
+      .filter((message) => message.role !== "system")
+      .slice(-6)
+      .map((message) => normalizeMessageForSummary(message))
+      .join("\n");
+
+    if (!transcript.trim()) {
+      return "";
+    }
+
+    try {
+      const response = await this.llm.createChatCompletion({
+        systemPrompt: [
+          "あなたは会話タイトル生成専用のアシスタントです。",
+          "会話の内容を表す短い日本語タイトルだけを返してください。",
+          "長さは 8 文字から 28 文字程度。",
+          "引用符、接頭辞、説明文、句点は付けないでください。"
+        ].join("\n"),
+        messages: [],
+        userInput: `直近の会話:\n${transcript}`,
+        temperature: 0.2
+      });
+
+      return truncate(
+        response.content
+          .replace(/^["'「『\s]+|["'」』\s]+$/g, "")
+          .replace(/\n+/g, " ")
+          .trim(),
+        40
+      );
+    } catch {
+      const firstUserMessage = recentMessages.find((message) => message.role === "user")?.content ?? "";
+      return truncate(firstUserMessage.replace(/\s+/g, " ").trim(), 40);
+    }
+  }
 }
