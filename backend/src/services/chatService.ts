@@ -17,6 +17,47 @@ export class ChatService {
   ) {}
 
   async sendMessage(chatId: string, content: string) {
+    const prepared = await this.prepareTurn(chatId, content);
+
+    let assistantContent: string;
+
+    try {
+      assistantContent = await this.llm.createChatCompletion({
+        systemPrompt: prepared.systemPrompt,
+        messages: prepared.assembled.recentMessages,
+        userInput: content,
+        temperature: 0.25
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown LLM error";
+      assistantContent = this.buildFallbackResponse(prepared.assembled.references, content, message);
+    }
+
+    return this.persistAssistantTurn(chatId, prepared.assembled, prepared.userMessage, assistantContent);
+  }
+
+  async sendMessageStream(chatId: string, content: string, onDelta: (chunk: string) => void) {
+    const prepared = await this.prepareTurn(chatId, content);
+    let assistantContent: string;
+
+    try {
+      assistantContent = await this.llm.createChatCompletionStream({
+        systemPrompt: prepared.systemPrompt,
+        messages: prepared.assembled.recentMessages,
+        userInput: content,
+        temperature: 0.25,
+        onDelta
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown LLM error";
+      assistantContent = this.buildFallbackResponse(prepared.assembled.references, content, message);
+      onDelta(assistantContent);
+    }
+
+    return this.persistAssistantTurn(chatId, prepared.assembled, prepared.userMessage, assistantContent);
+  }
+
+  private async prepareTurn(chatId: string, content: string) {
     const assembled = await this.context.assemble(chatId, content);
     const userMessage = this.chats.addMessage({
       chatId,
@@ -46,29 +87,14 @@ export class ChatService {
       .filter(Boolean)
       .join("\n\n");
 
-    let assistantContent: string;
+    return {
+      assembled,
+      userMessage,
+      systemPrompt
+    };
+  }
 
-    try {
-      assistantContent = await this.llm.createChatCompletion({
-        systemPrompt,
-        messages: assembled.recentMessages,
-        userInput: content,
-        temperature: 0.25
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown LLM error";
-      assistantContent = [
-        "Local LLM endpoint could not be reached, so this is a fallback response.",
-        `Reason: ${message}`,
-        assembled.references.length
-          ? `Available references:\n${assembled.references
-              .map((reference) => `- ${reference.label}: ${truncate(reference.excerpt, 160)}`)
-              .join("\n")}`
-          : "No project references were selected for this turn.",
-        `User message: ${content}`
-      ].join("\n\n");
-    }
-
+  private async persistAssistantTurn(chatId: string, assembled: Awaited<ReturnType<ContextService["assemble"]>>, userMessage: Awaited<ReturnType<ChatRepository["addMessage"]>>, assistantContent: string) {
     const assistantMessage = this.chats.addMessage({
       chatId,
       role: "assistant",
@@ -91,5 +117,16 @@ export class ChatService {
     this.chats.upsertSummary(chatId, updatedSummary);
 
     return assistantMessage;
+  }
+
+  private buildFallbackResponse(references: Awaited<ReturnType<ContextService["assemble"]>>["references"], content: string, reason: string) {
+    return [
+      "Local LLM endpoint could not be reached, so this is a fallback response.",
+      `Reason: ${reason}`,
+      references.length
+        ? `Available references:\n${references.map((reference) => `- ${reference.label}: ${truncate(reference.excerpt, 160)}`).join("\n")}`
+        : "No project references were selected for this turn.",
+      `User message: ${content}`
+    ].join("\n\n");
   }
 }

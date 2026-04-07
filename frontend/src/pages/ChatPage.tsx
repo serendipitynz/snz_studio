@@ -41,6 +41,17 @@ interface ChatState {
   messages: MessageRecord[];
 }
 
+function createOptimisticMessage(chatId: string, role: "user" | "assistant", content: string): MessageRecord {
+  return {
+    id: `temp-${role}-${crypto.randomUUID()}`,
+    chatId,
+    role,
+    content,
+    createdAt: new Date().toISOString(),
+    references: []
+  };
+}
+
 const INSPECTOR_STORAGE_KEY = "snz.chat.inspectorCollapsed";
 
 export function ChatPage() {
@@ -165,17 +176,130 @@ export function ChatPage() {
       return;
     }
 
+    const content = draft;
     setSending(true);
     setError("");
+    setDraft("");
+
+    const optimisticUserMessage = createOptimisticMessage(chatId, "user", content);
+    const optimisticAssistantMessage = createOptimisticMessage(chatId, "assistant", "");
+
+    setState((current) =>
+      current
+        ? {
+            ...current,
+            messages: [...current.messages, optimisticUserMessage, optimisticAssistantMessage]
+          }
+        : current
+    );
 
     try {
-      const response = await api.sendMessage(chatId, draft);
-      setDraft("");
-      setState((current) => (current ? { ...current, messages: response.messages, summary: response.summary } : current));
+      await streamMessage(content, optimisticAssistantMessage.id);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to send message");
+      void load();
     } finally {
       setSending(false);
+    }
+  }
+
+  async function streamMessage(content: string, assistantMessageId: string) {
+    const response = await fetch(`/api/chats/${chatId}/messages/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content })
+    });
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(data?.error ?? `Request failed with ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error("Stream response did not include a body");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    const handleEvent = (rawChunk: string) => {
+      const lines = rawChunk.split(/\r?\n/);
+      const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() ?? "message";
+      const dataText = lines
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+
+      if (!dataText) {
+        return;
+      }
+
+      const payload = JSON.parse(dataText) as
+        | { content?: string }
+        | { message?: string }
+        | { messages?: MessageRecord[]; summary?: ChatSummary | null };
+
+      if (eventName === "delta") {
+        const delta = "content" in payload ? payload.content ?? "" : "";
+        if (!delta) {
+          return;
+        }
+
+        setState((current) =>
+          current
+            ? {
+                ...current,
+                messages: current.messages.map((message) =>
+                  message.id === assistantMessageId ? { ...message, content: `${message.content}${delta}` } : message
+                )
+              }
+            : current
+        );
+        return;
+      }
+
+      if (eventName === "done" && "messages" in payload) {
+        setState((current) =>
+          current
+            ? {
+                ...current,
+                messages: payload.messages ?? current.messages,
+                summary: payload.summary ?? current.summary
+              }
+            : current
+        );
+        return;
+      }
+
+      if (eventName === "error") {
+        const message = "message" in payload ? payload.message ?? "Stream failed" : "Stream failed";
+        throw new Error(message);
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      let separatorIndex = buffer.indexOf("\n\n");
+
+      while (separatorIndex >= 0) {
+        const rawChunk = buffer.slice(0, separatorIndex).trim();
+        buffer = buffer.slice(separatorIndex + 2);
+        if (rawChunk) {
+          handleEvent(rawChunk);
+        }
+        separatorIndex = buffer.indexOf("\n\n");
+      }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      handleEvent(buffer.trim());
     }
   }
 

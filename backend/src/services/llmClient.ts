@@ -189,4 +189,120 @@ export class LlmClient {
       clearTimeout(timeout);
     }
   }
+
+  async createChatCompletionStream(input: {
+    systemPrompt: string;
+    messages: Message[];
+    userInput: string;
+    onDelta: (chunk: string) => void;
+    temperature?: number;
+  }) {
+    const body = {
+      model: config.llmModel,
+      temperature: input.temperature ?? 0.25,
+      stream: true,
+      messages: [
+        { role: "system", content: input.systemPrompt },
+        ...input.messages.map((message) => ({
+          role: message.role,
+          content: message.content
+        })),
+        { role: "user", content: input.userInput }
+      ]
+    };
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+
+    if (config.llmApiKey) {
+      headers.Authorization = `Bearer ${config.llmApiKey}`;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.llmTimeoutMs);
+
+    try {
+      const response = await fetch(`${config.llmBaseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`LLM request failed with ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error("LLM stream did not include a response body");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let content = "";
+
+      const handleChunk = (chunk: string) => {
+        const lines = chunk.split(/\r?\n/);
+        const dataLines = lines
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .filter(Boolean);
+
+        if (!dataLines.length) {
+          return;
+        }
+
+        const dataText = dataLines.join("\n");
+        if (dataText === "[DONE]") {
+          return;
+        }
+
+        const payload = JSON.parse(dataText) as {
+          choices?: Array<{ delta?: { content?: string } }>;
+        };
+
+        const delta = payload.choices?.[0]?.delta?.content ?? "";
+        if (!delta) {
+          return;
+        }
+
+        content += delta;
+        input.onDelta(delta);
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+
+        let separatorIndex = buffer.indexOf("\n\n");
+        while (separatorIndex >= 0) {
+          const rawChunk = buffer.slice(0, separatorIndex).trim();
+          buffer = buffer.slice(separatorIndex + 2);
+          if (rawChunk) {
+            handleChunk(rawChunk);
+          }
+          separatorIndex = buffer.indexOf("\n\n");
+        }
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        handleChunk(buffer.trim());
+      }
+
+      if (!content.trim()) {
+        throw new Error("LLM stream did not contain message content");
+      }
+
+      return content;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 }

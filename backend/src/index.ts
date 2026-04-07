@@ -434,6 +434,47 @@ app.post("/api/chats/:chatId/messages", async (req, res, next) => {
   }
 });
 
+app.post("/api/chats/:chatId/messages/stream", async (req, res) => {
+  const content = String(req.body?.content ?? "").trim();
+  if (!content) {
+    res.status(400).json({ error: "content is required" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sendEvent = (event: string, payload: unknown) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  try {
+    await chatService.sendMessageStream(req.params.chatId, content, (chunk) => {
+      sendEvent("delta", { content: chunk });
+    });
+
+    const chat = chats.getChat(req.params.chatId);
+    if (!chat) {
+      sendEvent("error", { message: "chat not found" });
+      res.end();
+      return;
+    }
+
+    sendEvent("done", {
+      messages: chats.getMessagesWithReferences(chat.id),
+      summary: chats.getSummary(chat.id)
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unexpected stream error";
+    sendEvent("error", { message });
+  } finally {
+    res.end();
+  }
+});
+
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const message = error instanceof Error ? error.message : "Unexpected server error";
   res.status(500).json({ error: message });
