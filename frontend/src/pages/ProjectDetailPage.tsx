@@ -1,6 +1,6 @@
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, ChatRecord, DocumentRecord, MemoryKind, MemoryRecord, Project } from "../api/client";
+import { api, ChatRecord, DocumentCategory, DocumentRecord, MemoryKind, MemoryRecord, Project } from "../api/client";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import {
@@ -55,6 +55,7 @@ export function ProjectDetailPage() {
   const [pendingDeleteDocumentId, setPendingDeleteDocumentId] = useState<string | null>(null);
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null);
+  const [documentCategoryDraft, setDocumentCategoryDraft] = useState<DocumentCategory>("misc");
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
   const [isSystemPromptModalOpen, setIsSystemPromptModalOpen] = useState(false);
@@ -86,6 +87,10 @@ export function ProjectDetailPage() {
   useEffect(() => {
     setSystemPromptDraft(state?.project.systemPrompt ?? "");
   }, [state?.project.systemPrompt]);
+
+  useEffect(() => {
+    setDocumentCategoryDraft(selectedDocument?.category ?? "misc");
+  }, [selectedDocument]);
 
   const groupedMemories = useMemo(() => {
     const base = {
@@ -262,6 +267,30 @@ export function ProjectDetailPage() {
     }
   }
 
+  async function handleUpdateDocumentCategory(documentId: string, category: DocumentCategory) {
+    setBusy(true);
+    setError("");
+
+    try {
+      const response = await api.updateDocumentCategory(documentId, category);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              documents: current.documents.map((document) =>
+                document.id === response.document.id ? response.document : document
+              )
+            }
+          : current
+      );
+      setSelectedDocument(response.document);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to update document category");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleDeleteChat(chatId: string) {
     setBusy(true);
     setError("");
@@ -382,6 +411,7 @@ export function ProjectDetailPage() {
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <Row style={{ alignItems: "center" }}>
                               <strong style={{ overflowWrap: "anywhere" }}>{document.title}</strong>
+                              <Badge tone={categoryTone(document.category)}>{document.category}</Badge>
                               <Badge tone={document.type === "image" ? "warm" : "accent"}>{document.type}</Badge>
                             </Row>
                             <Subtle>{describeDocument(document)}</Subtle>
@@ -573,7 +603,9 @@ export function ProjectDetailPage() {
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <SectionTitle>{selectedDocument.title}</SectionTitle>
-                  <Subtle>{selectedDocument.type}</Subtle>
+                  <Subtle>
+                    {selectedDocument.type} · {selectedDocument.category}
+                  </Subtle>
                 </div>
                 <Button type="button" variant="ghost" onClick={() => setSelectedDocument(null)}>
                   Close
@@ -582,6 +614,33 @@ export function ProjectDetailPage() {
 
               {selectedDocument.tags.length ? <Subtle>Tags: {selectedDocument.tags.join(", ")}</Subtle> : null}
               {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
+
+              <Card>
+                <Stack>
+                  <Field>
+                    Category
+                    <Select
+                      value={documentCategoryDraft}
+                      onChange={(event) => setDocumentCategoryDraft(event.target.value as DocumentCategory)}
+                    >
+                      {DOCUMENT_CATEGORIES.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <div>
+                    <Button
+                      type="button"
+                      disabled={busy || documentCategoryDraft === selectedDocument.category}
+                      onClick={() => void handleUpdateDocumentCategory(selectedDocument.id, documentCategoryDraft)}
+                    >
+                      Save category
+                    </Button>
+                  </div>
+                </Stack>
+              </Card>
 
               <Card>
                 {selectedDocument.type === "image" && selectedDocument.filePath ? (
@@ -762,6 +821,20 @@ function detectDocumentType(file: File): "markdown" | "text" | "image" | null {
   }
 
   return null;
+}
+
+const DOCUMENT_CATEGORIES: DocumentCategory[] = ["world", "character", "rule", "plot", "timeline", "index", "story", "misc"];
+
+function categoryTone(category: DocumentCategory): "accent" | "warm" | "muted" {
+  if (category === "rule" || category === "timeline") {
+    return "warm";
+  }
+
+  if (category === "story" || category === "misc") {
+    return "muted";
+  }
+
+  return "accent";
 }
 
 function describeDocument(document: DocumentRecord) {

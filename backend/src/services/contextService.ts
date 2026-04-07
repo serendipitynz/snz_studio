@@ -62,7 +62,7 @@ function formatDocumentContext(reference: RetrievedDocumentReference) {
     ? `\nFull document content:\n${reference.fullDocumentContent}`
     : "";
 
-  return `[Document] ${reference.label}
+  return `[Document${reference.category ? `:${reference.category}` : ""}] ${reference.label}
 Retrieval mode: ${reference.retrievalMode}
 Matched passages:
 ${matchedChunks}${fullDocumentSection}`;
@@ -105,6 +105,7 @@ export class ContextService {
         sourceType: "document",
         sourceId: explicitDocument.id,
         label: explicitDocument.title,
+        category: explicitDocument.category,
         excerpt: quoteChunks.length
           ? quoteChunks.map((chunk) => `[chunk ${chunk.chunkIndex + 1}] ${truncate(chunk.content, 150)}`).join("\n")
           : truncate(fullDocumentContent, 220),

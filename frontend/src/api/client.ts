@@ -1,4 +1,5 @@
 export type DocumentType = "markdown" | "text" | "image";
+export type DocumentCategory = "world" | "character" | "rule" | "plot" | "timeline" | "index" | "story" | "misc";
 export type MemoryKind = "semantic" | "procedural" | "episodic";
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -15,6 +16,7 @@ export interface DocumentRecord {
   id: string;
   projectId: string;
   type: DocumentType;
+  category: DocumentCategory;
   title: string;
   note: string;
   tags: string[];
@@ -166,6 +168,12 @@ export const api = {
     request<{ document: DocumentRecord }>(`/api/projects/${projectId}/documents`, {
       method: "POST",
       body: formData
+    }),
+  updateDocumentCategory: (documentId: string, category: DocumentCategory) =>
+    request<{ document: DocumentRecord }>(`/api/documents/${documentId}/category`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category })
     }),
   deleteDocument: (documentId: string) =>
     request<{ ok: boolean; document: DocumentRecord }>(`/api/documents/${documentId}`, {

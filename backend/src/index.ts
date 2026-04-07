@@ -4,6 +4,7 @@ import cors from "cors";
 import express from "express";
 import { config, getEditableConfiguration, updateEditableConfiguration } from "./config.js";
 import { getDb } from "./db/connection.js";
+import { isDocumentCategory } from "./lib/documentCategory.js";
 import { ChatRepository } from "./repositories/chatRepository.js";
 import { DocumentRepository } from "./repositories/documentRepository.js";
 import { MemoryRepository } from "./repositories/memoryRepository.js";
@@ -24,6 +25,7 @@ const projects = new ProjectRepository(db);
 const documents = new DocumentRepository(db);
 const memories = new MemoryRepository(db);
 const chats = new ChatRepository(db);
+documents.backfillInferredCategories();
 documents.rebuildSearchIndex();
 memories.rebuildSearchIndex();
 const embeddingClient = new EmbeddingClient();
@@ -330,6 +332,7 @@ app.post("/api/projects/:projectId/documents", upload.single("file"), async (req
     const document = documents.createDocument({
       projectId: project.id,
       type: type as "markdown" | "text" | "image",
+      category: isDocumentCategory(String(req.body?.category ?? "")) ? req.body.category : undefined,
       title,
       note: typeof req.body?.note === "string" ? req.body.note : "",
       tags: parseTags(req.body?.tags),
@@ -363,6 +366,22 @@ app.delete("/api/documents/:documentId", (req, res) => {
   }
 
   res.json({ ok: true, document });
+});
+
+app.patch("/api/documents/:documentId/category", (req, res) => {
+  const category = String(req.body?.category ?? "").trim();
+  if (!isDocumentCategory(category)) {
+    res.status(400).json({ error: "invalid document category" });
+    return;
+  }
+
+  const document = documents.updateDocumentCategory(req.params.documentId, category);
+  if (!document) {
+    res.status(404).json({ error: "document not found" });
+    return;
+  }
+
+  res.json({ document });
 });
 
 app.get("/api/chats/:chatId", (req, res) => {

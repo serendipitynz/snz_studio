@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { inferDocumentCategory, isDocumentCategory } from "../lib/documentCategory.js";
 import { chunkDocumentText } from "../services/documentChunker.js";
 import { DocumentRecord } from "../lib/types.js";
 import { createId, nowIso, parseTags, safeJsonParse } from "../lib/utils.js";
@@ -9,6 +10,7 @@ function mapDocument(row: Record<string, unknown>): DocumentRecord {
     id: String(row.id),
     projectId: String(row.project_id),
     type: row.type as DocumentRecord["type"],
+    category: isDocumentCategory(String(row.category ?? "misc")) ? (row.category as DocumentRecord["category"]) : "misc",
     title: String(row.title),
     note: String(row.note),
     tags: safeJsonParse<string[]>(String(row.tags_json), []),
@@ -152,6 +154,50 @@ export class DocumentRepository {
     tx();
   }
 
+  backfillInferredCategories() {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT id, title, note, derived_text, content_text, file_path, updated_at, created_at, category
+          FROM documents
+          WHERE category = 'misc' AND updated_at = created_at
+        `
+      )
+      .all() as Record<string, unknown>[];
+
+    if (!rows.length) {
+      return;
+    }
+
+    const update = this.db.prepare(
+      `
+        UPDATE documents
+        SET category = ?, updated_at = ?
+        WHERE id = ?
+      `
+    );
+
+    const tx = this.db.transaction(() => {
+      for (const row of rows) {
+        const inferred = inferDocumentCategory({
+          fileName: row.file_path ? String(row.file_path) : String(row.title ?? ""),
+          title: String(row.title ?? ""),
+          note: String(row.note ?? ""),
+          contentText: String(row.content_text ?? ""),
+          derivedText: String(row.derived_text ?? "")
+        });
+
+        if (inferred === "misc") {
+          continue;
+        }
+
+        update.run(inferred, nowIso(), String(row.id));
+      }
+    });
+
+    tx();
+  }
+
   listByProject(projectId: string) {
     const rows = this.db
       .prepare("SELECT * FROM documents WHERE project_id = ? ORDER BY created_at DESC")
@@ -169,6 +215,7 @@ export class DocumentRepository {
   createDocument(input: {
     projectId: string;
     type: DocumentRecord["type"];
+    category?: DocumentRecord["category"];
     title: string;
     note?: string;
     tags?: string[] | string;
@@ -178,10 +225,20 @@ export class DocumentRepository {
     mimeType?: string | null;
   }) {
     const createdAt = nowIso();
+    const inferredCategory =
+      input.category ??
+      inferDocumentCategory({
+        fileName: input.filePath,
+        title: input.title,
+        note: input.note,
+        contentText: input.contentText,
+        derivedText: input.derivedText
+      });
     const document: DocumentRecord = {
       id: createId("doc"),
       projectId: input.projectId,
       type: input.type,
+      category: inferredCategory,
       title: input.title.trim(),
       note: input.note?.trim() ?? "",
       tags: Array.isArray(input.tags) ? input.tags : parseTags(input.tags),
@@ -198,10 +255,10 @@ export class DocumentRepository {
         .prepare(
           `
             INSERT INTO documents (
-              id, project_id, type, title, note, tags_json, derived_text, content_text, file_path, mime_type, created_at, updated_at
+              id, project_id, type, category, title, note, tags_json, derived_text, content_text, file_path, mime_type, created_at, updated_at
             )
             VALUES (
-              @id, @projectId, @type, @title, @note, @tagsJson, @derivedText, @contentText, @filePath, @mimeType, @createdAt, @updatedAt
+              @id, @projectId, @type, @category, @title, @note, @tagsJson, @derivedText, @contentText, @filePath, @mimeType, @createdAt, @updatedAt
             )
           `
         )
@@ -280,6 +337,26 @@ export class DocumentRepository {
 
     tx();
     return document;
+  }
+
+  updateDocumentCategory(documentId: string, category: DocumentRecord["category"]) {
+    const existing = this.getDocument(documentId);
+    if (!existing) {
+      return null;
+    }
+
+    const updatedAt = nowIso();
+    this.db
+      .prepare(
+        `
+          UPDATE documents
+          SET category = ?, updated_at = ?
+          WHERE id = ?
+        `
+      )
+      .run(category, updatedAt, documentId);
+
+    return this.getDocument(documentId);
   }
 
   deleteDocument(documentId: string) {

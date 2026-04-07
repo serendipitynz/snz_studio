@@ -153,6 +153,12 @@ const migrations = [
       ALTER TABLE messages ADD COLUMN output_tokens INTEGER;
       ALTER TABLE messages ADD COLUMN tokens_per_second REAL;
     `
+  },
+  {
+    id: "004_document_categories",
+    sql: `
+      ALTER TABLE documents ADD COLUMN category TEXT NOT NULL DEFAULT 'misc';
+    `
   }
 ];
 

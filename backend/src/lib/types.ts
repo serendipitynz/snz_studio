@@ -1,4 +1,5 @@
 export type DocumentType = "markdown" | "text" | "image";
+export type DocumentCategory = "world" | "character" | "rule" | "plot" | "timeline" | "index" | "story" | "misc";
 export type MessageRole = "system" | "user" | "assistant";
 export type MemoryKind = "semantic" | "procedural" | "episodic";
 export type ReferenceSourceType = "project" | "summary" | "document" | "memory";
@@ -16,6 +17,7 @@ export interface DocumentRecord {
   id: string;
   projectId: string;
   type: DocumentType;
+  category: DocumentCategory;
   title: string;
   note: string;
   tags: string[];
@@ -109,6 +111,7 @@ export interface RetrievedDocumentChunk {
 
 export interface RetrievedDocumentReference extends SearchReference {
   sourceType: "document";
+  category?: DocumentCategory;
   chunks: RetrievedDocumentChunk[];
   includeFullDocument: boolean;
   fullDocumentContent: string;

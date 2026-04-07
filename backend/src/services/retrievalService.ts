@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { RetrievedDocumentChunk, RetrievedDocumentReference, SearchReference } from "../lib/types.js";
+import { DocumentCategory, RetrievedDocumentChunk, RetrievedDocumentReference, SearchReference } from "../lib/types.js";
 import { safeJsonParse, truncate } from "../lib/utils.js";
 import { toFtsQuery } from "../lib/searchText.js";
 import { cosineSimilarity, normalizeScores } from "../lib/vector.js";
@@ -8,6 +8,7 @@ import { EmbeddingClient } from "./embeddingClient.js";
 type DocumentCandidateRow = {
   source_id: string;
   label: string;
+  category: DocumentCategory;
   full_content: string;
   chunk_content: string;
   chunk_id: string;
@@ -32,6 +33,85 @@ function semanticToUnitRange(value: number) {
   return clampScore((value + 1) / 2);
 }
 
+type RetrievalIntent = "reference" | "writing" | "plot" | "translation" | "general";
+
+function detectRetrievalIntent(query: string): RetrievalIntent {
+  if (/(翻訳|訳して|英訳|和訳|訳文|用語統一)/iu.test(query)) {
+    return "translation";
+  }
+
+  if (/(プロット|構想|展開案|次どう|章構成|起きること|流れ)/iu.test(query)) {
+    return "plot";
+  }
+
+  if (/(続き|本文|執筆|書いて|書き直|推敲|場面|シーン|会話文|地の文|文体)/iu.test(query)) {
+    return "writing";
+  }
+
+  if (/(設定|世界観|ルール|正史|索引|時系列|人物|キャラ|用語|年表|整合|矛盾|確認)/iu.test(query)) {
+    return "reference";
+  }
+
+  return "general";
+}
+
+function getCategoryWeight(category: DocumentCategory, intent: RetrievalIntent) {
+  const tables: Record<RetrievalIntent, Record<DocumentCategory, number>> = {
+    general: {
+      world: 1.05,
+      character: 1.05,
+      rule: 1.05,
+      plot: 1,
+      timeline: 1.05,
+      index: 1.05,
+      story: 1,
+      misc: 1
+    },
+    reference: {
+      world: 1.2,
+      character: 1.15,
+      rule: 1.15,
+      plot: 0.9,
+      timeline: 1.15,
+      index: 1.25,
+      story: 0.8,
+      misc: 1
+    },
+    writing: {
+      world: 1,
+      character: 1.15,
+      rule: 1.25,
+      plot: 1.05,
+      timeline: 1.1,
+      index: 0.95,
+      story: 1.2,
+      misc: 1
+    },
+    plot: {
+      world: 1,
+      character: 1.1,
+      rule: 1,
+      plot: 1.25,
+      timeline: 1.15,
+      index: 1,
+      story: 0.95,
+      misc: 1
+    },
+    translation: {
+      world: 1.05,
+      character: 1.05,
+      rule: 1.25,
+      plot: 0.9,
+      timeline: 0.95,
+      index: 1.1,
+      story: 1.2,
+      misc: 1
+    }
+  };
+
+  return tables[intent][category] ?? 1;
+}
+
 export class RetrievalService {
   constructor(
     private readonly db: Database.Database,
@@ -40,16 +120,17 @@ export class RetrievalService {
 
   async searchDocuments(projectId: string, query: string, limit = 4, chunksPerDocument = 3): Promise<RetrievedDocumentReference[]> {
     const ftsQuery = toFtsQuery(query);
+    const intent = detectRetrievalIntent(query);
     const candidateRows = ftsQuery ? this.fetchDocumentFtsCandidates(projectId, ftsQuery, limit, chunksPerDocument) : [];
     const queryEmbedding = await this.embeddings.createEmbedding(query);
 
-    const ranked = this.rankDocumentCandidates(candidateRows, queryEmbedding, chunksPerDocument);
+    const ranked = this.rankDocumentCandidates(candidateRows, queryEmbedding, chunksPerDocument, intent);
     if (ranked.length >= limit || !queryEmbedding) {
       return ranked.slice(0, limit);
     }
 
     const seenDocumentIds = new Set(ranked.map((item) => item.sourceId));
-    const fallback = this.searchDocumentsBySemantic(projectId, queryEmbedding, limit, chunksPerDocument, seenDocumentIds);
+    const fallback = this.searchDocumentsBySemantic(projectId, queryEmbedding, limit, chunksPerDocument, seenDocumentIds, intent);
     return [...ranked, ...fallback].slice(0, limit);
   }
 
@@ -125,6 +206,7 @@ export class RetrievalService {
           SELECT
             d.id AS source_id,
             d.title AS label,
+            d.category AS category,
             d.content_text AS full_content,
             c.content AS chunk_content,
             c.id AS chunk_id,
@@ -162,7 +244,12 @@ export class RetrievalService {
       .all(projectId, ftsQuery, limit) as MemoryCandidateRow[];
   }
 
-  private rankDocumentCandidates(rows: DocumentCandidateRow[], queryEmbedding: number[] | null, chunksPerDocument: number) {
+  private rankDocumentCandidates(
+    rows: DocumentCandidateRow[],
+    queryEmbedding: number[] | null,
+    chunksPerDocument: number,
+    intent: RetrievalIntent
+  ) {
     if (!rows.length) {
       return [];
     }
@@ -198,13 +285,14 @@ export class RetrievalService {
       const hybridScore = queryEmbedding
         ? ftsScores[index] * 0.55 + (semanticScores.get(row.chunk_id) ?? 0) * 0.45
         : ftsScores[index] || Number(row.score);
+      const weightedScore = hybridScore * getCategoryWeight(row.category, intent);
 
       const existing = groups.get(row.source_id);
       const chunk: RetrievedDocumentChunk = {
         chunkId: row.chunk_id,
         chunkIndex: Number(row.chunk_index),
         content: String(row.chunk_content || ""),
-        score: hybridScore
+        score: weightedScore
       };
 
       if (!existing) {
@@ -213,7 +301,7 @@ export class RetrievalService {
           fullContent: row.full_content,
           fallbackText: String(row.chunk_content || row.derived_text || row.note || ""),
           chunks: [chunk],
-          bestScore: hybridScore
+          bestScore: weightedScore
         });
         return;
       }
@@ -222,8 +310,8 @@ export class RetrievalService {
         existing.chunks.push(chunk);
       }
 
-      if (hybridScore > existing.bestScore) {
-        existing.bestScore = hybridScore;
+      if (weightedScore > existing.bestScore) {
+        existing.bestScore = weightedScore;
       }
     });
 
@@ -243,6 +331,7 @@ export class RetrievalService {
         sourceType: "document",
         sourceId,
         label: group.label,
+        category: rows.find((row) => row.source_id === sourceId)?.category ?? "misc",
         excerpt: truncate(excerpt, 500),
         score: group.bestScore,
         chunks: group.chunks.sort((left, right) => left.chunkIndex - right.chunkIndex).slice(0, chunksPerDocument),
@@ -260,7 +349,8 @@ export class RetrievalService {
     queryEmbedding: number[],
     limit: number,
     chunksPerDocument: number,
-    seenDocumentIds: Set<string>
+    seenDocumentIds: Set<string>,
+    intent: RetrievalIntent
   ) {
     const rows = this.db
       .prepare(
@@ -270,6 +360,7 @@ export class RetrievalService {
             e.chunk_id,
             e.embedding_json,
             d.title,
+            d.category,
             d.content_text AS full_content,
             d.note,
             d.derived_text,
@@ -286,6 +377,7 @@ export class RetrievalService {
       chunk_id: string;
       embedding_json: string;
       title: string;
+      category: DocumentCategory;
       full_content: string;
       note: string;
       derived_text: string;
@@ -296,7 +388,9 @@ export class RetrievalService {
     const scored = rows
       .map((row) => ({
         ...row,
-        score: semanticToUnitRange(cosineSimilarity(queryEmbedding, safeJsonParse<number[]>(row.embedding_json, [])))
+        score:
+          semanticToUnitRange(cosineSimilarity(queryEmbedding, safeJsonParse<number[]>(row.embedding_json, []))) *
+          getCategoryWeight(row.category, intent)
       }))
       .filter((row) => row.score > 0.55)
       .sort((left, right) => right.score - left.score);
@@ -346,6 +440,7 @@ export class RetrievalService {
       sourceType: "document" as const,
       sourceId,
       label: group.label,
+      category: scored.find((row) => row.document_id === sourceId)?.category ?? "misc",
       excerpt: truncate(
         group.chunks
           .sort((left, right) => left.chunkIndex - right.chunkIndex)
