@@ -555,7 +555,14 @@ export function ChatPage() {
                       <MetaText>{new Date(message.createdAt).toLocaleTimeString()}</MetaText>
                     </Row>
                     {message.role === "assistant" ? (
-                      <MarkdownPreview source={message.content} />
+                      message.content ? (
+                        <MarkdownPreview source={message.content} />
+                      ) : (
+                        <Row style={{ alignItems: "center", gap: 10 }}>
+                          <SpinnerIcon />
+                          <MetaText>Generating response...</MetaText>
+                        </Row>
+                      )
                     ) : (
                       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{message.content}</div>
                     )}
