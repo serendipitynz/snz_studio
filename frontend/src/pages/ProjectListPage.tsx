@@ -167,8 +167,11 @@ export function ProjectListPage() {
                 <List>
                   {!loading && projects.length === 0 ? <Item>No projects yet.</Item> : null}
                   {projects.map((project) => (
-                    <Item key={project.id}>
-                      <RouterLink to={`/projects/${project.id}`}>
+                    <Item key={project.id} style={{ padding: 0, overflow: "hidden" }}>
+                      <RouterLink
+                        to={`/projects/${project.id}`}
+                        style={{ display: "block", padding: 14, textDecoration: "none", color: "inherit" }}
+                      >
                         <strong>{project.title}</strong>
                       </RouterLink>
                     </Item>
