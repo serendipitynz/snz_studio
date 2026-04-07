@@ -93,6 +93,17 @@ export class ChatService {
       content
     });
 
+    const explicitMemory = await this.memoryService.maybeStoreFromExplicitRequest({
+      projectId: assembled.project.id,
+      chatId,
+      content,
+      recentMessages: assembled.recentMessages
+    });
+
+    if (explicitMemory) {
+      createdMemories.push(explicitMemory);
+    }
+
     if (createdMemories.length) {
       await this.embeddingSync.syncMemories(createdMemories.map((memory) => memory.id));
     }
@@ -106,6 +117,9 @@ export class ChatService {
         : "",
       assembled.isQuoteRequest
         ? `The user is asking for document quotation${assembled.targetDocumentTitle ? ` from "${assembled.targetDocumentTitle}"` : ""}. Quote only from provided document material, preserve the original wording, and say clearly if the exact passage was not found.`
+        : "",
+      explicitMemory
+        ? `A new ${explicitMemory.kind} memory was just saved from the recent conversation: ${explicitMemory.content}\nIf it fits naturally, briefly acknowledge that it has been remembered.`
         : "",
       assembled.promptContext
     ]
