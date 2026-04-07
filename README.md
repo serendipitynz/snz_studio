@@ -110,7 +110,7 @@ OpenAI 互換 API を前提にしています。`.env` の主な設定は以下�
 
 embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未設定なら retrieval は FTS のみで動作します。設定されていれば、document / memory の retrieval は `FTS + embedding rerank` の hybrid になります。
 
-Dashboard の `Configuration` から接続先とモデルは更新できます。UI から保存した値は `data/app-config.json` に保存され、`.env` より優先して即時反映されます。
+Dashboard の `Configuration` から接続先、モデル、`LLM Response Format` は更新できます。UI から保存した値は `data/app-config.json` に保存され、`.env` より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
 
 ローカル LLM が起動していない場合でも、アプリ自体は動作します。  
 その場合 chat 返答は fallback 文面になり、どの参照が選ばれたかの確認に使えます。

@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { parseAssistantResponse } from "../lib/llmResponse.js";
+import { parseAssistantResponse, sanitizePromptContent } from "../lib/llmResponse.js";
 import { Message } from "../lib/types.js";
 
 function createHeaders() {
@@ -185,12 +185,12 @@ export class LlmClient {
       model: config.llmModel,
       temperature: input.temperature ?? 0.25,
       messages: [
-        { role: "system", content: input.systemPrompt },
+        { role: "system", content: sanitizePromptContent(input.systemPrompt, "system") },
         ...input.messages.map((message) => ({
           role: message.role,
-          content: message.content
+          content: sanitizePromptContent(message.content, message.role)
         })),
-        { role: "user", content: input.userInput }
+        { role: "user", content: sanitizePromptContent(input.userInput, "user") }
       ]
     };
 
@@ -259,12 +259,12 @@ export class LlmClient {
         include_usage: true
       },
       messages: [
-        { role: "system", content: input.systemPrompt },
+        { role: "system", content: sanitizePromptContent(input.systemPrompt, "system") },
         ...input.messages.map((message) => ({
           role: message.role,
-          content: message.content
+          content: sanitizePromptContent(message.content, message.role)
         })),
-        { role: "user", content: input.userInput }
+        { role: "user", content: sanitizePromptContent(input.userInput, "user") }
       ]
     };
 

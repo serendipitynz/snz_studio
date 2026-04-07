@@ -17,6 +17,7 @@ const appConfigPath = path.resolve(dataDir, "app-config.json");
 export interface EditableAppConfiguration {
   llmBaseUrl: string;
   llmModel: string;
+  llmResponseFormat: "standard" | "llm_jp_thinking";
   embeddingBaseUrl: string;
   embeddingModel: string;
 }
@@ -34,6 +35,7 @@ export const config = {
     : path.resolve(dataDir, "app.sqlite"),
   llmBaseUrl: process.env.LLM_BASE_URL ?? "http://127.0.0.1:1234/v1",
   llmModel: process.env.LLM_MODEL ?? "local-model",
+  llmResponseFormat: (process.env.LLM_RESPONSE_FORMAT as EditableAppConfiguration["llmResponseFormat"] | undefined) ?? "standard",
   llmApiKey: process.env.LLM_API_KEY ?? "",
   llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 60000),
   embeddingBaseUrl: process.env.EMBEDDING_BASE_URL ?? process.env.LLM_BASE_URL ?? "http://127.0.0.1:1234/v1",
@@ -48,6 +50,7 @@ export function getEditableConfiguration(): EditableAppConfiguration {
   return {
     llmBaseUrl: config.llmBaseUrl,
     llmModel: config.llmModel,
+    llmResponseFormat: config.llmResponseFormat,
     embeddingBaseUrl: config.embeddingBaseUrl,
     embeddingModel: config.embeddingModel
   };
@@ -56,6 +59,7 @@ export function getEditableConfiguration(): EditableAppConfiguration {
 export function updateEditableConfiguration(input: EditableAppConfiguration) {
   config.llmBaseUrl = input.llmBaseUrl.trim();
   config.llmModel = input.llmModel.trim();
+  config.llmResponseFormat = input.llmResponseFormat;
   config.embeddingBaseUrl = input.embeddingBaseUrl.trim();
   config.embeddingModel = input.embeddingModel.trim();
 
@@ -74,6 +78,9 @@ function applyAppConfigOverrides() {
   }
   if (typeof overrides.llmModel === "string") {
     config.llmModel = overrides.llmModel.trim();
+  }
+  if (overrides.llmResponseFormat === "standard" || overrides.llmResponseFormat === "llm_jp_thinking") {
+    config.llmResponseFormat = overrides.llmResponseFormat;
   }
   if (typeof overrides.embeddingBaseUrl === "string") {
     config.embeddingBaseUrl = overrides.embeddingBaseUrl.trim();

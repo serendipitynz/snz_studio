@@ -77,6 +77,7 @@ export interface MessageRecord {
 export interface WorkspaceConfiguration {
   llmBaseUrl: string;
   llmModel: string;
+  llmResponseFormat: "standard" | "llm_jp_thinking";
   embeddingBaseUrl: string;
   embeddingModel: string;
   llmConnected: boolean;
@@ -97,6 +98,7 @@ export const api = {
   updateConfiguration: (input: {
     llmBaseUrl: string;
     llmModel: string;
+    llmResponseFormat: "standard" | "llm_jp_thinking";
     embeddingBaseUrl: string;
     embeddingModel: string;
   }) =>

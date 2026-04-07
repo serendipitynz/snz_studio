@@ -20,6 +20,7 @@ import {
   PaneBody,
   PaneHeader,
   RouterLink,
+  Select,
   SectionTitle,
   Stack,
   StatusDot,
@@ -34,6 +35,7 @@ export function ProjectListPage() {
   const [configDraft, setConfigDraft] = useState({
     llmBaseUrl: "",
     llmModel: "",
+    llmResponseFormat: "standard" as "standard" | "llm_jp_thinking",
     embeddingBaseUrl: "",
     embeddingModel: ""
   });
@@ -59,6 +61,7 @@ export function ProjectListPage() {
       setConfigDraft({
         llmBaseUrl: configurationResponse.configuration.llmBaseUrl,
         llmModel: configurationResponse.configuration.llmModel,
+        llmResponseFormat: configurationResponse.configuration.llmResponseFormat,
         embeddingBaseUrl: configurationResponse.configuration.embeddingBaseUrl,
         embeddingModel: configurationResponse.configuration.embeddingModel
       });
@@ -135,6 +138,7 @@ export function ProjectListPage() {
       setConfigDraft({
         llmBaseUrl: response.configuration.llmBaseUrl,
         llmModel: response.configuration.llmModel,
+        llmResponseFormat: response.configuration.llmResponseFormat,
         embeddingBaseUrl: response.configuration.embeddingBaseUrl,
         embeddingModel: response.configuration.embeddingModel
       });
@@ -232,6 +236,13 @@ export function ProjectListPage() {
             </Field>
             <Field>
               <FieldHeader>
+                <span>LLM Response Format</span>
+                <StatusDot $connected={Boolean(configuration?.llmConnected)} />
+              </FieldHeader>
+              <Subtle>{configuration?.llmResponseFormat === "llm_jp_thinking" ? "LLM-jp Thinking" : "Standard"}</Subtle>
+            </Field>
+            <Field>
+              <FieldHeader>
                 <span>Embedding Endpoint</span>
                 <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
               </FieldHeader>
@@ -275,6 +286,21 @@ export function ProjectListPage() {
                   ))}
                 </datalist>
                 <Subtle>{loadingLlmModels ? "Loading model candidates..." : llmModelOptions.length ? `${llmModelOptions.length} candidates found` : "No model candidates available"}</Subtle>
+              </Field>
+              <Field>
+                LLM Response Format
+                <Select
+                  value={configDraft.llmResponseFormat}
+                  onChange={(event) =>
+                    setConfigDraft((current) => ({
+                      ...current,
+                      llmResponseFormat: event.target.value as "standard" | "llm_jp_thinking"
+                    }))
+                  }
+                >
+                  <option value="standard">Standard</option>
+                  <option value="llm_jp_thinking">LLM-jp Thinking</option>
+                </Select>
               </Field>
               <Field>
                 Embedding Endpoint

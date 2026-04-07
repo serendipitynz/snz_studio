@@ -69,6 +69,8 @@ app.put("/api/configuration", async (req, res, next) => {
   try {
     const llmBaseUrl = String(req.body?.llmBaseUrl ?? "").trim();
     const llmModel = String(req.body?.llmModel ?? "").trim();
+    const llmResponseFormat =
+      req.body?.llmResponseFormat === "llm_jp_thinking" ? "llm_jp_thinking" : "standard";
     const embeddingBaseUrl = String(req.body?.embeddingBaseUrl ?? "").trim();
     const embeddingModel = String(req.body?.embeddingModel ?? "").trim();
 
@@ -80,6 +82,7 @@ app.put("/api/configuration", async (req, res, next) => {
     const updated = updateEditableConfiguration({
       llmBaseUrl,
       llmModel,
+      llmResponseFormat,
       embeddingBaseUrl,
       embeddingModel
     });
