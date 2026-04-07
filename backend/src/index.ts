@@ -269,9 +269,11 @@ app.post("/api/projects/:projectId/chats", (req, res) => {
   }
 
   const title = String(req.body?.title ?? "");
+  const isTemporary = req.body?.isTemporary === true;
   const chat = chats.createChat({
     projectId: project.id,
-    title
+    title,
+    isTemporary
   });
 
   res.status(201).json({ chat });
@@ -494,6 +496,21 @@ app.patch("/api/chats/:chatId", (req, res) => {
   const title = String(req.body?.title ?? "");
 
   const chat = chats.updateChatTitle(req.params.chatId, title);
+  if (!chat) {
+    res.status(404).json({ error: "chat not found" });
+    return;
+  }
+
+  res.json({ chat });
+});
+
+app.patch("/api/chats/:chatId/temporary", (req, res) => {
+  if (typeof req.body?.isTemporary !== "boolean") {
+    res.status(400).json({ error: "isTemporary must be a boolean" });
+    return;
+  }
+
+  const chat = chats.setTemporary(req.params.chatId, req.body.isTemporary);
   if (!chat) {
     res.status(404).json({ error: "chat not found" });
     return;

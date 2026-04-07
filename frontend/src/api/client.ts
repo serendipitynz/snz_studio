@@ -62,6 +62,7 @@ export interface ChatRecord {
   id: string;
   projectId: string;
   title: string;
+  isTemporary: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -167,7 +168,7 @@ export const api = {
     request<{ project: Project; documents: DocumentRecord[]; memories: MemoryRecord[]; chats: ChatRecord[] }>(
       `/api/projects/${projectId}`
     ),
-  createChat: (projectId: string, input: { title: string }) =>
+  createChat: (projectId: string, input: { title: string; isTemporary?: boolean }) =>
     request<{ chat: ChatRecord }>(`/api/projects/${projectId}/chats`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -178,6 +179,12 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title })
+    }),
+  updateChatTemporary: (chatId: string, isTemporary: boolean) =>
+    request<{ chat: ChatRecord }>(`/api/chats/${chatId}/temporary`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isTemporary })
     }),
   deleteChat: (chatId: string) =>
     request<{ ok: boolean; chat: ChatRecord }>(`/api/chats/${chatId}`, {

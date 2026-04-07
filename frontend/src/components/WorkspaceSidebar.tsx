@@ -83,7 +83,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
             {props.chats?.length ? (
               props.chats.map((chat) => (
                 <SidebarLink key={chat.id} to={`/chats/${chat.id}`} $active={chat.id === props.activeChatId}>
-                  {renderChatTitle(chat.title)}
+                  {renderChatTitle(chat)}
                 </SidebarLink>
               ))
             ) : (
@@ -96,12 +96,14 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   );
 }
 
-function renderChatTitle(title: string) {
-  if (title.trim()) {
-    return <strong>{title}</strong>;
+function renderChatTitle(chat: ChatRecord) {
+  if (chat.title.trim()) {
+    return (
+      <strong>{chat.isTemporary ? `⏱️ ${chat.title}` : chat.title}</strong>
+    );
   }
 
-  return <Subtle style={{ opacity: 0.78 }}>(undefined)</Subtle>;
+  return <Subtle style={{ opacity: 0.78 }}>{chat.isTemporary ? "⏱️ (undefined)" : "(undefined)"}</Subtle>;
 }
 
 function HomeIcon() {

@@ -131,7 +131,7 @@ export class MemoryOrganizerService {
 
   async analyzeProject(projectId: string): Promise<MemoryOrganizationPlan> {
     const memories = this.memories.listByProject(projectId);
-    const summaries = this.chats.listSummariesByProject(projectId).slice(0, 8);
+    const summaries = this.chats.listSummariesByProject(projectId, false).slice(0, 8);
 
     if (!memories.length && !summaries.length) {
       return {

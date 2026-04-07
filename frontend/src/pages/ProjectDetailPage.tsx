@@ -56,6 +56,7 @@ export function ProjectDetailPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [chatTitle, setChatTitle] = useState("");
+  const [newChatIsTemporary, setNewChatIsTemporary] = useState(false);
   const [memoryKind, setMemoryKind] = useState<MemoryKind>("semantic");
   const [memoryContent, setMemoryContent] = useState("");
   const [memoryLocked, setMemoryLocked] = useState(true);
@@ -123,7 +124,7 @@ export function ProjectDetailPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      const response = await api.createChat(projectId, { title: chatTitle });
+      const response = await api.createChat(projectId, { title: chatTitle, isTemporary: newChatIsTemporary });
       navigate(`/chats/${response.chat.id}`);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to create chat");
@@ -467,6 +468,14 @@ export function ProjectDetailPage() {
                         placeholder="Architecture review"
                       />
                     </Field>
+                    <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <input
+                        type="checkbox"
+                        checked={newChatIsTemporary}
+                        onChange={(event) => setNewChatIsTemporary(event.target.checked)}
+                      />
+                      <span>Temporary chat</span>
+                    </label>
                     <Button type="submit" disabled={busy}>
                       Open chat
                     </Button>
@@ -660,7 +669,11 @@ export function ProjectDetailPage() {
                     <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <RouterLink to={`/chats/${chat.id}`}>
-                          {chat.title.trim() ? <strong>{chat.title}</strong> : <Subtle style={{ opacity: 0.78 }}>(undefined)</Subtle>}
+                          {chat.title.trim() ? (
+                            <strong>{chat.isTemporary ? `⏱️ ${chat.title}` : chat.title}</strong>
+                          ) : (
+                            <Subtle style={{ opacity: 0.78 }}>{chat.isTemporary ? "⏱️ (undefined)" : "(undefined)"}</Subtle>
+                          )}
                         </RouterLink>
                         <Subtle>{new Date(chat.updatedAt).toLocaleString()}</Subtle>
                       </div>

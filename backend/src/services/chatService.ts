@@ -87,18 +87,22 @@ export class ChatService {
       content
     });
 
-    const createdMemories = this.memoryService.maybeStoreFromUserMessage({
-      projectId: assembled.project.id,
-      chatId,
-      content
-    });
+    const createdMemories = assembled.chat.isTemporary
+      ? []
+      : this.memoryService.maybeStoreFromUserMessage({
+          projectId: assembled.project.id,
+          chatId,
+          content
+        });
 
-    const explicitMemory = await this.memoryService.maybeStoreFromExplicitRequest({
-      projectId: assembled.project.id,
-      chatId,
-      content,
-      recentMessages: assembled.recentMessages
-    });
+    const explicitMemory = assembled.chat.isTemporary
+      ? null
+      : await this.memoryService.maybeStoreFromExplicitRequest({
+          projectId: assembled.project.id,
+          chatId,
+          content,
+          recentMessages: assembled.recentMessages
+        });
 
     if (explicitMemory) {
       createdMemories.push(explicitMemory);
@@ -120,6 +124,9 @@ export class ChatService {
         : "",
       explicitMemory
         ? `A new ${explicitMemory.kind} memory was just saved from the recent conversation: ${explicitMemory.content}\nIf it fits naturally, briefly acknowledge that it has been remembered.`
+        : "",
+      assembled.chat.isTemporary
+        ? "This is a temporary chat. Do not treat this conversation as durable project memory unless the user later converts the chat into a regular one."
         : "",
       assembled.promptContext
     ]

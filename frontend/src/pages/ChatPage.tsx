@@ -101,6 +101,7 @@ export function ChatPage() {
     return window.localStorage.getItem(INSPECTOR_STORAGE_KEY) === "true";
   });
   const [titleDraft, setTitleDraft] = useState("");
+  const [isTemporaryDraft, setIsTemporaryDraft] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [documentPickerValue, setDocumentPickerValue] = useState("");
   const [dragActive, setDragActive] = useState(false);
@@ -133,7 +134,8 @@ export function ChatPage() {
 
   useEffect(() => {
     setTitleDraft(state?.chat.title ?? "");
-  }, [state?.chat.title]);
+    setIsTemporaryDraft(state?.chat.isTemporary ?? false);
+  }, [state?.chat.title, state?.chat.isTemporary]);
 
   useEffect(() => {
     window.localStorage.setItem(INSPECTOR_STORAGE_KEY, String(isInspectorCollapsed));
@@ -340,12 +342,23 @@ export function ChatPage() {
     setError("");
 
     try {
-      const response = await api.updateChatTitle(state.chat.id, titleDraft);
-      setState((current) => (current ? { ...current, chat: response.chat } : current));
-      setProjectChats((current) => current.map((chat) => (chat.id === response.chat.id ? response.chat : chat)));
+      let nextChat = state.chat;
+
+      if (titleDraft !== state.chat.title) {
+        const response = await api.updateChatTitle(state.chat.id, titleDraft);
+        nextChat = response.chat;
+      }
+
+      if (isTemporaryDraft !== nextChat.isTemporary) {
+        const response = await api.updateChatTemporary(state.chat.id, isTemporaryDraft);
+        nextChat = response.chat;
+      }
+
+      setState((current) => (current ? { ...current, chat: nextChat } : current));
+      setProjectChats((current) => current.map((chat) => (chat.id === nextChat.id ? nextChat : chat)));
       setIsTitleModalOpen(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to update chat title");
+      setError(nextError instanceof Error ? nextError.message : "Failed to update chat settings");
     } finally {
       setSending(false);
     }
@@ -525,7 +538,11 @@ export function ChatPage() {
         <PaneHeader>
           <Row style={{ alignItems: "center" }}>
             <ChatIcon />
-            {state.chat.title.trim() ? <SectionTitle>{state.chat.title}</SectionTitle> : <Subtle style={{ opacity: 0.78 }}>(undefined)</Subtle>}
+            {state.chat.title.trim() ? (
+              <SectionTitle>{state.chat.isTemporary ? `⏱️ ${state.chat.title}` : state.chat.title}</SectionTitle>
+            ) : (
+              <Subtle style={{ opacity: 0.78 }}>{state.chat.isTemporary ? "⏱️ (undefined)" : "(undefined)"}</Subtle>
+            )}
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
           <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
@@ -725,9 +742,20 @@ export function ChatPage() {
                     Title
                     <Input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} placeholder="Leave blank to auto-generate" />
                   </Field>
+                  <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input
+                      type="checkbox"
+                      checked={isTemporaryDraft}
+                      onChange={(event) => setIsTemporaryDraft(event.target.checked)}
+                    />
+                    <span>Temporary chat</span>
+                  </label>
+                  <Subtle>
+                    Temporary chats keep their messages and summaries, but do not create or organize project memories unless you later turn the chat back into a regular one.
+                  </Subtle>
                   <div>
                     <Button type="submit" disabled={sending}>
-                      Save title
+                      Save chat settings
                     </Button>
                   </div>
                 </Stack>

@@ -62,6 +62,7 @@ const migrations = [
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         title TEXT NOT NULL,
+        is_temporary INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -209,6 +210,12 @@ const migrations = [
       DROP TABLE assistant_message_references;
       ALTER TABLE assistant_message_references_new RENAME TO assistant_message_references;
       CREATE INDEX idx_assistant_refs_message ON assistant_message_references(assistant_message_id);
+    `
+  },
+  {
+    id: "008_temporary_chats",
+    sql: `
+      ALTER TABLE chats ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0;
     `
   }
 ];

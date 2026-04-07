@@ -36,6 +36,7 @@ export interface Chat {
   id: string;
   projectId: string;
   title: string;
+  isTemporary: boolean;
   createdAt: string;
   updatedAt: string;
 }

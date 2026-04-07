@@ -14,6 +14,7 @@ function mapChat(row: Record<string, unknown>): Chat {
     id: String(row.id),
     projectId: String(row.project_id),
     title: String(row.title),
+    isTemporary: Boolean(row.is_temporary),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
@@ -70,11 +71,12 @@ export class ChatRepository {
     return row ? mapChat(row) : null;
   }
 
-  createChat(input: { projectId: string; title: string }) {
+  createChat(input: { projectId: string; title: string; isTemporary?: boolean }) {
     const chat: Chat = {
       id: createId("chat"),
       projectId: input.projectId,
       title: input.title.trim(),
+      isTemporary: input.isTemporary ?? false,
       createdAt: nowIso(),
       updatedAt: nowIso()
     };
@@ -82,11 +84,11 @@ export class ChatRepository {
     this.db
       .prepare(
         `
-          INSERT INTO chats (id, project_id, title, created_at, updated_at)
-          VALUES (@id, @projectId, @title, @createdAt, @updatedAt)
+          INSERT INTO chats (id, project_id, title, is_temporary, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
         `
       )
-      .run(chat);
+      .run(chat.id, chat.projectId, chat.title, Number(chat.isTemporary), chat.createdAt, chat.updatedAt);
 
     this.upsertSummary(chat.id, "");
     return chat;
@@ -97,6 +99,19 @@ export class ChatRepository {
     const result = this.db
       .prepare("UPDATE chats SET title = ?, updated_at = ? WHERE id = ?")
       .run(title.trim(), updatedAt, chatId);
+
+    if (!result.changes) {
+      return null;
+    }
+
+    return this.getChat(chatId);
+  }
+
+  setTemporary(chatId: string, isTemporary: boolean) {
+    const updatedAt = nowIso();
+    const result = this.db
+      .prepare("UPDATE chats SET is_temporary = ?, updated_at = ? WHERE id = ?")
+      .run(Number(isTemporary), updatedAt, chatId);
 
     if (!result.changes) {
       return null;
@@ -184,7 +199,7 @@ export class ChatRepository {
     return row ? mapSummary(row) : null;
   }
 
-  listSummariesByProject(projectId: string) {
+  listSummariesByProject(projectId: string, includeTemporary = true) {
     const rows = this.db
       .prepare(
         `
@@ -192,10 +207,11 @@ export class ChatRepository {
           FROM chat_summaries s
           JOIN chats c ON c.id = s.chat_id
           WHERE c.project_id = ?
+            AND (? = 1 OR c.is_temporary = 0)
           ORDER BY s.updated_at DESC
         `
       )
-      .all(projectId) as Record<string, unknown>[];
+      .all(projectId, includeTemporary ? 1 : 0) as Record<string, unknown>[];
     return rows.map(mapSummary);
   }
 
