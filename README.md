@@ -8,6 +8,7 @@ ChatGPT / Claude の Project に近い体験を、React + Vite、TypeScript API�
 - Project の作成、一覧、詳細表示
 - Project ごとの `documents`、`chats`、`memories` 管理
 - `markdown` / `text` / `image` document の登録
+- document category の自動推定と手動変更
 - SQLite FTS ベースの document / memory 検索
 - chat ごとの summary 保存
 - persistent memory の最小実装
@@ -64,7 +65,7 @@ SQLite には最低限以下を持たせています。
 1. 依存をインストール
 
 ```bash
-npm install
+pnpm install
 ```
 
 2. 環境変数を作成
@@ -76,7 +77,7 @@ cp .env.example .env
 3. サンプルデータを投入
 
 ```bash
-npm run seed
+pnpm seed
 ```
 
 4. 開発サーバを起動
@@ -119,6 +120,7 @@ Dashboard の `Configuration` から接続先、モデル、`LLM Response Format
 
 - ベクトル DB なし
 - retrieval は SQLite FTS を基本とし、任意で OpenAI 互換 embeddings による hybrid rerank を追加
+- document は `world / character / rule / plot / timeline / index / story / misc` に分類され、retrieval の優先度調整に使う
 - ベクトルは SQLite に JSON で保存し、外部ベクトル DB は使わない
 - 過去 chat は毎回全文を渡さず、`chat_summaries` と recent messages を中心に扱う
 - memory は durable fact だけを保存する前提
