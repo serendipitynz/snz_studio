@@ -1,5 +1,5 @@
-import { FormEvent, KeyboardEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
-import { api, ChatRecord, ChatSummary, MessageRecord, Project, Project as ProjectRecord } from "../api/client";
+import { DragEvent, FormEvent, KeyboardEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
+import { api, ChatRecord, ChatSummary, DocumentRecord, MessageRecord, Project, Project as ProjectRecord } from "../api/client";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import {
@@ -8,6 +8,7 @@ import {
   Card,
   Composer,
   ComposerBox,
+  DropZone,
   Field,
   FloatingScrollButton,
   IconButton,
@@ -24,6 +25,7 @@ import {
   ModalOverlay,
   PaneHeader,
   Row,
+  Select,
   SectionTitle,
   Stack,
   Subtle,
@@ -42,17 +44,23 @@ interface ChatState {
 export function ChatPage() {
   const { chatId = "" } = useParams();
   const messageScrollerRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<ChatState | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [projectChats, setProjectChats] = useState<ChatRecord[]>([]);
+  const [projectDocuments, setProjectDocuments] = useState<DocumentRecord[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
+  const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [isComposing, setIsComposing] = useState(false);
+  const [documentPickerValue, setDocumentPickerValue] = useState("");
+  const [dragActive, setDragActive] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -66,6 +74,7 @@ export function ChatPage() {
 
       setState(chatResponse);
       setProjectChats(projectResponse.chats);
+      setProjectDocuments(projectResponse.documents);
       setProjects(projectsResponse.projects);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to load chat");
@@ -81,6 +90,27 @@ export function ChatPage() {
   useEffect(() => {
     setTitleDraft(state?.chat.title ?? "");
   }, [state?.chat.title]);
+
+  useEffect(() => {
+    const node = textareaRef.current;
+    if (!node) {
+      return;
+    }
+
+    const computedStyle = window.getComputedStyle(node);
+    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 22;
+    const padding =
+      Number.parseFloat(computedStyle.paddingTop || "0") + Number.parseFloat(computedStyle.paddingBottom || "0");
+    const border =
+      Number.parseFloat(computedStyle.borderTopWidth || "0") + Number.parseFloat(computedStyle.borderBottomWidth || "0");
+    const minHeight = 110;
+    const maxHeight = Math.round(lineHeight * 20 + padding + border);
+
+    node.style.height = "auto";
+    const nextHeight = draft.trim() ? Math.min(Math.max(node.scrollHeight, minHeight), maxHeight) : minHeight;
+    node.style.height = `${nextHeight}px`;
+    node.style.overflowY = node.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [draft]);
 
   useEffect(() => {
     const node = messageScrollerRef.current;
@@ -153,6 +183,105 @@ export function ChatPage() {
       setError(nextError instanceof Error ? nextError.message : "Failed to update chat title");
     } finally {
       setSending(false);
+    }
+  }
+
+  function insertDocumentTitle(title: string) {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setDraft((current) => `${current}${title}`);
+      return;
+    }
+
+    const start = textarea.selectionStart ?? draft.length;
+    const end = textarea.selectionEnd ?? draft.length;
+    const nextDraft = `${draft.slice(0, start)}${title}${draft.slice(end)}`;
+    const nextCursor = start + title.length;
+
+    setDraft(nextDraft);
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
+  function handleDocumentSelect(value: string) {
+    setDocumentPickerValue("");
+    if (!value) {
+      return;
+    }
+
+    insertDocumentTitle(value);
+  }
+
+  async function handleUploadFiles(fileList: FileList | File[]) {
+    if (!state) {
+      return;
+    }
+
+    const files = Array.from(fileList);
+    if (!files.length) {
+      return;
+    }
+
+    setSending(true);
+    setError("");
+
+    try {
+      let currentDocuments = [...projectDocuments];
+
+      for (const file of files) {
+        const nextType = detectDocumentType(file);
+        if (!nextType) {
+          throw new Error(`Unsupported file type: ${file.name}`);
+        }
+
+        const existing = currentDocuments.find((document) => document.title === file.name);
+        if (existing) {
+          const overwrite = window.confirm(`"${file.name}" already exists. Overwrite the existing document?`);
+          if (!overwrite) {
+            continue;
+          }
+
+          await api.deleteDocument(existing.id);
+          currentDocuments = currentDocuments.filter((document) => document.id !== existing.id);
+        }
+
+        const formData = new FormData();
+        formData.set("type", nextType);
+        formData.set("title", file.name);
+        formData.set("file", file);
+        const response = await api.createDocument(state.project.id, formData);
+        currentDocuments = [response.document, ...currentDocuments];
+      }
+
+      setProjectDocuments(currentDocuments);
+      setIsDocumentModalOpen(false);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to upload document");
+    } finally {
+      setSending(false);
+      setDragActive(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    void handleUploadFiles(event.dataTransfer.files);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setDragActive(false);
     }
   }
 
@@ -273,18 +402,49 @@ export function ChatPage() {
         <Composer onSubmit={handleSubmit}>
           <ComposerBox>
             <Textarea
+              ref={textareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleComposerKeyDown}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               placeholder="Message this project workspace..."
-              style={{ minHeight: 110 }}
+              style={{ minHeight: 110, maxHeight: 460, resize: "none" }}
             />
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <MetaText>Context comes from project settings, chat summary, memories, and retrieved documents.</MetaText>
+              <Row style={{ alignItems: "center", flex: 1, minWidth: 0 }}>
+                <Select
+                  value={documentPickerValue}
+                  disabled={projectDocuments.length === 0}
+                  onChange={(event) => handleDocumentSelect(event.target.value)}
+                  style={{ minWidth: 230, maxWidth: 360 }}
+                >
+                  {projectDocuments.length === 0 ? (
+                    <option value="">(no document)</option>
+                  ) : (
+                    <>
+                      <option value="">select to insert:</option>
+                      {projectDocuments.map((document) => (
+                        <option key={document.id} value={document.title}>
+                          {document.title}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </Select>
+                <IconButton type="button" aria-label="Add document" onClick={() => setIsDocumentModalOpen(true)}>
+                  <PlusIcon />
+                </IconButton>
+              </Row>
               <Button type="submit" disabled={sending}>
-                {sending ? "Sending..." : "Send"}
+                {sending ? (
+                  <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+                    <SpinnerIcon />
+                    <span>Sending...</span>
+                  </Row>
+                ) : (
+                  "Send"
+                )}
               </Button>
             </Row>
           </ComposerBox>
@@ -357,7 +517,92 @@ export function ChatPage() {
           </ModalCard>
         </ModalOverlay>
       ) : null}
+
+      {isDocumentModalOpen ? (
+        <ModalOverlay onClick={() => setIsDocumentModalOpen(false)}>
+          <ModalCard onClick={(event) => event.stopPropagation()}>
+            <Stack>
+              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <SectionTitle>Add Document</SectionTitle>
+                <Button type="button" variant="ghost" onClick={() => setIsDocumentModalOpen(false)}>
+                  Close
+                </Button>
+              </Row>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".md,.markdown,.txt,image/*"
+                style={{ display: "none" }}
+                onChange={(event) => {
+                  if (event.target.files) {
+                    void handleUploadFiles(event.target.files);
+                  }
+                }}
+              />
+
+              <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+                <Stack>
+                  <Subtle>Drop markdown, text, or image files here.</Subtle>
+                  <Subtle>If the same file name already exists, you will be asked whether to overwrite it.</Subtle>
+                  <div>
+                    <Button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending}>
+                      {sending ? "Uploading..." : "Choose files"}
+                    </Button>
+                  </div>
+                </Stack>
+              </DropZone>
+            </Stack>
+          </ModalCard>
+        </ModalOverlay>
+      ) : null}
     </WorkspaceShell>
+  );
+}
+
+function detectDocumentType(file: File): "markdown" | "text" | "image" | null {
+  const lowerName = file.name.toLowerCase();
+
+  if (file.type.startsWith("image/")) {
+    return "image";
+  }
+
+  if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown")) {
+    return "markdown";
+  }
+
+  if (lowerName.endsWith(".txt")) {
+    return "text";
+  }
+
+  return null;
+}
+
+function PlusIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
+      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <animateTransform
+          attributeName="transform"
+          attributeType="XML"
+          type="rotate"
+          from="0 8 8"
+          to="360 8 8"
+          dur="0.8s"
+          repeatCount="indefinite"
+        />
+      </path>
+    </svg>
   );
 }
 
