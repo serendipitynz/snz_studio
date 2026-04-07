@@ -184,6 +184,21 @@ export class ChatRepository {
     return row ? mapSummary(row) : null;
   }
 
+  listSummariesByProject(projectId: string) {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT s.*
+          FROM chat_summaries s
+          JOIN chats c ON c.id = s.chat_id
+          WHERE c.project_id = ?
+          ORDER BY s.updated_at DESC
+        `
+      )
+      .all(projectId) as Record<string, unknown>[];
+    return rows.map(mapSummary);
+  }
+
   upsertSummary(chatId: string, summary: string) {
     const updatedAt = nowIso();
     this.db

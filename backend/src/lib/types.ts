@@ -65,6 +65,20 @@ export interface Memory {
   updatedAt: string;
 }
 
+export interface MemoryOrganizationChange {
+  action: "create" | "update" | "remove";
+  memoryId?: string;
+  kind?: MemoryKind;
+  title?: string;
+  content?: string;
+  reason: string;
+}
+
+export interface MemoryOrganizationPlan {
+  summary: string;
+  changes: MemoryOrganizationChange[];
+}
+
 export interface AssistantMessageReference {
   id: string;
   assistantMessageId: string;

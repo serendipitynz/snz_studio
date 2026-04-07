@@ -39,6 +39,20 @@ export interface MemoryRecord {
   updatedAt: string;
 }
 
+export interface MemoryOrganizationChange {
+  action: "create" | "update" | "remove";
+  memoryId?: string;
+  kind?: MemoryKind;
+  title?: string;
+  content?: string;
+  reason: string;
+}
+
+export interface MemoryOrganizationPlan {
+  summary: string;
+  changes: MemoryOrganizationChange[];
+}
+
 export interface ChatRecord {
   id: string;
   projectId: string;
@@ -163,6 +177,16 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
+    }),
+  analyzeMemoryOrganization: (projectId: string) =>
+    request<{ plan: MemoryOrganizationPlan }>(`/api/projects/${projectId}/memories/organize/analyze`, {
+      method: "POST"
+    }),
+  applyMemoryOrganization: (projectId: string, plan: MemoryOrganizationPlan) =>
+    request<{ memories: MemoryRecord[] }>(`/api/projects/${projectId}/memories/organize/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan })
     }),
   createDocument: (projectId: string, formData: FormData) =>
     request<{ document: DocumentRecord }>(`/api/projects/${projectId}/documents`, {

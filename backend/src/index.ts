@@ -16,6 +16,7 @@ import { MemoryService } from "./services/memoryService.js";
 import { EmbeddingClient } from "./services/embeddingClient.js";
 import { EmbeddingSyncService } from "./services/embeddingSyncService.js";
 import { RetrievalService } from "./services/retrievalService.js";
+import { MemoryOrganizerService } from "./services/memoryOrganizerService.js";
 import { SummaryService } from "./services/summaryService.js";
 import { parseTags, truncate } from "./lib/utils.js";
 import { upload, toPublicFilePath } from "./storage/fileStorage.js";
@@ -35,6 +36,7 @@ const context = new ContextService(projects, chats, documents, memories, retriev
 const memoryService = new MemoryService(memories);
 const llm = new LlmClient();
 const summaryService = new SummaryService(llm);
+const memoryOrganizer = new MemoryOrganizerService(memories, chats, llm, embeddingSync);
 const chatService = new ChatService(chats, context, llm, summaryService, memoryService, embeddingSync);
 
 const app = express();
@@ -288,6 +290,42 @@ app.post("/api/projects/:projectId/memories", async (req, res, next) => {
     await embeddingSync.syncMemories([memory.id]);
 
     res.status(201).json({ memory });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/projects/:projectId/memories/organize/analyze", async (req, res, next) => {
+  try {
+    const project = projects.getProject(req.params.projectId);
+    if (!project) {
+      res.status(404).json({ error: "project not found" });
+      return;
+    }
+
+    const plan = await memoryOrganizer.analyzeProject(project.id);
+    res.json({ plan });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/projects/:projectId/memories/organize/apply", async (req, res, next) => {
+  try {
+    const project = projects.getProject(req.params.projectId);
+    if (!project) {
+      res.status(404).json({ error: "project not found" });
+      return;
+    }
+
+    const plan = req.body?.plan;
+    if (!plan || typeof plan !== "object") {
+      res.status(400).json({ error: "plan is required" });
+      return;
+    }
+
+    const memoriesAfter = await memoryOrganizer.applyProjectPlan(project.id, plan);
+    res.json({ memories: memoriesAfter });
   } catch (error) {
     next(error);
   }

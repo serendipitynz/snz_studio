@@ -1,6 +1,15 @@
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, ChatRecord, DocumentCategory, DocumentRecord, MemoryKind, MemoryRecord, Project } from "../api/client";
+import {
+  api,
+  ChatRecord,
+  DocumentCategory,
+  DocumentRecord,
+  MemoryKind,
+  MemoryOrganizationPlan,
+  MemoryRecord,
+  Project
+} from "../api/client";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import {
@@ -62,6 +71,8 @@ export function ProjectDetailPage() {
   const [isSystemPromptModalOpen, setIsSystemPromptModalOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [systemPromptDraft, setSystemPromptDraft] = useState("");
+  const [memoryPlan, setMemoryPlan] = useState<MemoryOrganizationPlan | null>(null);
+  const [organizingMemories, setOrganizingMemories] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -127,11 +138,46 @@ export function ProjectDetailPage() {
       await api.createMemory(projectId, { title: memoryTitle, content: memoryContent, kind: memoryKind });
       setMemoryTitle("");
       setMemoryContent("");
+      setMemoryPlan(null);
       await load();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to create memory");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleAnalyzeMemories() {
+    setIsMemoryModalOpen(true);
+    setOrganizingMemories(true);
+    setError("");
+
+    try {
+      const response = await api.analyzeMemoryOrganization(projectId);
+      setMemoryPlan(response.plan);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to analyze memories");
+    } finally {
+      setOrganizingMemories(false);
+    }
+  }
+
+  async function handleApplyMemoryPlan() {
+    if (!memoryPlan) {
+      return;
+    }
+
+    setOrganizingMemories(true);
+    setError("");
+
+    try {
+      const response = await api.applyMemoryOrganization(projectId, memoryPlan);
+      setState((current) => (current ? { ...current, memories: response.memories } : current));
+      setMemoryPlan(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to apply memory organization");
+    } finally {
+      setOrganizingMemories(false);
     }
   }
 
@@ -525,9 +571,14 @@ export function ProjectDetailPage() {
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <Badge tone="muted">Memories</Badge>
-                <IconButton type="button" aria-label="Edit memories" onClick={() => setIsMemoryModalOpen(true)}>
-                  <EditIcon />
-                </IconButton>
+                <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                  <Button type="button" variant="ghost" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
+                    {organizingMemories ? "Organizing..." : "Organize"}
+                  </Button>
+                  <IconButton type="button" aria-label="Edit memories" onClick={() => setIsMemoryModalOpen(true)}>
+                    <EditIcon />
+                  </IconButton>
+                </Row>
               </Row>
               {(["procedural", "semantic", "episodic"] as const).map((kind) => (
                 <Stack key={kind}>
@@ -751,10 +802,52 @@ export function ProjectDetailPage() {
                   <SectionTitle>Project Memories</SectionTitle>
                   <Subtle>Add durable instructions, facts, and historical notes for this project.</Subtle>
                 </div>
-                <Button type="button" variant="ghost" onClick={() => setIsMemoryModalOpen(false)}>
-                  Close
-                </Button>
+                <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                  <Button type="button" variant="ghost" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
+                    {organizingMemories ? "Organizing..." : "Organize"}
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => setIsMemoryModalOpen(false)}>
+                    Close
+                  </Button>
+                </Row>
               </Row>
+
+              {memoryPlan ? (
+                <Card>
+                  <Stack>
+                    <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                      <SectionTitle>Organization Plan</SectionTitle>
+                      <Button
+                        type="button"
+                        onClick={() => void handleApplyMemoryPlan()}
+                        disabled={organizingMemories || memoryPlan.changes.length === 0}
+                      >
+                        Apply
+                      </Button>
+                    </Row>
+                    <Subtle>{memoryPlan.summary || "No summary."}</Subtle>
+                    {memoryPlan.changes.length === 0 ? (
+                      <Subtle>No changes suggested.</Subtle>
+                    ) : (
+                      <List>
+                        {memoryPlan.changes.map((change, index) => (
+                          <Item key={`${change.action}-${change.memoryId ?? change.title ?? index}`}>
+                            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                              <strong>{change.title || change.memoryId || change.action}</strong>
+                              <Badge tone={change.action === "remove" ? "warm" : change.action === "update" ? "accent" : "muted"}>
+                                {change.action}
+                              </Badge>
+                            </Row>
+                            {change.kind ? <Subtle>{change.kind}</Subtle> : null}
+                            {change.content ? <Subtle>{change.content}</Subtle> : null}
+                            <Subtle>{change.reason}</Subtle>
+                          </Item>
+                        ))}
+                      </List>
+                    )}
+                  </Stack>
+                </Card>
+              ) : null}
 
               <Card as="form" onSubmit={handleCreateMemory}>
                 <Stack>

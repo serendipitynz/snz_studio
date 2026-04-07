@@ -161,6 +161,59 @@ export class MemoryRepository {
     return memory;
   }
 
+  updateMemory(input: { memoryId: string; kind: MemoryKind; title: string; content: string }) {
+    const existing = this.db
+      .prepare("SELECT * FROM memories WHERE id = ?")
+      .get(input.memoryId) as Record<string, unknown> | undefined;
+
+    if (!existing) {
+      return null;
+    }
+
+    const updatedAt = nowIso();
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `
+            UPDATE memories
+            SET kind = ?, title = ?, content = ?, updated_at = ?
+            WHERE id = ?
+          `
+        )
+        .run(input.kind, input.title.trim(), input.content.trim(), updatedAt, input.memoryId);
+
+      this.db.prepare("DELETE FROM memories_fts WHERE memory_id = ?").run(input.memoryId);
+      this.db
+        .prepare("INSERT INTO memories_fts (project_id, memory_id, kind, title, content) VALUES (?, ?, ?, ?, ?)")
+        .run(
+          String(existing.project_id),
+          input.memoryId,
+          buildSearchText(input.kind),
+          buildSearchText(input.title.trim()),
+          buildSearchText(input.content.trim())
+        );
+    });
+
+    tx();
+    const row = this.db.prepare("SELECT * FROM memories WHERE id = ?").get(input.memoryId) as Record<string, unknown>;
+    return mapMemory(row);
+  }
+
+  deleteMemory(memoryId: string) {
+    const row = this.db.prepare("SELECT * FROM memories WHERE id = ?").get(memoryId) as Record<string, unknown> | undefined;
+    if (!row) {
+      return null;
+    }
+
+    const tx = this.db.transaction(() => {
+      this.db.prepare("DELETE FROM memories_fts WHERE memory_id = ?").run(memoryId);
+      this.db.prepare("DELETE FROM memories WHERE id = ?").run(memoryId);
+    });
+
+    tx();
+    return mapMemory(row);
+  }
+
   hasSimilarMemory(projectId: string, title: string, content: string) {
     const row = this.db
       .prepare(
