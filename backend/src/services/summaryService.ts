@@ -57,7 +57,7 @@ export class SummaryService {
         temperature: 0.15
       });
 
-      return truncate(summary.replace(/\n{3,}/g, "\n\n").trim(), 1600);
+      return truncate(summary.content.replace(/\n{3,}/g, "\n\n").trim(), 1600);
     } catch {
       return buildFallbackSummary(existingSummary, recentMessages);
     }

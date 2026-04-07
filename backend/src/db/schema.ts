@@ -145,6 +145,14 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_memory_embeddings_project
         ON memory_embeddings(project_id, kind);
     `
+  },
+  {
+    id: "003_message_metrics",
+    sql: `
+      ALTER TABLE messages ADD COLUMN response_ms INTEGER;
+      ALTER TABLE messages ADD COLUMN output_tokens INTEGER;
+      ALTER TABLE messages ADD COLUMN tokens_per_second REAL;
+    `
   }
 ];
 

@@ -41,6 +41,9 @@ export interface Message {
   role: MessageRole;
   content: string;
   createdAt: string;
+  responseMs: number | null;
+  outputTokens: number | null;
+  tokensPerSecond: number | null;
 }
 
 export interface ChatSummary {

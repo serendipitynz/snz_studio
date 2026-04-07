@@ -25,7 +25,10 @@ function mapMessage(row: Record<string, unknown>): Message {
     chatId: String(row.chat_id),
     role: row.role as MessageRole,
     content: String(row.content),
-    createdAt: String(row.created_at)
+    createdAt: String(row.created_at),
+    responseMs: row.response_ms == null ? null : Number(row.response_ms),
+    outputTokens: row.output_tokens == null ? null : Number(row.output_tokens),
+    tokensPerSecond: row.tokens_per_second == null ? null : Number(row.tokens_per_second)
   };
 }
 
@@ -112,19 +115,40 @@ export class ChatRepository {
     return chat;
   }
 
-  addMessage(input: { chatId: string; role: MessageRole; content: string }) {
+  addMessage(input: {
+    chatId: string;
+    role: MessageRole;
+    content: string;
+    responseMs?: number | null;
+    outputTokens?: number | null;
+    tokensPerSecond?: number | null;
+  }) {
     const message: Message = {
       id: createId("msg"),
       chatId: input.chatId,
       role: input.role,
       content: input.content.trim(),
-      createdAt: nowIso()
+      createdAt: nowIso(),
+      responseMs: input.responseMs ?? null,
+      outputTokens: input.outputTokens ?? null,
+      tokensPerSecond: input.tokensPerSecond ?? null
     };
 
     const tx = this.db.transaction(() => {
       this.db
-        .prepare("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)")
-        .run(message.id, message.chatId, message.role, message.content, message.createdAt);
+        .prepare(
+          "INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .run(
+          message.id,
+          message.chatId,
+          message.role,
+          message.content,
+          message.createdAt,
+          message.responseMs,
+          message.outputTokens,
+          message.tokensPerSecond
+        );
       this.db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(nowIso(), message.chatId);
     });
 

@@ -13,6 +13,34 @@ function getLmStudioApiRoot(baseUrl: string) {
   return baseUrl.replace(/\/$/, "").replace(/(\/api)?\/v1$/i, "");
 }
 
+function estimateTokenCount(input: string) {
+  const normalized = input.trim();
+  if (!normalized) {
+    return 0;
+  }
+
+  const wordLike = normalized.match(/[\p{L}\p{N}_-]+/gu)?.length ?? 0;
+  const japaneseChars = normalized.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]/gu)?.length ?? 0;
+  return Math.max(wordLike, Math.ceil(japaneseChars / 1.8), Math.ceil(normalized.length / 4));
+}
+
+function buildGenerationMetrics(content: string, elapsedMs: number, outputTokens?: number | null) {
+  const safeElapsedMs = Math.max(1, Math.round(elapsedMs));
+  const tokens = Math.max(0, outputTokens ?? estimateTokenCount(content));
+  return {
+    responseMs: safeElapsedMs,
+    outputTokens: tokens,
+    tokensPerSecond: tokens > 0 ? Number((tokens / (safeElapsedMs / 1000)).toFixed(2)) : 0
+  };
+}
+
+export interface ChatCompletionResult {
+  content: string;
+  responseMs: number;
+  outputTokens: number;
+  tokensPerSecond: number;
+}
+
 export class LlmClient {
   async listModels(baseUrl = config.llmBaseUrl) {
     const headers = createHeaders();
@@ -139,6 +167,7 @@ export class LlmClient {
   }
 
   async createChatCompletion(input: { systemPrompt: string; messages: Message[]; userInput: string; temperature?: number }) {
+    const startedAt = performance.now();
     const body = {
       model: config.llmModel,
       temperature: input.temperature ?? 0.25,
@@ -177,6 +206,7 @@ export class LlmClient {
 
       const data = (await response.json()) as {
         choices?: Array<{ message?: { content?: string } }>;
+        usage?: { completion_tokens?: number };
       };
 
       const content = data.choices?.[0]?.message?.content?.trim();
@@ -184,7 +214,10 @@ export class LlmClient {
         throw new Error("LLM response did not contain message content");
       }
 
-      return content;
+      return {
+        content,
+        ...buildGenerationMetrics(content, performance.now() - startedAt, data.usage?.completion_tokens)
+      };
     } finally {
       clearTimeout(timeout);
     }
@@ -197,10 +230,14 @@ export class LlmClient {
     onDelta: (chunk: string) => void;
     temperature?: number;
   }) {
+    const startedAt = performance.now();
     const body = {
       model: config.llmModel,
       temperature: input.temperature ?? 0.25,
       stream: true,
+      stream_options: {
+        include_usage: true
+      },
       messages: [
         { role: "system", content: input.systemPrompt },
         ...input.messages.map((message) => ({
@@ -242,6 +279,7 @@ export class LlmClient {
       const decoder = new TextDecoder();
       let buffer = "";
       let content = "";
+      let completionTokens: number | null = null;
 
       const handleChunk = (chunk: string) => {
         const lines = chunk.split(/\r?\n/);
@@ -261,7 +299,12 @@ export class LlmClient {
 
         const payload = JSON.parse(dataText) as {
           choices?: Array<{ delta?: { content?: string } }>;
+          usage?: { completion_tokens?: number };
         };
+
+        if (payload.usage?.completion_tokens != null) {
+          completionTokens = payload.usage.completion_tokens;
+        }
 
         const delta = payload.choices?.[0]?.delta?.content ?? "";
         if (!delta) {
@@ -300,7 +343,10 @@ export class LlmClient {
         throw new Error("LLM stream did not contain message content");
       }
 
-      return content;
+      return {
+        content,
+        ...buildGenerationMetrics(content, performance.now() - startedAt, completionTokens)
+      };
     } finally {
       clearTimeout(timeout);
     }

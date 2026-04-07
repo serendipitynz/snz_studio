@@ -48,8 +48,29 @@ function createOptimisticMessage(chatId: string, role: "user" | "assistant", con
     role,
     content,
     createdAt: new Date().toISOString(),
+    responseMs: null,
+    outputTokens: null,
+    tokensPerSecond: null,
     references: []
   };
+}
+
+function formatAssistantMetrics(message: MessageRecord) {
+  if (message.role !== "assistant") {
+    return "";
+  }
+
+  const parts = [];
+  if (message.responseMs != null) {
+    parts.push(`${(message.responseMs / 1000).toFixed(1)}s`);
+  }
+  if (message.outputTokens != null) {
+    parts.push(`${message.outputTokens} tok`);
+  }
+  if (message.tokensPerSecond != null) {
+    parts.push(`${message.tokensPerSecond.toFixed(1)} tok/s`);
+  }
+  return parts.join(" · ");
 }
 
 const INSPECTOR_STORAGE_KEY = "snz.chat.inspectorCollapsed";
@@ -538,21 +559,32 @@ export function ChatPage() {
                     ) : (
                       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{message.content}</div>
                     )}
-                    {message.references.length ? (
-                      <details>
-                        <summary>References used ({message.references.length})</summary>
-                        <List style={{ marginTop: 10 }}>
-                          {message.references.map((reference) => (
-                            <Item key={reference.id}>
-                              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                                <strong>{reference.label}</strong>
-                                <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
-                              </Row>
-                              <Subtle>{reference.excerpt || "No excerpt stored"}</Subtle>
-                            </Item>
-                          ))}
-                        </List>
-                      </details>
+                    {message.references.length || message.role === "assistant" ? (
+                      <Row style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          {message.references.length ? (
+                            <details>
+                              <summary>References used ({message.references.length})</summary>
+                              <List style={{ marginTop: 10 }}>
+                                {message.references.map((reference) => (
+                                  <Item key={reference.id}>
+                                    <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                                      <strong>{reference.label}</strong>
+                                      <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
+                                    </Row>
+                                    <Subtle>{reference.excerpt || "No excerpt stored"}</Subtle>
+                                  </Item>
+                                ))}
+                              </List>
+                            </details>
+                          ) : null}
+                        </div>
+                        {message.role === "assistant" ? (
+                          <MetaText style={{ whiteSpace: "nowrap", textAlign: "right", opacity: 0.78 }}>
+                            {formatAssistantMetrics(message)}
+                          </MetaText>
+                        ) : null}
+                      </Row>
                     ) : null}
                   </Stack>
                 </MessageBubble>
