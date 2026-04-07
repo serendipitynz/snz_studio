@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { Memory, MemoryKind } from "../lib/types.js";
+import { Memory, MemoryKind, MemorySource } from "../lib/types.js";
 import { createId, nowIso } from "../lib/utils.js";
 import { buildSearchText } from "../lib/searchText.js";
 
@@ -11,6 +11,8 @@ function mapMemory(row: Record<string, unknown>): Memory {
     title: String(row.title),
     content: String(row.content),
     sourceChatId: row.source_chat_id ? String(row.source_chat_id) : null,
+    source: (row.source as MemorySource | undefined) ?? "manual",
+    locked: Boolean(row.locked),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
@@ -18,6 +20,11 @@ function mapMemory(row: Record<string, unknown>): Memory {
 
 export class MemoryRepository {
   constructor(private readonly db: Database.Database) {}
+
+  getMemory(memoryId: string) {
+    const row = this.db.prepare("SELECT * FROM memories WHERE id = ?").get(memoryId) as Record<string, unknown> | undefined;
+    return row ? mapMemory(row) : null;
+  }
 
   listForEmbedding(memoryIds?: string[]) {
     if (memoryIds?.length) {
@@ -106,14 +113,14 @@ export class MemoryRepository {
 
   listByProject(projectId: string) {
     const rows = this.db
-      .prepare("SELECT * FROM memories WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC")
+      .prepare("SELECT * FROM memories WHERE project_id = ? ORDER BY locked DESC, updated_at DESC, created_at DESC")
       .all(projectId) as Record<string, unknown>[];
     return rows.map(mapMemory);
   }
 
   listByProjectAndKind(projectId: string, kind: MemoryKind) {
     const rows = this.db
-      .prepare("SELECT * FROM memories WHERE project_id = ? AND kind = ? ORDER BY updated_at DESC")
+      .prepare("SELECT * FROM memories WHERE project_id = ? AND kind = ? ORDER BY locked DESC, updated_at DESC")
       .all(projectId, kind) as Record<string, unknown>[];
     return rows.map(mapMemory);
   }
@@ -124,6 +131,8 @@ export class MemoryRepository {
     title: string;
     content: string;
     sourceChatId?: string | null;
+    source?: MemorySource;
+    locked?: boolean;
   }) {
     const memory: Memory = {
       id: createId("memory"),
@@ -132,6 +141,8 @@ export class MemoryRepository {
       title: input.title.trim(),
       content: input.content.trim(),
       sourceChatId: input.sourceChatId ?? null,
+      source: input.source ?? "manual",
+      locked: input.locked ?? false,
       createdAt: nowIso(),
       updatedAt: nowIso()
     };
@@ -140,8 +151,8 @@ export class MemoryRepository {
       this.db
         .prepare(
           `
-            INSERT INTO memories (id, project_id, kind, title, content, source_chat_id, created_at, updated_at)
-            VALUES (@id, @projectId, @kind, @title, @content, @sourceChatId, @createdAt, @updatedAt)
+            INSERT INTO memories (id, project_id, kind, title, content, source_chat_id, source, locked, created_at, updated_at)
+            VALUES (@id, @projectId, @kind, @title, @content, @sourceChatId, @source, @locked, @createdAt, @updatedAt)
           `
         )
         .run(memory);
@@ -161,7 +172,7 @@ export class MemoryRepository {
     return memory;
   }
 
-  updateMemory(input: { memoryId: string; kind: MemoryKind; title: string; content: string }) {
+  updateMemory(input: { memoryId: string; kind: MemoryKind; title: string; content: string; locked?: boolean }) {
     const existing = this.db
       .prepare("SELECT * FROM memories WHERE id = ?")
       .get(input.memoryId) as Record<string, unknown> | undefined;
@@ -176,11 +187,11 @@ export class MemoryRepository {
         .prepare(
           `
             UPDATE memories
-            SET kind = ?, title = ?, content = ?, updated_at = ?
+            SET kind = ?, title = ?, content = ?, locked = COALESCE(?, locked), updated_at = ?
             WHERE id = ?
           `
         )
-        .run(input.kind, input.title.trim(), input.content.trim(), updatedAt, input.memoryId);
+        .run(input.kind, input.title.trim(), input.content.trim(), input.locked == null ? null : Number(input.locked), updatedAt, input.memoryId);
 
       this.db.prepare("DELETE FROM memories_fts WHERE memory_id = ?").run(input.memoryId);
       this.db
@@ -196,6 +207,30 @@ export class MemoryRepository {
 
     tx();
     const row = this.db.prepare("SELECT * FROM memories WHERE id = ?").get(input.memoryId) as Record<string, unknown>;
+    return mapMemory(row);
+  }
+
+  setMemoryLocked(memoryId: string, locked: boolean) {
+    const existing = this.db
+      .prepare("SELECT * FROM memories WHERE id = ?")
+      .get(memoryId) as Record<string, unknown> | undefined;
+
+    if (!existing) {
+      return null;
+    }
+
+    const updatedAt = nowIso();
+    this.db
+      .prepare(
+        `
+          UPDATE memories
+          SET locked = ?, updated_at = ?
+          WHERE id = ?
+        `
+      )
+      .run(Number(locked), updatedAt, memoryId);
+
+    const row = this.db.prepare("SELECT * FROM memories WHERE id = ?").get(memoryId) as Record<string, unknown>;
     return mapMemory(row);
   }
 

@@ -39,6 +39,7 @@ const DURABLE_CUES: Array<{ regex: RegExp; kind: MemoryKind; title: string }> = 
 ];
 
 const QUESTION_CUES = /[?？]|(ですか|ますか|でしょうか|できますか|してもいいですか|どうでしょう)/u;
+const MAX_MEMORY_LENGTH = 300;
 
 export class MemoryService {
   constructor(private readonly memories: MemoryRepository) {}
@@ -57,6 +58,10 @@ export class MemoryService {
         continue;
       }
 
+      if (sentence.length > MAX_MEMORY_LENGTH) {
+        continue;
+      }
+
       const matched = DURABLE_CUES.find((cue) => cue.regex.test(sentence));
       if (!matched) {
         continue;
@@ -72,7 +77,9 @@ export class MemoryService {
           kind: matched.kind,
           title: matched.title,
           content: sentence,
-          sourceChatId: input.chatId
+          sourceChatId: input.chatId,
+          source: "chat",
+          locked: false
         })
       );
     }

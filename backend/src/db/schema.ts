@@ -159,6 +159,17 @@ const migrations = [
     sql: `
       ALTER TABLE documents ADD COLUMN category TEXT NOT NULL DEFAULT 'misc';
     `
+  },
+  {
+    id: "005_memory_metadata",
+    sql: `
+      ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
+      ALTER TABLE memories ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
+      UPDATE memories
+      SET source = CASE WHEN source_chat_id IS NOT NULL THEN 'chat' ELSE 'manual' END,
+          locked = CASE WHEN source_chat_id IS NULL THEN 1 ELSE 0 END
+      WHERE source = 'manual' AND locked = 0;
+    `
   }
 ];
 

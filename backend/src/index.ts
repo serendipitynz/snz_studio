@@ -266,12 +266,12 @@ app.post("/api/projects/:projectId/memories", async (req, res, next) => {
       return;
     }
 
-    const title = String(req.body?.title ?? "").trim();
     const content = String(req.body?.content ?? "").trim();
     const kindValue = String(req.body?.kind ?? "semantic");
+    const locked = req.body?.locked !== false;
 
-    if (!title || !content) {
-      res.status(400).json({ error: "title and content are required" });
+    if (!content) {
+      res.status(400).json({ error: "content is required" });
       return;
     }
 
@@ -282,9 +282,11 @@ app.post("/api/projects/:projectId/memories", async (req, res, next) => {
 
     const memory = memories.createMemory({
       projectId: project.id,
-      title,
+      title: generateMemoryTitle(content, kindValue as "semantic" | "procedural" | "episodic"),
       content,
-      kind: kindValue as "semantic" | "procedural" | "episodic"
+      kind: kindValue as "semantic" | "procedural" | "episodic",
+      source: "manual",
+      locked
     });
 
     await embeddingSync.syncMemories([memory.id]);
@@ -293,6 +295,32 @@ app.post("/api/projects/:projectId/memories", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+app.patch("/api/memories/:memoryId/lock", (req, res) => {
+  const locked = req.body?.locked;
+  if (typeof locked !== "boolean") {
+    res.status(400).json({ error: "locked must be a boolean" });
+    return;
+  }
+
+  const memory = memories.setMemoryLocked(req.params.memoryId, locked);
+  if (!memory) {
+    res.status(404).json({ error: "memory not found" });
+    return;
+  }
+
+  res.json({ memory });
+});
+
+app.delete("/api/memories/:memoryId", (req, res) => {
+  const memory = memories.deleteMemory(req.params.memoryId);
+  if (!memory) {
+    res.status(404).json({ error: "memory not found" });
+    return;
+  }
+
+  res.json({ ok: true, memory });
 });
 
 app.post("/api/projects/:projectId/memories/organize/analyze", async (req, res, next) => {
@@ -532,6 +560,30 @@ app.post("/api/chats/:chatId/messages/stream", async (req, res) => {
     res.end();
   }
 });
+
+function generateMemoryTitle(content: string, kind: "semantic" | "procedural" | "episodic") {
+  const normalized = content
+    .replace(/^#+\s*/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const firstSentence = normalized.split(/[。！？.!?\n]/)[0]?.trim() || normalized;
+  const base = truncate(firstSentence, 48);
+
+  if (base) {
+    return base;
+  }
+
+  if (kind === "procedural") {
+    return "Working preference";
+  }
+
+  if (kind === "episodic") {
+    return "Project event";
+  }
+
+  return "Project fact";
+}
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const message = error instanceof Error ? error.message : "Unexpected server error";

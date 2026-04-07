@@ -1,6 +1,7 @@
 export type DocumentType = "markdown" | "text" | "image";
 export type DocumentCategory = "world" | "character" | "rule" | "plot" | "timeline" | "index" | "story" | "misc";
 export type MemoryKind = "semantic" | "procedural" | "episodic";
+export type MemorySource = "manual" | "chat" | "organized";
 export type MessageRole = "user" | "assistant" | "system";
 
 export interface Project {
@@ -35,6 +36,8 @@ export interface MemoryRecord {
   title: string;
   content: string;
   sourceChatId: string | null;
+  source: MemorySource;
+  locked: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -172,11 +175,21 @@ export const api = {
     request<{ ok: boolean; chat: ChatRecord }>(`/api/chats/${chatId}`, {
       method: "DELETE"
     }),
-  createMemory: (projectId: string, input: { title: string; content: string; kind: MemoryKind }) =>
+  createMemory: (projectId: string, input: { content: string; kind: MemoryKind; locked?: boolean }) =>
     request<{ memory: MemoryRecord }>(`/api/projects/${projectId}/memories`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
+    }),
+  updateMemoryLock: (memoryId: string, locked: boolean) =>
+    request<{ memory: MemoryRecord }>(`/api/memories/${memoryId}/lock`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locked })
+    }),
+  deleteMemory: (memoryId: string) =>
+    request<{ ok: boolean; memory: MemoryRecord }>(`/api/memories/${memoryId}`, {
+      method: "DELETE"
     }),
   analyzeMemoryOrganization: (projectId: string) =>
     request<{ plan: MemoryOrganizationPlan }>(`/api/projects/${projectId}/memories/organize/analyze`, {

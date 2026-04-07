@@ -57,13 +57,14 @@ export function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [chatTitle, setChatTitle] = useState("");
   const [memoryKind, setMemoryKind] = useState<MemoryKind>("semantic");
-  const [memoryTitle, setMemoryTitle] = useState("");
   const [memoryContent, setMemoryContent] = useState("");
+  const [memoryLocked, setMemoryLocked] = useState(true);
   const [busy, setBusy] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [pendingDeleteDocumentId, setPendingDeleteDocumentId] = useState<string | null>(null);
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
+  const [pendingDeleteMemoryId, setPendingDeleteMemoryId] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null);
   const [documentCategoryDraft, setDocumentCategoryDraft] = useState<DocumentCategory>("misc");
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
@@ -135,9 +136,9 @@ export function ProjectDetailPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      await api.createMemory(projectId, { title: memoryTitle, content: memoryContent, kind: memoryKind });
-      setMemoryTitle("");
+      await api.createMemory(projectId, { content: memoryContent, kind: memoryKind, locked: memoryLocked });
       setMemoryContent("");
+      setMemoryLocked(true);
       setMemoryPlan(null);
       await load();
     } catch (nextError) {
@@ -178,6 +179,59 @@ export function ProjectDetailPage() {
       setError(nextError instanceof Error ? nextError.message : "Failed to apply memory organization");
     } finally {
       setOrganizingMemories(false);
+    }
+  }
+
+  async function handleToggleMemoryLock(memoryId: string, locked: boolean) {
+    setBusy(true);
+    setError("");
+
+    try {
+      const response = await api.updateMemoryLock(memoryId, locked);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              memories: current.memories
+                .map((memory) => (memory.id === response.memory.id ? response.memory : memory))
+                .sort((left, right) => {
+                  if (left.locked !== right.locked) {
+                    return left.locked ? -1 : 1;
+                  }
+
+                  return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+                })
+            }
+          : current
+      );
+      setMemoryPlan(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to update memory");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteMemory(memoryId: string) {
+    setBusy(true);
+    setError("");
+
+    try {
+      await api.deleteMemory(memoryId);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              memories: current.memories.filter((memory) => memory.id !== memoryId)
+            }
+          : current
+      );
+      setPendingDeleteMemoryId(null);
+      setMemoryPlan(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to delete memory");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -571,21 +625,22 @@ export function ProjectDetailPage() {
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <Badge tone="muted">Memories</Badge>
-                <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                  <Button type="button" variant="ghost" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
-                    {organizingMemories ? "Organizing..." : "Organize"}
-                  </Button>
-                  <IconButton type="button" aria-label="Edit memories" onClick={() => setIsMemoryModalOpen(true)}>
-                    <EditIcon />
-                  </IconButton>
-                </Row>
+                <IconButton type="button" aria-label="Edit memories" onClick={() => setIsMemoryModalOpen(true)}>
+                  <EditIcon />
+                </IconButton>
               </Row>
               {(["procedural", "semantic", "episodic"] as const).map((kind) => (
                 <Stack key={kind}>
                   <Subtle>{kind}</Subtle>
                   {groupedMemories[kind].slice(0, 4).map((memory) => (
                     <Item key={memory.id}>
-                      <strong>{memory.title}</strong>
+                      <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                        <strong>{memory.title}</strong>
+                        <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                          <Badge tone="muted">{memory.source}</Badge>
+                          {memory.locked ? <Badge tone="warm">locked</Badge> : null}
+                        </Row>
+                      </Row>
                       <Subtle>{memory.content}</Subtle>
                     </Item>
                   ))}
@@ -798,10 +853,7 @@ export function ProjectDetailPage() {
           <ModalCard onClick={(event) => event.stopPropagation()}>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <SectionTitle>Project Memories</SectionTitle>
-                  <Subtle>Add durable instructions, facts, and historical notes for this project.</Subtle>
-                </div>
+                <SectionTitle>Project Memories</SectionTitle>
                 <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
                   <Button type="button" variant="ghost" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
                     {organizingMemories ? "Organizing..." : "Organize"}
@@ -856,14 +908,10 @@ export function ProjectDetailPage() {
                     <Field>
                       Kind
                       <Select value={memoryKind} onChange={(event) => setMemoryKind(event.target.value as MemoryKind)}>
-                        <option value="semantic">semantic</option>
-                        <option value="procedural">procedural</option>
-                        <option value="episodic">episodic</option>
+                        <option value="semantic">semantic (stable facts)</option>
+                        <option value="procedural">procedural (how to work)</option>
+                        <option value="episodic">episodic (past decisions or events)</option>
                       </Select>
-                    </Field>
-                    <Field>
-                      Title
-                      <Input value={memoryTitle} onChange={(event) => setMemoryTitle(event.target.value)} placeholder="Persistent preference" />
                     </Field>
                     <Field>
                       Content
@@ -873,8 +921,11 @@ export function ProjectDetailPage() {
                         placeholder="Durable fact worth carrying across chats"
                       />
                     </Field>
+                    <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <input type="checkbox" checked={memoryLocked} onChange={(event) => setMemoryLocked(event.target.checked)} />
+                      <span>Lock this memory so organizer does not rewrite or remove it</span>
+                    </label>
                     <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <Subtle>`procedural` = how to work, `semantic` = stable facts, `episodic` = past decisions or events.</Subtle>
                       <Button type="submit" disabled={busy}>
                         Save memory
                       </Button>
@@ -891,8 +942,63 @@ export function ProjectDetailPage() {
                       {groupedMemories[kind].length === 0 ? <Subtle>No {kind} memory yet.</Subtle> : null}
                       <List>
                         {groupedMemories[kind].map((memory) => (
-                          <Item key={memory.id}>
-                            <strong>{memory.title}</strong>
+                          <Item key={memory.id} style={{ position: "relative" }}>
+                            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <Row style={{ alignItems: "center" }}>
+                                  <strong>{memory.title}</strong>
+                                  <Badge tone="muted">{memory.source}</Badge>
+                                  {memory.locked ? <Badge tone="warm">locked</Badge> : null}
+                                </Row>
+                              </div>
+                              <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                                <IconButton
+                                  type="button"
+                                  aria-label={memory.locked ? "Unlock memory" : "Lock memory"}
+                                  onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
+                                >
+                                  {memory.locked ? <UnlockIcon /> : <LockIcon />}
+                                </IconButton>
+                                <div style={{ position: "relative" }}>
+                                  <IconButton
+                                    type="button"
+                                    aria-label="Delete memory"
+                                    onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
+                                  >
+                                    <TrashIcon />
+                                  </IconButton>
+
+                                  {pendingDeleteMemoryId === memory.id ? (
+                                    <div
+                                      style={{
+                                        position: "absolute",
+                                        right: 0,
+                                        top: 40,
+                                        width: 210,
+                                        zIndex: 2,
+                                        padding: 12,
+                                        borderRadius: 14,
+                                        border: "1px solid rgba(101, 123, 131, 0.18)",
+                                        background: "#fffaf0",
+                                        boxShadow: "0 12px 28px rgba(88, 110, 117, 0.18)"
+                                      }}
+                                    >
+                                      <Stack>
+                                        <Subtle>Delete this memory?</Subtle>
+                                        <Row>
+                                          <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
+                                            Cancel
+                                          </Button>
+                                          <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
+                                            OK
+                                          </Button>
+                                        </Row>
+                                      </Stack>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </Row>
+                            </Row>
                             <Subtle>{memory.content}</Subtle>
                           </Item>
                         ))}
@@ -969,6 +1075,34 @@ function EditIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M3 11.75V13h1.25l7.1-7.1-1.25-1.25L3 11.75ZM12.2 5.05l.75-.75a.88.88 0 0 0 0-1.25l-.95-.95a.88.88 0 0 0-1.25 0l-.75.75 1.25 1.25.95.95Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M5.75 7V5.75a2.25 2.25 0 1 1 4.5 0V7M4.75 7h6.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-4.5A.75.75 0 0 1 4.75 7Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function UnlockIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M10.25 7V5.75a2.25 2.25 0 0 0-4.36-.77M4.75 7h6.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-4.5A.75.75 0 0 1 4.75 7Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

@@ -83,13 +83,16 @@ function buildFallbackPlan(
   const seen = new Map<string, string>();
   const changes: MemoryOrganizationChange[] = [];
 
-  for (const memory of memories) {
-    const key = `${memory.kind}:${memory.title.trim().toLowerCase()}:${memory.content.trim().toLowerCase()}`;
-    const existingId = seen.get(key);
-    if (existingId) {
-      changes.push({
-        action: "remove",
-        memoryId: memory.id,
+    for (const memory of memories) {
+      const key = `${memory.kind}:${memory.title.trim().toLowerCase()}:${memory.content.trim().toLowerCase()}`;
+      const existingId = seen.get(key);
+      if (existingId) {
+        if (memory.locked) {
+          continue;
+        }
+        changes.push({
+          action: "remove",
+          memoryId: memory.id,
         reason: `同一内容の memory (${existingId}) と重複しています。`
       });
       continue;
@@ -144,7 +147,9 @@ export class MemoryOrganizerService {
           id: memory.id,
           kind: memory.kind,
           title: memory.title,
-          content: memory.content
+          content: memory.content,
+          source: memory.source,
+          locked: memory.locked
         })),
         null,
         2
@@ -164,6 +169,7 @@ export class MemoryOrganizerService {
         '  { "action": "create"|"update"|"remove", "memoryId": "existing id for update/remove", "kind": "semantic|procedural|episodic", "title": "title", "content": "content", "reason": "reason" }',
         "] }",
         "更新は既存 memory の整理に限定し、無意味な全面書き換えは避けてください。",
+        "locked=true の memory は update/remove しないでください。",
         "雑談は memory にしないでください。",
         "changes は最大 8 件に抑えてください。"
       ].join("\n")
@@ -192,14 +198,23 @@ export class MemoryOrganizerService {
 
   async applyProjectPlan(projectId: string, plan: MemoryOrganizationPlan) {
     const affectedMemoryIds: string[] = [];
+    const existingMemories = new Map(this.memories.listByProject(projectId).map((memory) => [memory.id, memory]));
 
     for (const change of plan.changes) {
+      const existing = change.memoryId ? existingMemories.get(change.memoryId) ?? null : null;
+
       if (change.action === "remove" && change.memoryId) {
+        if (existing?.locked) {
+          continue;
+        }
         this.memories.deleteMemory(change.memoryId);
         continue;
       }
 
       if (change.action === "update" && change.memoryId && change.kind && change.title && change.content) {
+        if (existing?.locked) {
+          continue;
+        }
         const updated = this.memories.updateMemory({
           memoryId: change.memoryId,
           kind: change.kind,
@@ -217,7 +232,9 @@ export class MemoryOrganizerService {
           projectId,
           kind: change.kind,
           title: change.title,
-          content: change.content
+          content: change.content,
+          source: "organized",
+          locked: false
         });
         affectedMemoryIds.push(created.id);
       }
