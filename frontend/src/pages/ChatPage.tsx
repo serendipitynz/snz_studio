@@ -70,6 +70,7 @@ export function ChatPage() {
   const [isComposing, setIsComposing] = useState(false);
   const [documentPickerValue, setDocumentPickerValue] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -337,6 +338,18 @@ export function ChatPage() {
     });
   }
 
+  async function handleCopyMessage(messageId: string, content: string) {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessageId(messageId);
+      window.setTimeout(() => {
+        setCopiedMessageId((current) => (current === messageId ? null : current));
+      }, 1400);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to copy message");
+    }
+  }
+
   if (loading) {
     return <Card>Loading chat…</Card>;
   }
@@ -383,7 +396,17 @@ export function ChatPage() {
                 <MessageBubble key={message.id} $role={message.role}>
                   <Stack>
                     <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <Badge tone={message.role === "assistant" ? "accent" : "muted"}>{message.role}</Badge>
+                      <Row style={{ alignItems: "center" }}>
+                        <Badge tone={message.role === "assistant" ? "accent" : "muted"}>{message.role}</Badge>
+                        <IconButton
+                          type="button"
+                          aria-label="Copy raw message text"
+                          onClick={() => void handleCopyMessage(message.id, message.content)}
+                        >
+                          <CopyIcon />
+                        </IconButton>
+                        {copiedMessageId === message.id ? <MetaText>Copied</MetaText> : null}
+                      </Row>
                       <MetaText>{new Date(message.createdAt).toLocaleTimeString()}</MetaText>
                     </Row>
                     {message.role === "assistant" ? (
@@ -627,6 +650,21 @@ function PanelOpenIcon() {
       <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
       <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
       <path d="M7.75 8 10.25 5.75v4.5L7.75 8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M5.25 5V3.75c0-.55.45-1 1-1h5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H10"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect x="3" y="5.25" width="7.75" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" />
     </svg>
   );
 }
