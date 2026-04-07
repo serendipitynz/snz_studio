@@ -87,6 +87,8 @@ export function ChatPage() {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [uploadingDocuments, setUploadingDocuments] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
   const [error, setError] = useState("");
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
@@ -383,8 +385,9 @@ export function ChatPage() {
       return;
     }
 
-    setSending(true);
+    setUploadingDocuments(true);
     setError("");
+    setUploadStatus("");
 
     try {
       let currentDocuments = [...projectDocuments];
@@ -410,6 +413,7 @@ export function ChatPage() {
         formData.set("type", nextType);
         formData.set("title", file.name);
         formData.set("file", file);
+        setUploadStatus(`Saving ${file.name} and generating embeddings...`);
         const response = await api.createDocument(state.project.id, formData);
         currentDocuments = [response.document, ...currentDocuments];
       }
@@ -419,7 +423,8 @@ export function ChatPage() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to upload document");
     } finally {
-      setSending(false);
+      setUploadingDocuments(false);
+      setUploadStatus("");
       setDragActive(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -623,7 +628,7 @@ export function ChatPage() {
               <Row style={{ alignItems: "center", flex: 1, minWidth: 0 }}>
                 <Select
                   value={documentPickerValue}
-                  disabled={projectDocuments.length === 0}
+                  disabled={projectDocuments.length === 0 || uploadingDocuments}
                   onChange={(event) => handleDocumentSelect(event.target.value)}
                   style={{ minWidth: 230, maxWidth: 360 }}
                 >
@@ -640,7 +645,7 @@ export function ChatPage() {
                     </>
                   )}
                 </Select>
-                <IconButton type="button" aria-label="Add document" onClick={() => setIsDocumentModalOpen(true)}>
+                <IconButton type="button" aria-label="Add document" onClick={() => setIsDocumentModalOpen(true)} disabled={uploadingDocuments}>
                   <PlusIcon />
                 </IconButton>
               </Row>
@@ -756,9 +761,15 @@ export function ChatPage() {
                 <Stack>
                   <Subtle>Drop markdown, text, or image files here.</Subtle>
                   <Subtle>If the same file name already exists, you will be asked whether to overwrite it.</Subtle>
+                  {uploadStatus ? (
+                    <Row style={{ alignItems: "center", gap: 10 }}>
+                      <SpinnerIcon />
+                      <Subtle>{uploadStatus}</Subtle>
+                    </Row>
+                  ) : null}
                   <div>
-                    <Button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending}>
-                      {sending ? "Uploading..." : "Choose files"}
+                    <Button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingDocuments}>
+                      {uploadingDocuments ? "Processing..." : "Choose files"}
                     </Button>
                   </div>
                 </Stack>

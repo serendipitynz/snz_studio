@@ -51,6 +51,7 @@ export function ProjectDetailPage() {
   const [memoryTitle, setMemoryTitle] = useState("");
   const [memoryContent, setMemoryContent] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [pendingDeleteDocumentId, setPendingDeleteDocumentId] = useState<string | null>(null);
   const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
@@ -211,6 +212,7 @@ export function ProjectDetailPage() {
 
     setBusy(true);
     setError("");
+    setUploadStatus("");
 
     try {
       let currentDocuments = [...state.documents];
@@ -236,6 +238,7 @@ export function ProjectDetailPage() {
         formData.set("type", nextType);
         formData.set("title", file.name);
         formData.set("file", file);
+        setUploadStatus(`Saving ${file.name} and generating embeddings...`);
         const response = await api.createDocument(projectId, formData);
         currentDocuments = [response.document, ...currentDocuments];
       }
@@ -245,6 +248,7 @@ export function ProjectDetailPage() {
       setError(nextError instanceof Error ? nextError.message : "Failed to upload document");
     } finally {
       setBusy(false);
+      setUploadStatus("");
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -374,10 +378,16 @@ export function ProjectDetailPage() {
                 <Stack>
                   <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                     <SectionTitle>Documents</SectionTitle>
-                    <IconButton type="button" onClick={() => fileInputRef.current?.click()} aria-label="Add document">
+                    <IconButton type="button" onClick={() => fileInputRef.current?.click()} aria-label="Add document" disabled={busy}>
                       <PlusIcon />
                     </IconButton>
                   </Row>
+                  {uploadStatus ? (
+                    <Row style={{ alignItems: "center", gap: 10 }}>
+                      <SpinnerIcon />
+                      <Subtle>{uploadStatus}</Subtle>
+                    </Row>
+                  ) : null}
 
                   <input
                     ref={fileInputRef}
@@ -396,6 +406,7 @@ export function ProjectDetailPage() {
                     <Stack>
                       <Subtle>Drop markdown, text, or image files here, or use the + button to choose files.</Subtle>
                       <Subtle>When a file name already exists, you will be asked whether to overwrite it.</Subtle>
+                      {uploadStatus ? <Subtle>Embeddings are created synchronously before the document becomes available.</Subtle> : null}
                     </Stack>
                   </DropZone>
 
@@ -865,6 +876,25 @@ function EditIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M3 11.75V13h1.25l7.1-7.1-1.25-1.25L3 11.75ZM12.2 5.05l.75-.75a.88.88 0 0 0 0-1.25l-.95-.95a.88.88 0 0 0-1.25 0l-.75.75 1.25 1.25.95.95Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
+      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <animateTransform
+          attributeName="transform"
+          attributeType="XML"
+          type="rotate"
+          from="0 8 8"
+          to="360 8 8"
+          dur="0.8s"
+          repeatCount="indefinite"
+        />
+      </path>
     </svg>
   );
 }
