@@ -1,0 +1,109 @@
+# AGENTS.md
+
+## Goal
+Build a minimal local single-user project workspace for a local LLM, with a UX loosely similar to ChatGPT / Claude Projects.
+
+## Priorities
+1. Speed of implementation
+2. Simplicity
+3. Readability
+4. Local-only operation
+5. Easy future extension
+
+## Core product shape
+The app should support:
+- projects
+- documents
+- chats
+- memories
+
+Each chat belongs to a project.
+Each project can have multiple documents and memories.
+Chats should be able to use project documents and memories as context.
+
+## Required UX
+The UX should feel like a lightweight local version of ChatGPT Projects:
+- each project has shared context
+- multiple chats can exist under one project
+- project documents can be referenced during chat
+- previous chat history should be compressed via summaries
+- persistent memories should be stored separately from raw messages
+- the UI should show what references were used for an answer
+
+## Constraints
+- Single user only
+- Local machine only
+- No auth
+- No multi-user support
+- No PDF support
+- No OCR
+- No vector database
+- No Electron
+- No external infrastructure
+- No heavy real-time architecture
+- No over-engineering
+- No tailwind
+
+## Tech preferences
+- Frontend: React + Vite + TypeScript (No tailwind)
+- Backend: TypeScript local API server
+- Database: SQLite
+- File storage: local filesystem
+
+Use lightweight, mainstream libraries only when they clearly simplify the implementation.
+
+## Search / retrieval
+Retrieval uses a hybrid approach: SQLite FTS5 for keyword matching, combined with
+optional embedding-based semantic search (vectors stored in SQLite as JSON).
+The retrieval layer in `retrievalService.ts` is isolated; additional strategies
+(e.g., re-ranking, cross-encoder) can be plugged in without touching chat logic.
+Embeddings are opt-in (disabled when `EMBEDDING_MODEL` is not configured).
+
+## Documents
+Support these document types:
+- markdown
+- text
+- image
+
+For images, store:
+- file
+- title
+- note
+- tags
+- derived_text
+
+Search should work against text content, note, tags, and derived_text.
+
+## Memory
+Persist only durable facts that are useful across chats.
+Do not store transient chatter as memory.
+Keep memory simple, but structure it so these categories can exist:
+- semantic
+- procedural
+- episodic
+
+## UI
+Must include:
+- project list
+- project detail
+- chat screen
+- document / image add flow
+
+The UI can be simple, but should be comfortable to use.
+CLI-only UX is not acceptable.
+
+## Implementation style
+- Start from the smallest working version
+- Prefer clear code over abstraction
+- Avoid unnecessary layers
+- Keep files reasonably small
+- Use straightforward naming
+- Leave concise notes for future extension points
+
+## Delivery
+Include:
+- runnable app
+- README
+- sample env file
+- sample seed data
+- basic setup instructions
