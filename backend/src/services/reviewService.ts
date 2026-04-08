@@ -11,6 +11,41 @@ export class ReviewService {
   ) {}
 
   async reviewMessage(messageId: string) {
+    const prepared = await this.prepareReview(messageId);
+
+    const review = await this.llm.createChatCompletion({
+      systemPrompt: prepared.systemPrompt,
+      messages: [],
+      userInput: prepared.userInput,
+      temperature: 0.15,
+      target: prepared.target
+    });
+
+    return {
+      review: review.content,
+      references: prepared.references
+    };
+  }
+
+  async reviewMessageStream(messageId: string, onDelta: (chunk: string) => void) {
+    const prepared = await this.prepareReview(messageId);
+
+    const review = await this.llm.createChatCompletionStream({
+      systemPrompt: prepared.systemPrompt,
+      messages: [],
+      userInput: prepared.userInput,
+      temperature: 0.15,
+      target: prepared.target,
+      onDelta
+    });
+
+    return {
+      review: (await review).content,
+      references: prepared.references
+    };
+  }
+
+  private async prepareReview(messageId: string) {
     const message = this.chats.getMessage(messageId);
     if (!message) {
       throw new Error("Message not found");
@@ -26,7 +61,7 @@ export class ReviewService {
       model: config.reviewModel || config.llmModel
     };
 
-    const review = await this.llm.createChatCompletion({
+    return {
       systemPrompt: [
         "あなたは創作文レビュー専用の編集者です。",
         "与えられた文章を書き直さず、レビューだけを返してください。",
@@ -36,14 +71,8 @@ export class ReviewService {
         "出力は markdown で、`Overall`、`Issues`、`Suggestions` の 3 セクションにしてください。",
         assembled.promptContext
       ].join("\n\n"),
-      messages: [],
       userInput: `Review this draft:\n\n${message.content}`,
-      temperature: 0.15,
-      target
-    });
-
-    return {
-      review: review.content,
+      target,
       references: assembled.references
     };
   }

@@ -119,6 +119,7 @@ export function ChatPage() {
   const [reviewTargetMessageId, setReviewTargetMessageId] = useState<string | null>(null);
   const [reviewContent, setReviewContent] = useState("");
   const [reviewReferences, setReviewReferences] = useState<ReviewReference[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -531,18 +532,106 @@ export function ChatPage() {
   }
 
   async function handleReviewMessage(messageId: string) {
+    setReviewTargetMessageId(messageId);
+    setReviewContent("");
+    setReviewReferences([]);
     setReviewingMessageId(messageId);
+    setReviewLoading(true);
     setError("");
 
     try {
-      const response = await api.reviewMessage(messageId);
-      setReviewTargetMessageId(messageId);
-      setReviewContent(response.review);
-      setReviewReferences(response.references);
+      await streamReviewMessage(messageId);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to review message");
     } finally {
       setReviewingMessageId(null);
+      setReviewLoading(false);
+    }
+  }
+
+  async function streamReviewMessage(messageId: string) {
+    const response = await fetch(`/api/messages/${messageId}/review/stream`, {
+      method: "POST"
+    });
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(data?.error ?? `Request failed with ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error("Review stream did not include a body");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    const handleEvent = (rawChunk: string) => {
+      const lines = rawChunk.split(/\r?\n/);
+      const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() ?? "message";
+      const dataText = lines
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+
+      if (!dataText) {
+        return;
+      }
+
+      const payload = JSON.parse(dataText) as {
+        content?: string;
+        message?: string;
+        review?: string;
+        references?: ReviewReference[];
+      };
+
+      if (eventName === "delta" && payload.content) {
+        setReviewContent((current) => `${current}${payload.content}`);
+        return;
+      }
+
+      if (eventName === "done") {
+        setReviewContent(payload.review ?? "");
+        setReviewReferences(payload.references ?? []);
+        return;
+      }
+
+      if (eventName === "error") {
+        throw new Error(payload.message ?? "Review stream failed");
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      let separatorIndex = buffer.indexOf("\n\n");
+
+      while (separatorIndex >= 0) {
+        const rawChunk = buffer.slice(0, separatorIndex).trim();
+        buffer = buffer.slice(separatorIndex + 2);
+        if (rawChunk) {
+          handleEvent(rawChunk);
+        }
+        separatorIndex = buffer.indexOf("\n\n");
+      }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      handleEvent(buffer.trim());
+    }
+  }
+
+  async function handleCopyReview() {
+    try {
+      await navigator.clipboard.writeText(reviewContent);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to copy review");
     }
   }
 
@@ -595,31 +684,6 @@ export function ChatPage() {
               {state.messages.map((message) => (
                 <MessageBubble key={message.id} $role={message.role}>
                   <Stack>
-                    <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <Row style={{ alignItems: "center" }}>
-                        <Badge tone={message.role === "assistant" ? "accent" : "muted"}>{message.role}</Badge>
-                        {message.role === "assistant" ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            onClick={() => void handleReviewMessage(message.id)}
-                            disabled={reviewingMessageId === message.id}
-                            style={{ padding: "8px 12px" }}
-                          >
-                            {reviewingMessageId === message.id ? "Reviewing..." : "Review"}
-                          </Button>
-                        ) : null}
-                        <IconButton
-                          type="button"
-                          aria-label="Copy raw message text"
-                          onClick={() => void handleCopyMessage(message.id, message.content)}
-                        >
-                          <CopyIcon />
-                        </IconButton>
-                        {copiedMessageId === message.id ? <MetaText>Copied</MetaText> : null}
-                      </Row>
-                      <MetaText>{new Date(message.createdAt).toLocaleTimeString()}</MetaText>
-                    </Row>
                     {message.role === "assistant" ? (
                       message.content ? (
                         <MarkdownPreview source={message.content} />
@@ -659,6 +723,46 @@ export function ChatPage() {
                         ) : null}
                       </Row>
                     ) : null}
+                    <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
+                      {message.role === "assistant" ? (
+                        <IconButton
+                          type="button"
+                          aria-label="Review message"
+                          onClick={() => void handleReviewMessage(message.id)}
+                          disabled={reviewingMessageId === message.id}
+                          title={reviewingMessageId === message.id ? "Reviewing..." : "Review"}
+                          style={{
+                            width: 24,
+                            height: 24,
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            opacity: reviewingMessageId === message.id ? 0.55 : 0.82
+                          }}
+                        >
+                          <ReviewIcon />
+                        </IconButton>
+                      ) : null}
+                      <IconButton
+                        type="button"
+                        aria-label="Copy raw message text"
+                        onClick={() => void handleCopyMessage(message.id, message.content)}
+                        title={copiedMessageId === message.id ? "Copied" : "Copy"}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          opacity: copiedMessageId === message.id ? 1 : 0.82
+                        }}
+                      >
+                        <CopyIcon />
+                      </IconButton>
+                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.78 }}>
+                        {new Date(message.createdAt).toLocaleTimeString()}
+                      </MetaText>
+                    </Row>
                   </Stack>
                 </MessageBubble>
               ))}
@@ -857,6 +961,7 @@ export function ChatPage() {
             setReviewTargetMessageId(null);
             setReviewContent("");
             setReviewReferences([]);
+            setReviewLoading(false);
           }}
         >
           <ModalCard onClick={(event) => event.stopPropagation()}>
@@ -870,13 +975,53 @@ export function ChatPage() {
                     setReviewTargetMessageId(null);
                     setReviewContent("");
                     setReviewReferences([]);
+                    setReviewLoading(false);
                   }}
                 >
                   Close
                 </Button>
               </Row>
-              <Card>
-                <MarkdownPreview source={reviewContent} />
+              <Card style={{ position: "relative" }}>
+                <IconButton
+                  type="button"
+                  aria-label="Copy review text"
+                  onClick={() => void handleCopyReview()}
+                  title="Copy review"
+                  style={{
+                    position: "absolute",
+                    top: 14,
+                    right: 14,
+                    width: 24,
+                    height: 24,
+                    border: "none",
+                    background: "transparent",
+                    padding: 0,
+                    opacity: 0.82
+                  }}
+                >
+                  <CopyIcon />
+                </IconButton>
+                {reviewContent ? (
+                  <MarkdownPreview source={reviewContent} />
+                ) : reviewLoading ? (
+                  <Row style={{ alignItems: "center", gap: 10 }}>
+                    <SpinnerIcon />
+                    <MetaText>Reviewing...</MetaText>
+                  </Row>
+                ) : (
+                  <Subtle>No review content.</Subtle>
+                )}
+                <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap", marginTop: 12 }}>
+                  <IconButton
+                    type="button"
+                    aria-label="Copy review text"
+                    onClick={() => void handleCopyReview()}
+                    title="Copy review"
+                    style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
+                  >
+                    <CopyIcon />
+                  </IconButton>
+                </Row>
               </Card>
               <Card>
                 <Stack>
@@ -963,6 +1108,20 @@ function CopyIcon() {
         strokeLinejoin="round"
       />
       <rect x="3" y="5.25" width="7.75" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function ReviewIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M3.25 3.5h9.5v6.75h-5l-2.75 2v-2h-1.75V3.5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path d="M5.5 6.25h5M5.5 8h3.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   );
 }

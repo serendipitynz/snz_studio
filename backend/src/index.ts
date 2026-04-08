@@ -512,6 +512,31 @@ app.post("/api/messages/:messageId/review", async (req, res, next) => {
   }
 });
 
+app.post("/api/messages/:messageId/review/stream", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sendEvent = (event: string, payload: unknown) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  try {
+    const result = await reviewService.reviewMessageStream(req.params.messageId, (chunk) => {
+      sendEvent("delta", { content: chunk });
+    });
+
+    sendEvent("done", result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unexpected review stream error";
+    sendEvent("error", { message });
+  } finally {
+    res.end();
+  }
+});
+
 app.patch("/api/chats/:chatId", (req, res) => {
   const title = String(req.body?.title ?? "");
 
