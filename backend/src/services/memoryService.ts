@@ -12,7 +12,7 @@ const DURABLE_CUES: Array<{ regex: RegExp; kind: MemoryKind; title: string }> = 
   },
   {
     regex:
-      /(してください|して下さい|でお願いします|をお願いします|を優先|を使って|を使いたい|は使わない|は禁止|避けてください|簡潔に|日本語で|英語で|箇条書きで|短く|詳しく|敬語で|常に)/u,
+      /(を優先|を使って|を使いたい|は使わない|は禁止|避けてください|簡潔に|日本語で|英語で|箇条書きで|短く|詳しく|敬語で|常に|毎回|必ず|今後は|以後は)/u,
     kind: "procedural",
     title: "Working preference"
   },
@@ -44,6 +44,10 @@ const QUESTION_CUES = /[?？]|(ですか|ますか|でしょうか|できます�
 const MAX_MEMORY_LENGTH = 300;
 const REMEMBER_CUES =
   /(覚えて|記憶して|メモリに保存|memory に保存|メモリ化|今後の前提に|今のことを覚えて|保存しておいて|残しておいて)/iu;
+const TRANSIENT_REQUEST_CUES =
+  /(作成してください|書いてください|考えてください|提案してください|説明してください|要約してください|レビューしてください|翻訳してください|生成してください|直してください|修正してください|教えてください|検討してください|ください。?$|お願いします。?$)/u;
+const DURABLE_PROCEDURAL_CUES =
+  /(を優先|は使わない|は禁止|避けてください|簡潔に|日本語で|英語で|箇条書きで|短く|詳しく|敬語で|常に|毎回|必ず|今後は|以後は|文体|口調|フォーマット|形式)/u;
 
 function extractJsonObject(input: string) {
   const fenced = input.match(/```json\s*([\s\S]*?)```/i)?.[1];
@@ -94,6 +98,18 @@ function inferKindFromText(input: string): MemoryKind {
   return matched?.kind ?? "episodic";
 }
 
+function shouldSkipAutoMemorySentence(sentence: string, kind: MemoryKind) {
+  if (kind !== "procedural") {
+    return false;
+  }
+
+  if (DURABLE_PROCEDURAL_CUES.test(sentence)) {
+    return false;
+  }
+
+  return TRANSIENT_REQUEST_CUES.test(sentence);
+}
+
 export class MemoryService {
   constructor(
     private readonly memories: MemoryRepository,
@@ -120,6 +136,10 @@ export class MemoryService {
 
       const matched = DURABLE_CUES.find((cue) => cue.regex.test(sentence));
       if (!matched) {
+        continue;
+      }
+
+      if (shouldSkipAutoMemorySentence(sentence, matched.kind)) {
         continue;
       }
 
