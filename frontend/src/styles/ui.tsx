@@ -285,15 +285,15 @@ export const Button = styled.button<{ variant?: "solid" | "ghost" | "warm" }>`
         ? theme.colors.line
         : variant === "warm"
           ? "rgba(181, 137, 0, 0.35)"
-          : "rgba(42, 161, 152, 0.35)"};
+          : "rgba(181, 137, 0, 0.3)"};
   background: ${({ variant }) =>
     variant === "ghost"
       ? "transparent"
       : variant === "warm"
         ? "rgba(181, 137, 0, 0.12)"
-        : "linear-gradient(180deg, #2aa198 0%, #228c84 100%)"};
-  color: ${({ variant }) => (variant === "solid" ? "#fdf6e3" : theme.colors.ink)};
-  border-radius: 999px;
+        : "linear-gradient(180deg, rgba(181, 137, 0, 0.2) 0%, rgba(181, 137, 0, 0.4) 100%)"};
+  color: ${theme.colors.ink};
+  border-radius: 12px;
   padding: 11px 16px;
   font: inherit;
   font-weight: 600;
