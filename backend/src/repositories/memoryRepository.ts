@@ -155,7 +155,10 @@ export class MemoryRepository {
             VALUES (@id, @projectId, @kind, @title, @content, @sourceChatId, @source, @locked, @createdAt, @updatedAt)
           `
         )
-        .run(memory);
+        .run({
+          ...memory,
+          locked: Number(memory.locked)
+        });
 
       this.db
         .prepare("INSERT INTO memories_fts (project_id, memory_id, kind, title, content) VALUES (?, ?, ?, ?, ?)")
