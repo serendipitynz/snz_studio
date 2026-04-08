@@ -16,6 +16,7 @@ import { MemoryService } from "./services/memoryService.js";
 import { EmbeddingClient } from "./services/embeddingClient.js";
 import { EmbeddingSyncService } from "./services/embeddingSyncService.js";
 import { RetrievalService } from "./services/retrievalService.js";
+import { ReviewService } from "./services/reviewService.js";
 import { MemoryOrganizerService } from "./services/memoryOrganizerService.js";
 import { SummaryService } from "./services/summaryService.js";
 import { parseTags, truncate } from "./lib/utils.js";
@@ -38,6 +39,7 @@ const memoryService = new MemoryService(memories, llm);
 const summaryService = new SummaryService(llm);
 const memoryOrganizer = new MemoryOrganizerService(memories, chats, llm, embeddingSync);
 const chatService = new ChatService(chats, context, llm, summaryService, memoryService, embeddingSync);
+const reviewService = new ReviewService(chats, context, llm);
 
 const app = express();
 
@@ -51,8 +53,9 @@ app.get("/api/health", (_req, res) => {
 
 app.get("/api/configuration", async (_req, res, next) => {
   try {
-    const [llmConnected, embeddingConnected] = await Promise.all([
+    const [llmConnected, reviewConnected, embeddingConnected] = await Promise.all([
       llm.checkConnection(),
+      llm.checkConnection(config.reviewBaseUrl, config.reviewModel),
       embeddingClient.checkConnection()
     ]);
 
@@ -61,6 +64,7 @@ app.get("/api/configuration", async (_req, res, next) => {
       configuration: {
         ...current,
         llmConnected,
+        reviewConnected,
         embeddingConnected
       }
     });
@@ -75,6 +79,8 @@ app.put("/api/configuration", async (req, res, next) => {
     const llmModel = String(req.body?.llmModel ?? "").trim();
     const llmResponseFormat =
       req.body?.llmResponseFormat === "llm_jp_thinking" ? "llm_jp_thinking" : "standard";
+    const reviewBaseUrl = String(req.body?.reviewBaseUrl ?? "").trim() || llmBaseUrl;
+    const reviewModel = String(req.body?.reviewModel ?? "").trim() || llmModel;
     const embeddingBaseUrl = String(req.body?.embeddingBaseUrl ?? "").trim();
     const embeddingModel = String(req.body?.embeddingModel ?? "").trim();
 
@@ -87,6 +93,8 @@ app.put("/api/configuration", async (req, res, next) => {
       llmBaseUrl,
       llmModel,
       llmResponseFormat,
+      reviewBaseUrl,
+      reviewModel,
       embeddingBaseUrl,
       embeddingModel
     });
@@ -95,6 +103,7 @@ app.put("/api/configuration", async (req, res, next) => {
 
     await Promise.all([
       llm.ensureModelLoaded(updated.llmModel, updated.llmBaseUrl),
+      llm.ensureModelLoaded(updated.reviewModel, updated.reviewBaseUrl),
       embeddingClient.ensureModelLoaded(updated.embeddingModel, updated.embeddingBaseUrl)
     ]);
 
@@ -105,8 +114,9 @@ app.put("/api/configuration", async (req, res, next) => {
       });
     }
 
-    const [llmConnected, embeddingConnected] = await Promise.all([
+    const [llmConnected, reviewConnected, embeddingConnected] = await Promise.all([
       llm.checkConnection(),
+      llm.checkConnection(updated.reviewBaseUrl, updated.reviewModel),
       embeddingClient.checkConnection()
     ]);
 
@@ -114,6 +124,7 @@ app.put("/api/configuration", async (req, res, next) => {
       configuration: {
         ...updated,
         llmConnected,
+        reviewConnected,
         embeddingConnected
       }
     });
@@ -490,6 +501,15 @@ app.get("/api/chats/:chatId", (req, res) => {
     summary: chats.getSummary(chat.id),
     messages: chats.getMessagesWithReferences(chat.id)
   });
+});
+
+app.post("/api/messages/:messageId/review", async (req, res, next) => {
+  try {
+    const result = await reviewService.reviewMessage(req.params.messageId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.patch("/api/chats/:chatId", (req, res) => {

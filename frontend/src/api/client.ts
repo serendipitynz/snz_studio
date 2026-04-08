@@ -84,6 +84,14 @@ export interface AssistantReference {
   createdAt: string;
 }
 
+export interface ReviewReference {
+  sourceType: "project" | "summary" | "document" | "memory" | "chat";
+  sourceId: string;
+  label: string;
+  excerpt: string;
+  score: number;
+}
+
 export interface MessageRecord {
   id: string;
   chatId: string;
@@ -100,10 +108,18 @@ export interface WorkspaceConfiguration {
   llmBaseUrl: string;
   llmModel: string;
   llmResponseFormat: "standard" | "llm_jp_thinking";
+  reviewBaseUrl: string;
+  reviewModel: string;
   embeddingBaseUrl: string;
   embeddingModel: string;
   llmConnected: boolean;
+  reviewConnected: boolean;
   embeddingConnected: boolean;
+}
+
+export interface ReviewResponse {
+  review: string;
+  references: ReviewReference[];
 }
 
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -121,6 +137,8 @@ export const api = {
     llmBaseUrl: string;
     llmModel: string;
     llmResponseFormat: "standard" | "llm_jp_thinking";
+    reviewBaseUrl: string;
+    reviewModel: string;
     embeddingBaseUrl: string;
     embeddingModel: string;
   }) =>
@@ -233,6 +251,10 @@ export const api = {
     }),
   getChatDetail: (chatId: string) =>
     request<{ project: Project; chat: ChatRecord; summary: ChatSummary | null; messages: MessageRecord[] }>(`/api/chats/${chatId}`),
+  reviewMessage: (messageId: string) =>
+    request<ReviewResponse>(`/api/messages/${messageId}/review`, {
+      method: "POST"
+    }),
   sendMessage: (chatId: string, content: string) =>
     request<{ chat: ChatRecord; messages: MessageRecord[]; summary: ChatSummary | null }>(`/api/chats/${chatId}/messages`, {
       method: "POST",

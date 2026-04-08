@@ -36,6 +36,8 @@ export function ProjectListPage() {
     llmBaseUrl: "",
     llmModel: "",
     llmResponseFormat: "standard" as "standard" | "llm_jp_thinking",
+    reviewBaseUrl: "",
+    reviewModel: "",
     embeddingBaseUrl: "",
     embeddingModel: ""
   });
@@ -46,8 +48,10 @@ export function ProjectListPage() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [llmModelOptions, setLlmModelOptions] = useState<string[]>([]);
+  const [reviewModelOptions, setReviewModelOptions] = useState<string[]>([]);
   const [embeddingModelOptions, setEmbeddingModelOptions] = useState<string[]>([]);
   const [loadingLlmModels, setLoadingLlmModels] = useState(false);
+  const [loadingReviewModels, setLoadingReviewModels] = useState(false);
   const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false);
   const [error, setError] = useState("");
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
@@ -64,6 +68,8 @@ export function ProjectListPage() {
         llmBaseUrl: configurationResponse.configuration.llmBaseUrl,
         llmModel: configurationResponse.configuration.llmModel,
         llmResponseFormat: configurationResponse.configuration.llmResponseFormat,
+        reviewBaseUrl: configurationResponse.configuration.reviewBaseUrl,
+        reviewModel: configurationResponse.configuration.reviewModel,
         embeddingBaseUrl: configurationResponse.configuration.embeddingBaseUrl,
         embeddingModel: configurationResponse.configuration.embeddingModel
       });
@@ -94,6 +100,23 @@ export function ProjectListPage() {
 
     return () => window.clearTimeout(timeout);
   }, [configDraft.llmBaseUrl, isConfigModalOpen]);
+
+  useEffect(() => {
+    if (!isConfigModalOpen || !configDraft.reviewBaseUrl.trim()) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setLoadingReviewModels(true);
+      api
+        .listConfigurationModels({ kind: "llm", baseUrl: configDraft.reviewBaseUrl })
+        .then((response) => setReviewModelOptions(response.models))
+        .catch(() => setReviewModelOptions([]))
+        .finally(() => setLoadingReviewModels(false));
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [configDraft.reviewBaseUrl, isConfigModalOpen]);
 
   useEffect(() => {
     if (!isConfigModalOpen || !configDraft.embeddingBaseUrl.trim()) {
@@ -141,6 +164,8 @@ export function ProjectListPage() {
         llmBaseUrl: response.configuration.llmBaseUrl,
         llmModel: response.configuration.llmModel,
         llmResponseFormat: response.configuration.llmResponseFormat,
+        reviewBaseUrl: response.configuration.reviewBaseUrl,
+        reviewModel: response.configuration.reviewModel,
         embeddingBaseUrl: response.configuration.embeddingBaseUrl,
         embeddingModel: response.configuration.embeddingModel
       });
@@ -308,6 +333,20 @@ export function ProjectListPage() {
             </Field>
             <Field>
               <FieldHeader>
+                <span>Review Endpoint</span>
+                <StatusDot $connected={Boolean(configuration?.reviewConnected)} />
+              </FieldHeader>
+              <Subtle>{configuration?.reviewBaseUrl || "Not configured"}</Subtle>
+            </Field>
+            <Field>
+              <FieldHeader>
+                <span>Review Model</span>
+                <StatusDot $connected={Boolean(configuration?.reviewConnected)} />
+              </FieldHeader>
+              <Subtle>{configuration?.reviewModel || "Not configured"}</Subtle>
+            </Field>
+            <Field>
+              <FieldHeader>
                 <span>Embedding Endpoint</span>
                 <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
               </FieldHeader>
@@ -366,6 +405,35 @@ export function ProjectListPage() {
                   <option value="standard">Standard</option>
                   <option value="llm_jp_thinking">LLM-jp Thinking</option>
                 </Select>
+              </Field>
+              <Field>
+                Review Endpoint
+                <Input
+                  value={configDraft.reviewBaseUrl}
+                  onChange={(event) => setConfigDraft((current) => ({ ...current, reviewBaseUrl: event.target.value }))}
+                  placeholder="http://127.0.0.1:1234/v1"
+                />
+              </Field>
+              <Field>
+                Review Model
+                <Input
+                  list="review-model-options"
+                  value={configDraft.reviewModel}
+                  onChange={(event) => setConfigDraft((current) => ({ ...current, reviewModel: event.target.value }))}
+                  placeholder="review model id"
+                />
+                <datalist id="review-model-options">
+                  {reviewModelOptions.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+                <Subtle>
+                  {loadingReviewModels
+                    ? "Loading model candidates..."
+                    : reviewModelOptions.length
+                      ? `${reviewModelOptions.length} candidates found`
+                      : "No model candidates available"}
+                </Subtle>
               </Field>
               <Field>
                 Embedding Endpoint

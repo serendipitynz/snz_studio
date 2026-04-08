@@ -1,5 +1,14 @@
 import { DragEvent, FormEvent, KeyboardEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
-import { api, ChatRecord, ChatSummary, DocumentRecord, MessageRecord, Project, Project as ProjectRecord } from "../api/client";
+import {
+  api,
+  ChatRecord,
+  ChatSummary,
+  DocumentRecord,
+  MessageRecord,
+  Project,
+  Project as ProjectRecord
+} from "../api/client";
+import type { ReviewReference } from "../api/client";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import {
@@ -106,6 +115,10 @@ export function ChatPage() {
   const [documentPickerValue, setDocumentPickerValue] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [reviewingMessageId, setReviewingMessageId] = useState<string | null>(null);
+  const [reviewTargetMessageId, setReviewTargetMessageId] = useState<string | null>(null);
+  const [reviewContent, setReviewContent] = useState("");
+  const [reviewReferences, setReviewReferences] = useState<ReviewReference[]>([]);
 
   async function load() {
     setLoading(true);
@@ -517,6 +530,22 @@ export function ChatPage() {
     }
   }
 
+  async function handleReviewMessage(messageId: string) {
+    setReviewingMessageId(messageId);
+    setError("");
+
+    try {
+      const response = await api.reviewMessage(messageId);
+      setReviewTargetMessageId(messageId);
+      setReviewContent(response.review);
+      setReviewReferences(response.references);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to review message");
+    } finally {
+      setReviewingMessageId(null);
+    }
+  }
+
   if (loading) {
     return <Card>Loading chat…</Card>;
   }
@@ -569,6 +598,17 @@ export function ChatPage() {
                     <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                       <Row style={{ alignItems: "center" }}>
                         <Badge tone={message.role === "assistant" ? "accent" : "muted"}>{message.role}</Badge>
+                        {message.role === "assistant" ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => void handleReviewMessage(message.id)}
+                            disabled={reviewingMessageId === message.id}
+                            style={{ padding: "8px 12px" }}
+                          >
+                            {reviewingMessageId === message.id ? "Reviewing..." : "Review"}
+                          </Button>
+                        ) : null}
                         <IconButton
                           type="button"
                           aria-label="Copy raw message text"
@@ -806,6 +846,58 @@ export function ChatPage() {
                   </div>
                 </Stack>
               </DropZone>
+            </Stack>
+          </ModalCard>
+        </ModalOverlay>
+      ) : null}
+
+      {reviewTargetMessageId ? (
+        <ModalOverlay
+          onClick={() => {
+            setReviewTargetMessageId(null);
+            setReviewContent("");
+            setReviewReferences([]);
+          }}
+        >
+          <ModalCard onClick={(event) => event.stopPropagation()}>
+            <Stack>
+              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <SectionTitle>Editorial Review</SectionTitle>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setReviewTargetMessageId(null);
+                    setReviewContent("");
+                    setReviewReferences([]);
+                  }}
+                >
+                  Close
+                </Button>
+              </Row>
+              <Card>
+                <MarkdownPreview source={reviewContent} />
+              </Card>
+              <Card>
+                <Stack>
+                  <Badge tone="warm">Review references</Badge>
+                  {reviewReferences.length ? (
+                    <List>
+                      {reviewReferences.map((reference) => (
+                        <Item key={`${reference.sourceType}-${reference.sourceId}-${reference.label}`}>
+                          <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                            <strong>{reference.label}</strong>
+                            <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
+                          </Row>
+                          <Subtle>{reference.excerpt || "No excerpt stored"}</Subtle>
+                        </Item>
+                      ))}
+                    </List>
+                  ) : (
+                    <Subtle>No review references recorded.</Subtle>
+                  )}
+                </Stack>
+              </Card>
             </Stack>
           </ModalCard>
         </ModalOverlay>

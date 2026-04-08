@@ -18,6 +18,8 @@ export interface EditableAppConfiguration {
   llmBaseUrl: string;
   llmModel: string;
   llmResponseFormat: "standard" | "llm_jp_thinking";
+  reviewBaseUrl: string;
+  reviewModel: string;
   embeddingBaseUrl: string;
   embeddingModel: string;
 }
@@ -38,6 +40,8 @@ export const config = {
   llmResponseFormat: (process.env.LLM_RESPONSE_FORMAT as EditableAppConfiguration["llmResponseFormat"] | undefined) ?? "standard",
   llmApiKey: process.env.LLM_API_KEY ?? "",
   llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 60000),
+  reviewBaseUrl: process.env.REVIEW_BASE_URL ?? process.env.LLM_BASE_URL ?? "http://127.0.0.1:1234/v1",
+  reviewModel: process.env.REVIEW_MODEL ?? process.env.LLM_MODEL ?? "local-model",
   embeddingBaseUrl: process.env.EMBEDDING_BASE_URL ?? process.env.LLM_BASE_URL ?? "http://127.0.0.1:1234/v1",
   embeddingModel: process.env.EMBEDDING_MODEL ?? "",
   embeddingApiKey: process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY ?? "",
@@ -51,6 +55,8 @@ export function getEditableConfiguration(): EditableAppConfiguration {
     llmBaseUrl: config.llmBaseUrl,
     llmModel: config.llmModel,
     llmResponseFormat: config.llmResponseFormat,
+    reviewBaseUrl: config.reviewBaseUrl,
+    reviewModel: config.reviewModel,
     embeddingBaseUrl: config.embeddingBaseUrl,
     embeddingModel: config.embeddingModel
   };
@@ -60,6 +66,8 @@ export function updateEditableConfiguration(input: EditableAppConfiguration) {
   config.llmBaseUrl = input.llmBaseUrl.trim();
   config.llmModel = input.llmModel.trim();
   config.llmResponseFormat = input.llmResponseFormat;
+  config.reviewBaseUrl = input.reviewBaseUrl.trim();
+  config.reviewModel = input.reviewModel.trim();
   config.embeddingBaseUrl = input.embeddingBaseUrl.trim();
   config.embeddingModel = input.embeddingModel.trim();
 
@@ -81,6 +89,12 @@ function applyAppConfigOverrides() {
   }
   if (overrides.llmResponseFormat === "standard" || overrides.llmResponseFormat === "llm_jp_thinking") {
     config.llmResponseFormat = overrides.llmResponseFormat;
+  }
+  if (typeof overrides.reviewBaseUrl === "string") {
+    config.reviewBaseUrl = overrides.reviewBaseUrl.trim();
+  }
+  if (typeof overrides.reviewModel === "string") {
+    config.reviewModel = overrides.reviewModel.trim();
   }
   if (typeof overrides.embeddingBaseUrl === "string") {
     config.embeddingBaseUrl = overrides.embeddingBaseUrl.trim();

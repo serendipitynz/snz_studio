@@ -178,6 +178,13 @@ export class ChatRepository {
     return rows.map(mapMessage);
   }
 
+  getMessage(messageId: string) {
+    const row = this.db
+      .prepare("SELECT * FROM messages WHERE id = ?")
+      .get(messageId) as Record<string, unknown> | undefined;
+    return row ? mapMessage(row) : null;
+  }
+
   listRecentMessages(chatId: string, limit = 8) {
     const rows = this.db
       .prepare(

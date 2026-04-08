@@ -10,6 +10,11 @@ function createHeaders() {
   return headers;
 }
 
+type CompletionTarget = {
+  baseUrl?: string;
+  model?: string;
+};
+
 function getLmStudioApiRoot(baseUrl: string) {
   return baseUrl.replace(/\/$/, "").replace(/(\/api)?\/v1$/i, "");
 }
@@ -166,23 +171,31 @@ export class LlmClient {
     }
   }
 
-  async checkConnection() {
-    if (!config.llmModel.trim()) {
+  async checkConnection(baseUrl = config.llmBaseUrl, model = config.llmModel) {
+    if (!model.trim()) {
       return false;
     }
 
     try {
-      const models = await this.listModels();
-      return !models.length || models.includes(config.llmModel);
+      const models = await this.listModels(baseUrl);
+      return !models.length || models.includes(model);
     } catch {
       return false;
     }
   }
 
-  async createChatCompletion(input: { systemPrompt: string; messages: Message[]; userInput: string; temperature?: number }) {
+  async createChatCompletion(input: {
+    systemPrompt: string;
+    messages: Message[];
+    userInput: string;
+    temperature?: number;
+    target?: CompletionTarget;
+  }) {
     const startedAt = performance.now();
+    const model = input.target?.model?.trim() || config.llmModel;
+    const baseUrl = input.target?.baseUrl?.trim() || config.llmBaseUrl;
     const body = {
-      model: config.llmModel,
+      model,
       temperature: input.temperature ?? 0.25,
       messages: [
         { role: "system", content: sanitizePromptContent(input.systemPrompt, "system") },
@@ -206,7 +219,7 @@ export class LlmClient {
     const timeout = setTimeout(() => controller.abort(), config.llmTimeoutMs);
 
     try {
-      const response = await fetch(`${config.llmBaseUrl.replace(/\/$/, "")}/chat/completions`, {
+      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
@@ -249,10 +262,13 @@ export class LlmClient {
     userInput: string;
     onDelta: (chunk: string) => void;
     temperature?: number;
+    target?: CompletionTarget;
   }) {
     const startedAt = performance.now();
+    const model = input.target?.model?.trim() || config.llmModel;
+    const baseUrl = input.target?.baseUrl?.trim() || config.llmBaseUrl;
     const body = {
-      model: config.llmModel,
+      model,
       temperature: input.temperature ?? 0.25,
       stream: true,
       stream_options: {
@@ -285,7 +301,7 @@ export class LlmClient {
 
     try {
       resetTimeout();
-      const response = await fetch(`${config.llmBaseUrl.replace(/\/$/, "")}/chat/completions`, {
+      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
