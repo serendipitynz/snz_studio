@@ -194,7 +194,9 @@ export const SidebarSectionLabel = styled.div`
   color: ${theme.colors.muted};
 `;
 
-export const SidebarLink = styled(Link)<{ $active?: boolean }>`
+export const SidebarLink = styled(Link, {
+  shouldForwardProp: (prop) => prop !== "$active"
+})<{ $active?: boolean }>`
   display: block;
   text-decoration: none;
   color: inherit;
