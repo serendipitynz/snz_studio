@@ -5,6 +5,7 @@ import { ProjectRepository } from "../repositories/projectRepository.js";
 import { AssembledContext, DocumentRecord, RetrievedDocumentReference, SearchReference } from "../lib/types.js";
 import { RetrievalService } from "./retrievalService.js";
 import { truncate } from "../lib/utils.js";
+import { config } from "../config.js";
 
 const QUOTE_REQUEST_PATTERN = /(引用|quote|quoted|引用して|原文|そのまま|抜き出|抜粋|該当箇所|当該箇所)/iu;
 const FULL_DOCUMENT_REQUEST_PATTERN = /(全文|全体|全内容|全部|全編|full document|entire document|whole document|文書全体|ドキュメント全体)/iu;
@@ -106,6 +107,12 @@ Recent turns:
 ${recentTurns}`;
 }
 
+function debugInfo(message: string) {
+  if (config.debugChatFlow) {
+    console.info(message);
+  }
+}
+
 export class ContextService {
   constructor(
     private readonly projects: ProjectRepository,
@@ -116,6 +123,9 @@ export class ContextService {
   ) {}
 
   async assemble(chatId: string, userInput: string): Promise<AssembledContext> {
+    const startedAt = Date.now();
+    debugInfo(`[context] assemble start ${JSON.stringify({ chatId, userInputChars: userInput.length })}`);
+
     const chat = this.chats.getChat(chatId);
     if (!chat) {
       throw new Error("Chat not found");
@@ -133,11 +143,28 @@ export class ContextService {
     const explicitDocument = resolveExplicitDocument(userInput, projectDocuments);
     const explicitChat = resolveExplicitChat(userInput, projectChats, chat.id);
     const isQuoteRequest = QUOTE_REQUEST_PATTERN.test(userInput);
-    const documentRefs = await this.retrieval.searchDocuments(project.id, userInput, 4, 3);
-    const memoryRefs = await this.retrieval.searchMemories(project.id, userInput, 4);
     const recentMessages = this.chats.listRecentMessages(chatId, 6);
     const explicitChatSummary = explicitChat ? this.chats.getSummary(explicitChat.id)?.summary ?? "" : "";
     const explicitChatMessages = explicitChat ? this.chats.listRecentMessages(explicitChat.id, 6) : [];
+
+    debugInfo(
+      `[context] assemble inputs ${JSON.stringify({
+        chatId,
+        projectId: project.id,
+        summaryChars: summary.length,
+        proceduralMemoryCount: proceduralMemories.length,
+        projectDocumentCount: projectDocuments.length,
+        projectChatCount: projectChats.length,
+        explicitDocument: explicitDocument?.title ?? null,
+        explicitChat: explicitChat?.title ?? null,
+        isQuoteRequest
+      })}`
+    );
+
+    const [documentRefs, memoryRefs] = await Promise.all([
+      this.retrieval.searchDocuments(project.id, userInput, 4, 3),
+      this.retrieval.searchMemories(project.id, userInput, 4)
+    ]);
 
     if (explicitDocument) {
       const focusedQuery = buildDocumentFocusedQuery(userInput, explicitDocument.title);
@@ -245,7 +272,7 @@ export class ContextService {
       .filter(Boolean)
       .join("\n\n");
 
-    return {
+    const assembled = {
       project,
       chat,
       summary,
@@ -255,5 +282,18 @@ export class ContextService {
       isQuoteRequest,
       targetDocumentTitle: explicitDocument?.title ?? null
     };
+
+    debugInfo(
+      `[context] assemble done ${JSON.stringify({
+        chatId,
+        durationMs: Date.now() - startedAt,
+        documentRefCount: documentRefs.length,
+        memoryRefCount: memoryRefs.length,
+        finalReferenceCount: assembled.references.length,
+        promptContextChars: assembled.promptContext.length
+      })}`
+    );
+
+    return assembled;
   }
 }

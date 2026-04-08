@@ -45,7 +45,9 @@ export const config = {
   embeddingBaseUrl: process.env.EMBEDDING_BASE_URL ?? process.env.LLM_BASE_URL ?? "http://127.0.0.1:1234/v1",
   embeddingModel: process.env.EMBEDDING_MODEL ?? "",
   embeddingApiKey: process.env.EMBEDDING_API_KEY ?? process.env.LLM_API_KEY ?? "",
-  embeddingTimeoutMs: Number(process.env.EMBEDDING_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS ?? 60000)
+  embeddingTimeoutMs: Number(process.env.EMBEDDING_TIMEOUT_MS ?? process.env.LLM_TIMEOUT_MS ?? 60000),
+  debugChatFlow: /^(1|true|yes|on)$/i.test(process.env.DEBUG_CHAT_FLOW ?? ""),
+  debugRetrieval: /^(1|true|yes|on)$/i.test(process.env.DEBUG_RETRIEVAL ?? "")
 };
 
 applyAppConfigOverrides();

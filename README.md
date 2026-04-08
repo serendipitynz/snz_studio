@@ -105,6 +105,8 @@ OpenAI 互換 API を前提にしています。`.env` の主な設定は以下�
 - `EMBEDDING_MODEL`
 - `EMBEDDING_API_KEY`
 - `EMBEDDING_TIMEOUT_MS`
+- `DEBUG_CHAT_FLOW`
+- `DEBUG_RETRIEVAL`
 
 例:
 
@@ -112,6 +114,13 @@ OpenAI 互換 API を前提にしています。`.env` の主な設定は以下�
 - Ollama OpenAI 互換 endpoint: その URL に差し替え
 
 embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未設定なら retrieval は FTS のみで動作します。設定されていれば、document / memory の retrieval は `FTS + embedding rerank` の hybrid になります。
+
+切り分け時だけ backend ログを増やしたい場合は、`.env` で次を使えます。
+
+- `DEBUG_CHAT_FLOW=1`
+  - chat prepare / context assembly のログ
+- `DEBUG_RETRIEVAL=1`
+  - retrieval / embedding のログ
 
 Dashboard の `Configuration` から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値は `data/app-config.json` に保存され、`.env` より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
 

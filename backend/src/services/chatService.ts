@@ -7,6 +7,18 @@ import { SummaryService } from "./summaryService.js";
 import { truncate } from "../lib/utils.js";
 import { EmbeddingSyncService } from "./embeddingSyncService.js";
 
+function debugInfo(message: string) {
+  if (config.debugChatFlow) {
+    console.info(message);
+  }
+}
+
+function debugWarn(message: string) {
+  if (config.debugChatFlow) {
+    console.warn(message);
+  }
+}
+
 export class ChatService {
   constructor(
     private readonly chats: ChatRepository,
@@ -80,64 +92,104 @@ export class ChatService {
   }
 
   private async prepareTurn(chatId: string, content: string) {
-    const assembled = await this.context.assemble(chatId, content);
-    const userMessage = this.chats.addMessage({
-      chatId,
-      role: "user",
-      content
-    });
+    const startedAt = Date.now();
+    debugInfo(`[chat] prepare start ${JSON.stringify({ chatId, userInputChars: content.length })}`);
 
-    const createdMemories = assembled.chat.isTemporary
-      ? []
-      : this.memoryService.maybeStoreFromUserMessage({
-          projectId: assembled.project.id,
+    try {
+      const assembled = await this.context.assemble(chatId, content);
+      debugInfo(
+        `[chat] prepare assembled ${JSON.stringify({
           chatId,
-          content
-        });
+          durationMs: Date.now() - startedAt,
+          recentMessageCount: assembled.recentMessages.length,
+          referenceCount: assembled.references.length,
+          promptContextChars: assembled.promptContext.length,
+          isTemporary: assembled.chat.isTemporary
+        })}`
+      );
 
-    const explicitMemory = assembled.chat.isTemporary
-      ? null
-      : await this.memoryService.maybeStoreFromExplicitRequest({
-          projectId: assembled.project.id,
+      const userMessage = this.chats.addMessage({
+        chatId,
+        role: "user",
+        content
+      });
+
+      const createdMemories = assembled.chat.isTemporary
+        ? []
+        : this.memoryService.maybeStoreFromUserMessage({
+            projectId: assembled.project.id,
+            chatId,
+            content
+          });
+
+      const explicitMemory = assembled.chat.isTemporary
+        ? null
+        : await this.memoryService.maybeStoreFromExplicitRequest({
+            projectId: assembled.project.id,
+            chatId,
+            content,
+            recentMessages: assembled.recentMessages
+          });
+
+      if (explicitMemory) {
+        createdMemories.push(explicitMemory);
+      }
+
+      if (createdMemories.length) {
+        debugInfo(
+          `[chat] prepare sync memories ${JSON.stringify({
+            chatId,
+            memoryCount: createdMemories.length
+          })}`
+        );
+        await this.embeddingSync.syncMemories(createdMemories.map((memory) => memory.id));
+      }
+
+      const systemPrompt = [
+        "You are a local project assistant.",
+        "Use the provided project context when it is relevant, but avoid mentioning irrelevant references.",
+        "Answer clearly and practically.",
+        config.llmResponseFormat === "llm_jp_thinking"
+          ? "Return only the final user-facing answer. Do not emit analysis, reasoning traces, or any tagged channel markup."
+          : "",
+        assembled.isQuoteRequest
+          ? `The user is asking for document quotation${assembled.targetDocumentTitle ? ` from "${assembled.targetDocumentTitle}"` : ""}. Quote only from provided document material, preserve the original wording, and say clearly if the exact passage was not found.`
+          : "",
+        explicitMemory
+          ? `A new ${explicitMemory.kind} memory was just saved from the recent conversation: ${explicitMemory.content}\nIf it fits naturally, briefly acknowledge that it has been remembered.`
+          : "",
+        assembled.chat.isTemporary
+          ? "This is a temporary chat. Do not treat this conversation as durable project memory unless the user later converts the chat into a regular one."
+          : "",
+        assembled.promptContext
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      debugInfo(
+        `[chat] prepare done ${JSON.stringify({
           chatId,
-          content,
-          recentMessages: assembled.recentMessages
-        });
+          durationMs: Date.now() - startedAt,
+          systemPromptChars: systemPrompt.length
+        })}`
+      );
 
-    if (explicitMemory) {
-      createdMemories.push(explicitMemory);
+      return {
+        assembled,
+        userMessage,
+        systemPrompt
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown prepare error";
+      debugWarn(
+        `[chat] prepare failed ${JSON.stringify({
+          chatId,
+          durationMs: Date.now() - startedAt,
+          reason: message
+        })}`
+      );
+      throw error;
     }
-
-    if (createdMemories.length) {
-      await this.embeddingSync.syncMemories(createdMemories.map((memory) => memory.id));
-    }
-
-    const systemPrompt = [
-      "You are a local project assistant.",
-      "Use the provided project context when it is relevant, but avoid mentioning irrelevant references.",
-      "Answer clearly and practically.",
-      config.llmResponseFormat === "llm_jp_thinking"
-        ? "Return only the final user-facing answer. Do not emit analysis, reasoning traces, or any tagged channel markup."
-        : "",
-      assembled.isQuoteRequest
-        ? `The user is asking for document quotation${assembled.targetDocumentTitle ? ` from "${assembled.targetDocumentTitle}"` : ""}. Quote only from provided document material, preserve the original wording, and say clearly if the exact passage was not found.`
-        : "",
-      explicitMemory
-        ? `A new ${explicitMemory.kind} memory was just saved from the recent conversation: ${explicitMemory.content}\nIf it fits naturally, briefly acknowledge that it has been remembered.`
-        : "",
-      assembled.chat.isTemporary
-        ? "This is a temporary chat. Do not treat this conversation as durable project memory unless the user later converts the chat into a regular one."
-        : "",
-      assembled.promptContext
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    return {
-      assembled,
-      userMessage,
-      systemPrompt
-    };
   }
 
   private async persistAssistantTurn(

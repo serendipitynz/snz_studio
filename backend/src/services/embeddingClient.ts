@@ -1,5 +1,17 @@
 import { config } from "../config.js";
 
+function debugInfo(message: string) {
+  if (config.debugRetrieval) {
+    console.info(message);
+  }
+}
+
+function debugWarn(message: string) {
+  if (config.debugRetrieval) {
+    console.warn(message);
+  }
+}
+
 function createHeaders() {
   const headers: Record<string, string> = {};
   if (config.embeddingApiKey) {
@@ -164,6 +176,16 @@ export class EmbeddingClient {
       return null;
     }
 
+    const startedAt = Date.now();
+    debugInfo(
+      `[embedding] request start ${JSON.stringify({
+        inputCount: cleanedInputs.length,
+        totalChars: cleanedInputs.reduce((total, current) => total + current.length, 0),
+        model: config.embeddingModel,
+        baseUrl: config.embeddingBaseUrl
+      })}`
+    );
+
     const body = {
       model: config.embeddingModel,
       input: cleanedInputs
@@ -201,12 +223,28 @@ export class EmbeddingClient {
         throw new Error("Embedding response did not contain valid vectors");
       }
 
+      debugInfo(
+        `[embedding] request done ${JSON.stringify({
+          inputCount: cleanedInputs.length,
+          durationMs: Date.now() - startedAt,
+          vectorCount: embeddings.length,
+          dimensions: embeddings[0]?.length ?? 0
+        })}`
+      );
+
       return embeddings;
     } catch (error) {
       this.disabled = true;
+      const message = error instanceof Error ? error.message : "unknown embedding error";
+      debugWarn(
+        `[embedding] request failed ${JSON.stringify({
+          inputCount: cleanedInputs.length,
+          durationMs: Date.now() - startedAt,
+          reason: message
+        })}`
+      );
 
       if (!this.unavailableLogged) {
-        const message = error instanceof Error ? error.message : "unknown embedding error";
         console.warn(`Embedding retrieval disabled: ${message}`);
         this.unavailableLogged = true;
       }

@@ -4,6 +4,7 @@ import { safeJsonParse, truncate } from "../lib/utils.js";
 import { toFtsQuery } from "../lib/searchText.js";
 import { cosineSimilarity, normalizeScores } from "../lib/vector.js";
 import { EmbeddingClient } from "./embeddingClient.js";
+import { config } from "../config.js";
 
 type DocumentCandidateRow = {
   source_id: string;
@@ -112,6 +113,12 @@ function getCategoryWeight(category: DocumentCategory, intent: RetrievalIntent) 
   return tables[intent][category] ?? 1;
 }
 
+function debugInfo(message: string) {
+  if (config.debugRetrieval) {
+    console.info(message);
+  }
+}
+
 export class RetrievalService {
   constructor(
     private readonly db: Database.Database,
@@ -119,18 +126,51 @@ export class RetrievalService {
   ) {}
 
   async searchDocuments(projectId: string, query: string, limit = 4, chunksPerDocument = 3): Promise<RetrievedDocumentReference[]> {
+    const startedAt = Date.now();
     const ftsQuery = toFtsQuery(query);
     const intent = detectRetrievalIntent(query);
+    debugInfo(
+      `[retrieval] documents start ${JSON.stringify({
+        projectId,
+        queryChars: query.length,
+        hasFtsQuery: Boolean(ftsQuery),
+        intent,
+        limit,
+        chunksPerDocument,
+        embeddingEnabled: this.embeddings.isEnabled()
+      })}`
+    );
     const candidateRows = ftsQuery ? this.fetchDocumentFtsCandidates(projectId, ftsQuery, limit, chunksPerDocument) : [];
     const queryEmbedding = await this.embeddings.createEmbedding(query);
 
     const ranked = this.rankDocumentCandidates(candidateRows, queryEmbedding, chunksPerDocument, intent);
     if (ranked.length >= limit || !queryEmbedding) {
+      debugInfo(
+        `[retrieval] documents done ${JSON.stringify({
+          projectId,
+          durationMs: Date.now() - startedAt,
+          candidateRowCount: candidateRows.length,
+          rankedCount: ranked.length,
+          usedSemanticFallback: false,
+          hadQueryEmbedding: Boolean(queryEmbedding)
+        })}`
+      );
       return ranked.slice(0, limit);
     }
 
     const seenDocumentIds = new Set(ranked.map((item) => item.sourceId));
     const fallback = this.searchDocumentsBySemantic(projectId, queryEmbedding, limit, chunksPerDocument, seenDocumentIds, intent);
+    debugInfo(
+      `[retrieval] documents done ${JSON.stringify({
+        projectId,
+        durationMs: Date.now() - startedAt,
+        candidateRowCount: candidateRows.length,
+        rankedCount: ranked.length,
+        fallbackCount: fallback.length,
+        usedSemanticFallback: true,
+        hadQueryEmbedding: true
+      })}`
+    );
     return [...ranked, ...fallback].slice(0, limit);
   }
 
@@ -184,17 +224,48 @@ export class RetrievalService {
   }
 
   async searchMemories(projectId: string, query: string, limit = 4): Promise<SearchReference[]> {
+    const startedAt = Date.now();
     const ftsQuery = toFtsQuery(query);
+    debugInfo(
+      `[retrieval] memories start ${JSON.stringify({
+        projectId,
+        queryChars: query.length,
+        hasFtsQuery: Boolean(ftsQuery),
+        limit,
+        embeddingEnabled: this.embeddings.isEnabled()
+      })}`
+    );
     const candidateRows = ftsQuery ? this.fetchMemoryFtsCandidates(projectId, ftsQuery, Math.max(limit * 3, 8)) : [];
     const queryEmbedding = await this.embeddings.createEmbedding(query);
 
     const ranked = this.rankMemoryCandidates(candidateRows, queryEmbedding);
     if (ranked.length >= limit || !queryEmbedding) {
+      debugInfo(
+        `[retrieval] memories done ${JSON.stringify({
+          projectId,
+          durationMs: Date.now() - startedAt,
+          candidateRowCount: candidateRows.length,
+          rankedCount: ranked.length,
+          usedSemanticFallback: false,
+          hadQueryEmbedding: Boolean(queryEmbedding)
+        })}`
+      );
       return ranked.slice(0, limit);
     }
 
     const seenMemoryIds = new Set(ranked.map((item) => item.sourceId));
     const fallback = this.searchMemoriesBySemantic(projectId, queryEmbedding, limit, seenMemoryIds);
+    debugInfo(
+      `[retrieval] memories done ${JSON.stringify({
+        projectId,
+        durationMs: Date.now() - startedAt,
+        candidateRowCount: candidateRows.length,
+        rankedCount: ranked.length,
+        fallbackCount: fallback.length,
+        usedSemanticFallback: true,
+        hadQueryEmbedding: true
+      })}`
+    );
     return [...ranked, ...fallback].slice(0, limit);
   }
 
