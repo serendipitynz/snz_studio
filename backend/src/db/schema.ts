@@ -1,6 +1,17 @@
 import Database from "better-sqlite3";
 
-const migrations = [
+type Migration = {
+  id: string;
+  sql?: string;
+  up?: (db: Database.Database) => void;
+};
+
+function hasColumn(db: Database.Database, table: string, column: string) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === column);
+}
+
+const migrations: Migration[] = [
   {
     id: "001_initial_schema",
     sql: `
@@ -175,16 +186,22 @@ const migrations = [
   },
   {
     id: "006_project_sort_order",
-    sql: `
-      ALTER TABLE projects ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
-      UPDATE projects
-      SET sort_order = (
-        SELECT COUNT(*)
-        FROM projects p2
-        WHERE p2.created_at < projects.created_at
-           OR (p2.created_at = projects.created_at AND p2.id < projects.id)
-      );
-    `
+    up: (db) => {
+      if (hasColumn(db, "projects", "sort_order")) {
+        return;
+      }
+
+      db.exec(`
+        ALTER TABLE projects ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+        UPDATE projects
+        SET sort_order = (
+          SELECT COUNT(*)
+          FROM projects p2
+          WHERE p2.created_at < projects.created_at
+             OR (p2.created_at = projects.created_at AND p2.id < projects.id)
+        );
+      `);
+    }
   },
   {
     id: "007_chat_reference_source",
@@ -214,9 +231,13 @@ const migrations = [
   },
   {
     id: "008_temporary_chats",
-    sql: `
-      ALTER TABLE chats ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0;
-    `
+    up: (db) => {
+      if (hasColumn(db, "chats", "is_temporary")) {
+        return;
+      }
+
+      db.exec("ALTER TABLE chats ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0;");
+    }
   }
 ];
 
@@ -244,7 +265,12 @@ export function applyMigrations(db: Database.Database) {
     }
 
     const tx = db.transaction(() => {
-      db.exec(migration.sql);
+      if (migration.up) {
+        migration.up(db);
+      } else if (migration.sql) {
+        db.exec(migration.sql);
+      }
+
       db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(
         migration.id,
         new Date().toISOString()
