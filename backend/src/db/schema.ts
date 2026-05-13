@@ -238,6 +238,12 @@ const migrations: Migration[] = [
 
       db.exec("ALTER TABLE chats ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0;");
     }
+  },
+  {
+    id: "009_message_model_name",
+    sql: `
+      ALTER TABLE messages ADD COLUMN model_name TEXT;
+    `
   }
 ];
 

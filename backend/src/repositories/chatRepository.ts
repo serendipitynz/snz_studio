@@ -29,7 +29,8 @@ function mapMessage(row: Record<string, unknown>): Message {
     createdAt: String(row.created_at),
     responseMs: row.response_ms == null ? null : Number(row.response_ms),
     outputTokens: row.output_tokens == null ? null : Number(row.output_tokens),
-    tokensPerSecond: row.tokens_per_second == null ? null : Number(row.tokens_per_second)
+    tokensPerSecond: row.tokens_per_second == null ? null : Number(row.tokens_per_second),
+    modelName: row.model_name == null ? null : String(row.model_name)
   };
 }
 
@@ -137,6 +138,7 @@ export class ChatRepository {
     responseMs?: number | null;
     outputTokens?: number | null;
     tokensPerSecond?: number | null;
+    modelName?: string | null;
   }) {
     const message: Message = {
       id: createId("msg"),
@@ -146,13 +148,14 @@ export class ChatRepository {
       createdAt: nowIso(),
       responseMs: input.responseMs ?? null,
       outputTokens: input.outputTokens ?? null,
-      tokensPerSecond: input.tokensPerSecond ?? null
+      tokensPerSecond: input.tokensPerSecond ?? null,
+      modelName: input.modelName ?? null
     };
 
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          "INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .run(
           message.id,
@@ -162,13 +165,55 @@ export class ChatRepository {
           message.createdAt,
           message.responseMs,
           message.outputTokens,
-          message.tokensPerSecond
+          message.tokensPerSecond,
+          message.modelName
         );
       this.db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?").run(nowIso(), message.chatId);
     });
 
     tx();
     return message;
+  }
+
+  updateMessageContent(messageId: string, content: string) {
+    const result = this.db.prepare("UPDATE messages SET content = ? WHERE id = ?").run(content, messageId);
+    if (!result.changes) {
+      return null;
+    }
+
+    return this.getMessage(messageId);
+  }
+
+  finalizeMessage(input: {
+    messageId: string;
+    content: string;
+    responseMs?: number | null;
+    outputTokens?: number | null;
+    tokensPerSecond?: number | null;
+    modelName?: string | null;
+  }) {
+    const result = this.db
+      .prepare(
+        `
+          UPDATE messages
+          SET content = ?, response_ms = ?, output_tokens = ?, tokens_per_second = ?, model_name = COALESCE(?, model_name)
+          WHERE id = ?
+        `
+      )
+      .run(
+        input.content,
+        input.responseMs ?? null,
+        input.outputTokens ?? null,
+        input.tokensPerSecond ?? null,
+        input.modelName ?? null,
+        input.messageId
+      );
+
+    if (!result.changes) {
+      return null;
+    }
+
+    return this.getMessage(input.messageId);
   }
 
   listMessages(chatId: string) {

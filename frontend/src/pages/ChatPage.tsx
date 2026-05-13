@@ -60,6 +60,7 @@ function createOptimisticMessage(chatId: string, role: "user" | "assistant", con
     responseMs: null,
     outputTokens: null,
     tokensPerSecond: null,
+    modelName: null,
     references: []
   };
 }
@@ -80,6 +81,14 @@ function formatAssistantMetrics(message: MessageRecord) {
     parts.push(`${message.tokensPerSecond.toFixed(1)} tok/s`);
   }
   return parts.join(" · ");
+}
+
+function formatAssistantModel(message: MessageRecord) {
+  if (message.role !== "assistant") {
+    return "";
+  }
+
+  return message.modelName ?? "";
 }
 
 const INSPECTOR_STORAGE_KEY = "snz.chat.inspectorCollapsed";
@@ -717,9 +726,16 @@ export function ChatPage() {
                           ) : null}
                         </div>
                         {message.role === "assistant" ? (
-                          <MetaText style={{ whiteSpace: "nowrap", textAlign: "right", opacity: 0.78 }}>
-                            {formatAssistantMetrics(message)}
-                          </MetaText>
+                          <Stack style={{ gap: 2, alignItems: "flex-end" }}>
+                            <MetaText style={{ whiteSpace: "nowrap", textAlign: "right", opacity: 0.78 }}>
+                              {formatAssistantMetrics(message)}
+                            </MetaText>
+                            {formatAssistantModel(message) ? (
+                              <MetaText style={{ whiteSpace: "nowrap", textAlign: "right", opacity: 0.62 }}>
+                                {formatAssistantModel(message)}
+                              </MetaText>
+                            ) : null}
+                          </Stack>
                         ) : null}
                       </Row>
                     ) : null}

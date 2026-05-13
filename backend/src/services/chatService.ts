@@ -33,7 +33,7 @@ export class ChatService {
     const prepared = await this.prepareTurn(chatId, content);
     const promptStats = this.buildPromptStats(prepared.systemPrompt, prepared.assembled.recentMessages, content);
     let generation:
-      | { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null }
+      | { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null; modelName: string | null }
       | null = null;
 
     try {
@@ -52,7 +52,8 @@ export class ChatService {
         content: fallbackContent,
         responseMs: null,
         outputTokens: null,
-        tokensPerSecond: null
+        tokensPerSecond: null,
+        modelName: null
       };
     }
 
@@ -62,9 +63,15 @@ export class ChatService {
   async sendMessageStream(chatId: string, content: string, onDelta: (chunk: string) => void) {
     const prepared = await this.prepareTurn(chatId, content);
     const promptStats = this.buildPromptStats(prepared.systemPrompt, prepared.assembled.recentMessages, content);
+    const assistantMessage = this.chats.addMessage({
+      chatId,
+      role: "assistant",
+      content: ""
+    });
     let generation:
-      | { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null }
+      | { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null; modelName: string | null }
       | null = null;
+    let streamedContent = "";
 
     try {
       console.info(`[chat] completion start ${JSON.stringify({ chatId, mode: "stream", ...promptStats })}`);
@@ -73,7 +80,11 @@ export class ChatService {
         messages: prepared.assembled.recentMessages,
         userInput: content,
         temperature: 0.25,
-        onDelta
+        onDelta: (chunk) => {
+          streamedContent += chunk;
+          this.chats.updateMessageContent(assistantMessage.id, streamedContent);
+          onDelta(chunk);
+        }
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown LLM error";
@@ -83,12 +94,14 @@ export class ChatService {
         content: fallbackContent,
         responseMs: null,
         outputTokens: null,
-        tokensPerSecond: null
+        tokensPerSecond: null,
+        modelName: null
       };
+      this.chats.updateMessageContent(assistantMessage.id, fallbackContent);
       onDelta(fallbackContent);
     }
 
-    return this.persistAssistantTurn(chatId, prepared.assembled, prepared.userMessage, generation);
+    return this.persistExistingAssistantTurn(chatId, assistantMessage.id, prepared.assembled, prepared.userMessage, generation);
   }
 
   private async prepareTurn(chatId: string, content: string) {
@@ -196,7 +209,7 @@ export class ChatService {
     chatId: string,
     assembled: Awaited<ReturnType<ContextService["assemble"]>>,
     userMessage: Awaited<ReturnType<ChatRepository["addMessage"]>>,
-    generation: { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null }
+    generation: { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null; modelName: string | null }
   ) {
     const assistantMessage = this.chats.addMessage({
       chatId,
@@ -204,8 +217,55 @@ export class ChatService {
       content: generation.content,
       responseMs: generation.responseMs,
       outputTokens: generation.outputTokens,
-      tokensPerSecond: generation.tokensPerSecond
+      tokensPerSecond: generation.tokensPerSecond,
+      modelName: generation.modelName
     });
+
+    this.chats.replaceAssistantReferences(
+      assistantMessage.id,
+      assembled.references.map((reference) => ({
+        sourceType: reference.sourceType,
+        sourceId: reference.sourceId,
+        label: reference.label,
+        excerpt: reference.excerpt,
+        score: reference.score
+      }))
+    );
+
+    const updatedMessages = [...assembled.recentMessages, userMessage, assistantMessage];
+    const updatedSummary = await this.summary.updateSummary(assembled.summary, updatedMessages);
+    this.chats.upsertSummary(chatId, updatedSummary);
+
+    if (!assembled.chat.title.trim()) {
+      const nextTitle = await this.summary.generateChatTitle(updatedMessages);
+      if (nextTitle.trim()) {
+        this.chats.updateChatTitle(chatId, nextTitle);
+      }
+    }
+
+    return assistantMessage;
+  }
+
+  private async persistExistingAssistantTurn(
+    chatId: string,
+    assistantMessageId: string,
+    assembled: Awaited<ReturnType<ContextService["assemble"]>>,
+    userMessage: Awaited<ReturnType<ChatRepository["addMessage"]>>,
+    generation: { content: string; responseMs: number | null; outputTokens: number | null; tokensPerSecond: number | null; modelName: string | null }
+  ) {
+    const assistantMessage =
+      this.chats.finalizeMessage({
+        messageId: assistantMessageId,
+        content: generation.content,
+        responseMs: generation.responseMs,
+        outputTokens: generation.outputTokens,
+        tokensPerSecond: generation.tokensPerSecond,
+        modelName: generation.modelName
+      }) ?? this.chats.getMessage(assistantMessageId);
+
+    if (!assistantMessage) {
+      throw new Error("Assistant message could not be finalized");
+    }
 
     this.chats.replaceAssistantReferences(
       assistantMessage.id,

@@ -50,6 +50,7 @@ export interface Message {
   responseMs: number | null;
   outputTokens: number | null;
   tokensPerSecond: number | null;
+  modelName: string | null;
 }
 
 export interface ChatSummary {

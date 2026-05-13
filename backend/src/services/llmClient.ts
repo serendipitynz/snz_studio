@@ -57,6 +57,7 @@ export interface ChatCompletionResult {
   responseMs: number;
   outputTokens: number;
   tokensPerSecond: number;
+  modelName: string;
 }
 
 export class LlmClient {
@@ -243,7 +244,8 @@ export class LlmClient {
 
       return {
         content,
-        ...buildGenerationMetrics(content, performance.now() - startedAt, data.usage?.completion_tokens)
+        ...buildGenerationMetrics(content, performance.now() - startedAt, data.usage?.completion_tokens),
+        modelName: model
       };
     } catch (error) {
       if (isAbortError(error)) {
@@ -395,7 +397,8 @@ export class LlmClient {
 
       return {
         content,
-        ...buildGenerationMetrics(content, performance.now() - startedAt, completionTokens)
+        ...buildGenerationMetrics(content, performance.now() - startedAt, completionTokens),
+        modelName: model
       };
     } catch (error) {
       if (isAbortError(error)) {

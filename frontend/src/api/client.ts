@@ -101,6 +101,7 @@ export interface MessageRecord {
   responseMs: number | null;
   outputTokens: number | null;
   tokensPerSecond: number | null;
+  modelName: string | null;
   references: AssistantReference[];
 }
 
