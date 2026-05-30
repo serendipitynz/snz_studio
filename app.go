@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"snzstudio/internal/bootstrap"
 	"snzstudio/internal/config"
 	"snzstudio/internal/db"
 	"snzstudio/internal/httpapi"
@@ -46,29 +47,36 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	paths, err := resolveDataPaths()
+	paths, err := bootstrap.ResolveDataPaths()
 	if err != nil {
 		log.Fatalf("api: resolve data paths: %v", err)
 	}
-	if err := os.MkdirAll(paths.dataDir, 0o755); err != nil {
-		log.Fatalf("api: create data dir %s: %v", paths.dataDir, err)
+	if err := os.MkdirAll(paths.DataDir, 0o755); err != nil {
+		log.Fatalf("api: create data dir %s: %v", paths.DataDir, err)
 	}
-	if err := os.MkdirAll(paths.uploadDir, 0o755); err != nil {
-		log.Fatalf("api: create upload dir %s: %v", paths.uploadDir, err)
+	// One-time, opt-in migration of an existing (old Node-backend) data dir into
+	// this one. Driven by SNZ_MIGRATE_FROM; a no-op when unset or when this dir is
+	// already populated. Must run before db.Open so the copied database — not a
+	// freshly created empty one — is what gets opened and indexed.
+	if err := bootstrap.MaybeSeedDataDir(paths); err != nil {
+		log.Fatalf("api: migrate data dir: %v", err)
+	}
+	if err := os.MkdirAll(paths.UploadDir, 0o755); err != nil {
+		log.Fatalf("api: create upload dir %s: %v", paths.UploadDir, err)
 	}
 
-	database, err := db.Open(paths.sqlitePath)
+	database, err := db.Open(paths.SQLitePath)
 	if err != nil {
-		log.Fatalf("api: open database %s: %v", paths.sqlitePath, err)
+		log.Fatalf("api: open database %s: %v", paths.SQLitePath, err)
 	}
 	a.db = database
 
-	cfg := config.Load(paths.appConfigPath)
-	srv := httpapi.NewServer(database, cfg, paths.uploadDir)
+	cfg := config.Load(paths.AppConfigPath)
+	srv := httpapi.NewServer(database, cfg, paths.UploadDir)
 
-	ln, err := net.Listen("tcp", apiListenAddr())
+	ln, err := net.Listen("tcp", bootstrap.ListenAddr())
 	if err != nil {
-		log.Fatalf("api: listen on %s: %v", apiListenAddr(), err)
+		log.Fatalf("api: listen on %s: %v", bootstrap.ListenAddr(), err)
 	}
 
 	// Both dev and prod use the absolute loopback origin so the SPA can reach
@@ -81,8 +89,8 @@ func (a *App) startup(ctx context.Context) {
 	// In prod the SPA is served from embedded assets under the wails:// origin
 	// and likewise needs the absolute loopback origin.
 	a.apiBase = fmt.Sprintf("http://%s", ln.Addr().String())
-	log.Printf("api: listening on http://%s (apiBase=%q, dev=%v)", ln.Addr(), a.apiBase, isDev)
-	log.Printf("api: data dir %s", paths.dataDir)
+	log.Printf("api: listening on http://%s (apiBase=%q, dev=%v)", ln.Addr(), a.apiBase, bootstrap.IsDev)
+	log.Printf("api: data dir %s", paths.DataDir)
 
 	a.server = &http.Server{
 		Handler:           srv.Handler(),

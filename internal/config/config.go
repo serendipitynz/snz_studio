@@ -9,8 +9,8 @@
 // the TS backend did.
 //
 // Infrastructure-only settings from config.ts (port, dataDir, uploadDir,
-// sqlitePath) live with the process bootstrap (app.go / env_*.go), not here — this
-// package is scoped to what the service layer consumes.
+// sqlitePath) live with the process bootstrap (internal/bootstrap, app.go), not
+// here — this package is scoped to what the service layer consumes.
 package config
 
 import (
