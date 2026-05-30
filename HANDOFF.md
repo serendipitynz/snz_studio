@@ -1,0 +1,177 @@
+# SNZ Studio — Wails + Go デスクトップ化 引き継ぎ (HANDOFF)
+
+最終更新: 2026-05-30 / 対象: 次セッションの実装者（あなた）
+
+> このファイル1枚＋ `~/.claude/plans/electron-tauri-elegant-naur.md`（承認済み計画）＋ project memory
+> で文脈を完全復元できるように書いてあります。**まずこの順に読んでください**:
+> 1. このファイル全体 → 2. 計画ファイル → 3. `internal/` 配下の各 `*.go` 冒頭コメント。
+
+---
+
+## 0. ゴールと確定方針（再検討不要・ユーザー承認済み）
+
+- SNZ Studio（現: React/Vite SPA + Node/Express + better-sqlite3 のローカル Web アプリ）を、
+  **インストールして起動するだけのスタンドアロン・デスクトップアプリ**にする。
+- 採用: **Wails v2（Go コア + OS ネイティブ WebView）+ バックエンドを Go へ全面書き直し。フロントは React のまま。**
+- 対象 OS: **macOS / Windows**。
+- 通信方式: **HTTP + SSE を温存**。Wails AssetServer で SPA 配信、`/api`・`/files` は
+  **ローカル `127.0.0.1` の Go `net/http` サーバー**で配信（AssetServer 経由は SSE フラッシュ不確実なため不採用）。
+- Electron は不採用（重い）。`docs/current-spec.ja.md` の「Go 再実装」方針と一致。
+
+---
+
+## 1. 現状サマリ（DONE & TESTED）
+
+リポジトリ直下に Go モジュール `snzstudio` を**追加のみ**で作成済み。**既存の Node アプリ（`backend/`・`frontend/`）は一切未変更**で今もそのまま動く。`go test ./...` は全グリーン。
+
+```
+go.mod / go.sum                       module snzstudio (go 1.26)
+internal/search/                      ✅ 日本語トークナイザ + FTS クエリ生成（searchText.ts 移植）
+  ├ segmenter.go                       TinySegmenter 0.2 アルゴリズム移植
+  ├ model.go                           ★自動生成（編集禁止）: tools/segmenter-parity/gen_model.mjs
+  ├ searchtext.go                      BuildSearchText / TokenizeSearchTerms / ToFtsQuery
+  └ searchtext_test.go                 JS とのバイト単位パリティ（41ケース, 実サンプル全文込み）
+internal/vector/                      ✅ CosineSimilarity / NormalizeScores（vector.ts 移植）
+internal/db/                          ✅ DB 層
+  ├ connection.go                      Open(path): modernc.org/sqlite, pragmas, SetMaxOpenConns(1)
+  ├ schema.go                          9 migrations を schema.ts から忠実移植
+  └ db_test.go                         FTS5 + bm25() + 冪等 migration + FK を検証
+internal/httpapi/                     ✅ SSE 基盤
+  ├ sse.go                             SSEWriter（frontend のパーサと同じ event:/data: 形式, 各 Event で Flush）
+  └ sse_test.go                        逐次配信（ハンドラ完了前に受信できる）を実証
+tools/segmenter-parity/               パリティ再生成ツール
+  ├ gen_model.mjs                      tiny-segmenter のモデル → internal/search/model.go
+  └ gen_golden.ts                      JS の出力 → internal/search/testdata/golden.json
+```
+
+検証済みの3大リスク（headless で確認できる範囲）:
+1. **日本語トークナイザのパリティ** … JS と完全一致（最大リスク、解消）。
+2. **pure-Go SQLite で FTS5 + bm25()** … 動作確認済み（modernc 採用確定）。
+3. **SSE 逐次配信（HTTP レベル）** … `http.Flusher` で確認済み。**WebView での消費は GUI 必要（未確認）**。
+
+### テスト・再生成コマンド
+```bash
+go test ./...                                              # 全テスト
+go vet ./... && go build ./...
+node tools/segmenter-parity/gen_model.mjs                  # tiny-segmenter 更新時に model.go 再生成
+pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（要 backend が読める状態）
+~/go/bin/wails version                                     # v2.12.0 インストール済み
+```
+
+ツールチェーン: Go 1.26.3 / Wails v2.12.0(`~/go/bin/wails`) / Node 22 / pnpm 10.30.3 / clang あり。
+依存（確定）: `modernc.org/sqlite`, `golang.org/x/text`（NFKC）, （後で `github.com/google/uuid` を直接利用予定）。
+
+---
+
+## 2. 確定済みの技術判断と勘所（蒸し返さないこと）
+
+- **SQLite ドライバ = `modernc.org/sqlite`（pure Go）**。driver 名は `"sqlite"`。
+  DSN は `file:<path>?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)`。
+  中身は transpile された SQLite 本体なので FTS5/bm25/WAL の挙動は better-sqlite3 と同一。
+  `SetMaxOpenConns(1)` で単一接続（better-sqlite3 相当）。multi-statement Exec は modernc で動く（migration 001 で確認済み）。
+- **FTS は事前トークナイズ方式**（最重要不変条件）。`*_fts` に入れる各テキスト列は必ず
+  `search.BuildSearchText(...)` を通す。検索クエリは `search.ToFtsQuery(input)`。
+  生テキストを直接 FTS に入れてはいけない（検索が静かに壊れる）。
+- **正規表現の差**: JS の `\p{Script=Han}` は Go では `\p{Han}`（`\p{Hiragana}`/`\p{Katakana}`/`\p{L}`/`\p{N}` も対応）。NFKC は `golang.org/x/text/unicode/norm`。
+- **データ保存先**: `os.UserConfigDir()` + `"snz-studio"`（mac `~/Library/Application Support/snz-studio`, win `%AppData%\snz-studio`）配下に `app.sqlite` / `uploads/` / `app-config.json`。起動時 `os.MkdirAll`。dev は env で上書き可。
+- **dev の通信**: Go API を固定 `127.0.0.1:8787` で立て、既存 `frontend/vite.config.ts` の proxy（`/api`・`/files`）をそのまま使う → `wails dev` がフロント無改修で回る。prod は空きポート + `window.__API_BASE__` 注入。
+- **パッケージング**: クロスコンパイル不可（mac は CGO+SDK 必須）。**GitHub Actions `macos-latest` + `windows-latest` マトリクス**。mac は Developer ID 署名 + notarytool、win は Authenticode + WebView2(`-webview2 download`)。
+
+---
+
+## 3. 次の手順（この順で進める）
+
+### Phase 1 — Wails 足場（次セッションの最初）
+- ルートに `main.go` / `app.go` / `wails.json` を作る（`wails init` は既存 `frontend/` を壊すので**使わず手書き**）。
+- `main.go`: Wails v2 アプリ起動。`//go:embed all:frontend/dist`（or `dist/frontend`）で SPA を埋め込み、AssetServer に渡す。
+- `app.go`: `App` struct。`OnStartup` でローカル `net/http` サーバーを goroutine 起動（dev=8787 固定 / prod=`127.0.0.1:0`）。バインドメソッド `GetApiBase() string`（dev は空文字 = vite proxy 利用）。
+- `wails.json`: `frontend:install`=`pnpm install`、`frontend:build`=`pnpm build:client`、`frontend:dist` を vite の出力に一致させる。
+- **monorepo の要調整点**: `frontend/vite.config.ts` は `root: ./frontend` / `outDir: ../dist/frontend`。
+  Wails の embed パスと一致させる（`outDir` を `frontend/dist` に変える or embed 側を `dist/frontend` にする）。
+- 確認: `wails dev` で空 UI が出る → `~/go/bin/wails build` でバイナリが出る（Spike #3 の入口）。
+
+### Phase 4 — Repository 層（`internal/repository/`）
+移植元: `backend/src/repositories/{project,document,memory,chat}Repository.ts`。
+- SQL はほぼ流用可。ID 生成は `crypto.randomUUID()` → `github.com/google/uuid`（`lib/utils.ts` の `createId` 相当）。
+- 時刻は `nowIso`（ISO8601 UTC）。`document.tags_json` は JSON 文字列。
+- 注意: document/memory の作成・更新時に `*_fts` を `BuildSearchText` で upsert する処理がある（`documentRepository.ts:145,299,329,332` / `memoryRepository.ts:104-106,168-170,204-207` 付近）。`rebuildSearchIndex()` も移植（起動時の FTS 再構築に使う）。
+- `memoryRepository.hasSimilarMemory` は Jaccard 類似。
+
+### Phase 5 — Service 層（`internal/service/`）— 最重要・最大ボリューム
+移植元: `backend/src/services/*.ts`。**各ファイルを精読してから移植**すること（本 HANDOFF は要点のみ）。
+- **llmClient.ts（★最重要）**: OpenAI 互換。`createChatCompletion` / `createChatCompletionStream`。
+  SSE 受信は `data:` 行を `\n\n` で分割、`[DONE]` 終端、`choices[0].delta.content` を抽出、`usage.completion_tokens`。
+  **タイムアウトはチャンク毎にリセット（スライディング）**。temperature 既定 0.25。`fetch`+AbortController → Go は `net/http`+`context`+`bufio.Scanner`。
+  LM Studio 用の `listAvailableModels`/`ensureModelLoaded` あり。
+- **embeddingClient.ts**: 失敗で自己 disable、`null` 返す。バッチ embedding。
+- **retrievalService.ts**: ハイブリッド検索。移植時の**不変条件（必ず一致させる）**:
+  - doc FTS: `bm25(document_chunks_fts, 10.0, 2.0, 1.0, 1.0, 4.0) * -1`
+  - memory FTS: `bm25(memories_fts, 2.0, 6.0, 8.0) * -1`
+  - doc ハイブリッド: `ftsScore*0.55 + semanticScore*0.45`、さらに `× categoryWeight(intent)`
+  - memory ハイブリッド: `ftsScore*0.5 + semanticScore*0.5`
+  - semantic スコアは `(cosine + 1) / 2` を [0,1] にクランプ（`semanticToUnitRange`）
+  - intent 判定（translation/plot/writing/reference/general）と category 重みテーブルは
+    `retrievalService.ts:39-130` をそのまま移植（正規表現も）。
+  - `searchDocuments(limit=4, chunksPerDocument=3)` / `searchMemories(limit=4)` / `searchChunksInDocument(limit=5)`。
+  - cosine は SQL ではなく**アプリ側**で計算（embeddings は JSON 文字列で保存）。`internal/vector` 利用。
+- **contextService.ts**: コンテキスト組み立て（project/summary/recent6/procedural memories4/explicit doc・chat 参照/quote 判定）。
+- **chatService.ts**: ターン進行。**ストリーミング保存方式**=開始時に空 assistant message を作成→delta 毎に `messages.content` を更新→完了時に final content / response_ms / output_tokens / tokens_per_second / model_name / references / summary を確定。LLM 失敗時は reference 抜粋でフォールバック。
+- **memoryService.ts**: 自動抽出（rule ベース、question/長文/一時依頼を除外）＋明示 `覚えて` トリガー（LLM 抽出）。temporary chat では抽出しない。
+- **summaryService.ts / reviewService.ts / memoryOrganizerService.ts / embeddingSyncService.ts / documentChunker.ts（1000字/150 overlap, 行境界尊重）**。
+- **lib/llmResponse.ts**: `llm_jp_thinking` 時に reasoning タグ除去 → final answer のみ保存。`lib/documentCategory.ts`（自動推定）も移植。
+
+### Phase 6 — HTTP API（`internal/httpapi/`）+ Wails 結線
+移植元: `backend/src/index.ts`（22 ルート）。標準 `net/http`（必要なら軽量 `chi`）。
+- 主要ルート群: configuration(GET/PUT, models), projects(CRUD+reorder), documents(multipart upload/category/delete), memories(CRUD/lock/organize analyze・apply), chats(CRUD/temporary), messages(send, **/stream SSE**), review(**/stream SSE**), `GET /files/*`（static）。
+- SSE は `internal/httpapi/sse.go` の `SSEWriter` を使用（`delta`/`done`/`error` イベント）。
+- アップロードは multer → `r.FormFile`。保存名は uuid+ext、公開パスは `/files/{name}`。
+- CORS: dev で vite(5173) からのアクセスを許可。
+
+### Phase 7 — フロント微修正（全量・最小）
+1. `frontend/src/main.tsx`: `BrowserRouter` → `HashRouter`（必須）。
+2. `frontend/src/api/client.ts` の `request()`: URL 先頭に `window.__API_BASE__ ?? ""`。
+3. `frontend/src/pages/ChatPage.tsx`: 2つのストリーミング fetch URL に `__API_BASE__`。
+4. `frontend/src/pages/ProjectDetailPage.tsx`: `<img src={filePath}>` に `__API_BASE__`。
+5. 起動時に `GetApiBase()`（dev 空文字）から `window.__API_BASE__` を一度だけ設定。
+6. `frontend/vite.config.ts`: `outDir` を Wails 参照先に整合。dev proxy は当面維持。
+   SSE のパースロジックは**無変更**。
+
+### Phase 8 — データ移行 + パッケージング
+- 既存 `data/`（app.sqlite/uploads/app-config.json）→ ユーザーデータディレクトリへ初回起動時にコピー。
+- 起動時に FTS index 再構築（既存 FTS は JS トークナイズ済みのため Go 版で作り直す）。
+- `wails build`（mac universal + dmg、win NSIS + webview2 download）。CI マトリクス・署名/notarization。
+
+### Phase 9 — クリーンアップ
+- 旧 `backend/`・Node 依存・vite proxy を削除。`package.json` の整理。
+
+---
+
+## 4. 移植時の不変条件チェックリスト（parity invariants）
+
+- [ ] `*_fts` 投入テキストは必ず `search.BuildSearchText`、クエリは `search.ToFtsQuery`。
+- [ ] bm25 重み: doc `10,2,1,1,4`、memory `2,6,8`、いずれも `*-1`。
+- [ ] ハイブリッド: doc `0.55/0.45`×category、memory `0.5/0.5`。semantic=`(cos+1)/2`。
+- [ ] ストリーミング保存: 空 assistant → delta 更新 → 完了時メトリクス確定。
+- [ ] temporary chat は memory 自動抽出しない（`覚えて` も無効、organizer 対象外）。
+- [ ] `locked=true` の memory は organizer が触らない。
+- [ ] `llm_jp_thinking` は reasoning 除去後の final answer のみ保存。
+- [ ] LLM ストリームのタイムアウトはチャンク毎リセット。失敗時は reference 抜粋フォールバック。
+- [ ] cascade delete とファイル削除（document/project 削除時に `/files` の実体を unlink）。
+
+---
+
+## 5. 未解決リスク / 要・手元環境
+
+- **WebView での SSE 逐次表示**（Spike #1 の残り）: 実機 Wails アプリ + GUI でのみ確認可能。
+  もし逐次描画されない場合の保険: ローカルサーバ案で回避見込みだが、最終手段は Wails events 化（フロント改修増）。
+- **mac/win の署名・notarization・WebView2**: CI と証明書が要る。早めに最小アプリで通すこと（Spike #3）。
+- **統合テスト**には起動中の OpenAI 互換エンドポイント（LM Studio 等）が必要。chat/stream・retrieval・review の end-to-end はそれ無しでは確認不可。
+
+---
+
+## 6. 参考（既存実装の地図）
+
+- API 一覧・全サービスの責務: 計画ファイルと `backend/src/index.ts` / `backend/src/services/*`。
+- DB スキーマ正本: `backend/src/db/schema.ts`（Go 版は `internal/db/schema.go` に移植済み）。
+- 型定義: `backend/src/lib/types.ts`。ユーティリティ: `backend/src/lib/utils.ts`。
+- サンプル文書（検索テスト用の実データ）: `sample-docs/`。
