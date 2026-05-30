@@ -22,7 +22,7 @@
 
 ## 1. 現状サマリ（DONE & TESTED）
 
-リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）まで完了**。React アプリのソースは未変更（フロントは `vite.config.ts` の `outDir` と `.gitignore` のみ調整）。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go test ./...` 全グリーン、`gofmt` クリーン、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み。
+リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）まで完了**。React アプリのソースは未変更（フロントは `vite.config.ts` の `outDir` と `.gitignore` のみ調整）。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...` 全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。
 
 ```
 main.go                               ✅ Phase1 Wails 起動 + //go:embed all:frontend/dist
@@ -45,6 +45,17 @@ internal/db/                          ✅ DB 層
 internal/httpapi/                     ✅ SSE 基盤
   ├ sse.go                             SSEWriter（frontend のパーサと同じ event:/data: 形式, 各 Event で Flush）
   └ sse_test.go                        逐次配信（ハンドラ完了前に受信できる）を実証
+internal/model/                       ✅ Phase4 ドメイン型（lib/types.ts 移植, JSON タグはフロント契約に一致, nullable は *T）
+internal/util/                        ✅ Phase4 lib/utils.ts 移植: NowISO（ms UTC Z）/ NewID（google/uuid v4）/ ParseTags
+internal/chunk/                       ✅ Phase4 documentChunker.ts 移植: Document()=1000rune窓/150 overlap（rune基準, UTF-16差はBMP外のみ）
+internal/doccategory/                 ✅ Phase4 documentCategory.ts 移植: Infer()/IsValid()（\s→[\s\p{Z}] で全角空白パリティ補正）
+internal/repository/                  ✅ Phase4 4リポジトリ（projectRepository/document/memory/chat.ts 移植）
+  ├ repository.go                      共有: dbtx/scanner if, NullX→*T 変換, boolToInt, ptrArg[T], inPlaceholders
+  ├ project.go                         CRUD + reorder（ErrProjectReorderMismatch）+ chat_count JOIN
+  ├ document.go                        CRUD + chunk/FTS upsert + embedding + rebuildSearchIndex + backfillInferredCategories
+  ├ memory.go                          CRUD + FTS upsert + locked COALESCE + hasSimilarMemory + embedding + rebuild
+  ├ chat.go                            chat/message/summary/参照 CRUD + ストリーミング保存(updateContent/finalize) + getMessagesWithReferences
+  └ repository_test.go                 4リポジトリ網羅（FTS検索可否・順序・cascade・COALESCE 等）
 tools/segmenter-parity/               パリティ再生成ツール
   ├ gen_model.mjs                      tiny-segmenter のモデル → internal/search/model.go
   └ gen_golden.ts                      JS の出力 → internal/search/testdata/golden.json
@@ -99,12 +110,18 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
   **Spike #1（SSE 逐次表示）も解消**: 使い捨て probe `GET /api/_sse_probe`（SSEWriter で 500ms 間隔の delta）を WebView devtools から**絶対 URL `http://127.0.0.1:8787` へ直 fetch**（=prod の `__API_BASE__` 経路）し、+16/+511/+1013/+1514/+2016ms で**逐次受信**を確認 → 即削除。WKWebView は flush を逐次 JS に渡す。ローカル `net/http`+SSE 構成で確定、Wails events 化の保険は不要。
 - 補足: `build/darwin/Info.plist` の bundle id は既定 `com.wails.snz-studio` → 署名/notarization 前に Phase 8 で要変更。
 
-### Phase 4 — Repository 層（`internal/repository/`）
-移植元: `backend/src/repositories/{project,document,memory,chat}Repository.ts`。
-- SQL はほぼ流用可。ID 生成は `crypto.randomUUID()` → `github.com/google/uuid`（`lib/utils.ts` の `createId` 相当）。
-- 時刻は `nowIso`（ISO8601 UTC）。`document.tags_json` は JSON 文字列。
-- 注意: document/memory の作成・更新時に `*_fts` を `BuildSearchText` で upsert する処理がある（`documentRepository.ts:145,299,329,332` / `memoryRepository.ts:104-106,168-170,204-207` 付近）。`rebuildSearchIndex()` も移植（起動時の FTS 再構築に使う）。
-- `memoryRepository.hasSimilarMemory` は Jaccard 類似。
+### Phase 4 — Repository 層（`internal/repository/`）✅ DONE & TESTED（2026-05-30）
+移植元: `backend/src/repositories/{project,document,memory,chat}Repository.ts`（4ファイル全 public メソッドを移植。embedding 系・rebuildSearchIndex・backfill も含む）。
+確立した規約・勘所（蒸し返さないこと）:
+- **リーフパッケージ分離**: `documentChunker`/`documentCategory` は TS では services/lib にあるが、Go で repository に直接置くと将来 service→repository の循環参照になる。よって純関数を `internal/chunk`・`internal/doccategory`・`internal/util`・`internal/model` に分離（いずれも repository より下層・他に依存しないリーフ）。依存方向は `repository → {model, util, chunk, doccategory, search, db}` のみ。
+- **単一接続のトランザクション規律（最重要）**: `db.Open` は `SetMaxOpenConns(1)`。`*sql.Tx` が唯一の接続を占有するため、**tx 中の全文は `*sql.Tx` 経由**（共有ヘルパは `dbtx` インタフェース引数）。**読み取り結果を tx に渡す処理は、`rows.Close()` 後に `Begin()`**（さもないと自己デッドロック）。`rebuildSearchIndex`/`backfill` は全行を先読み→close→tx の順。
+- **`SELECT *` 禁止**: TS は名前マップだが Go は位置スキャン。全クエリを**明示列**に書き換え（マイグレーション後の最終列順に厳密一致。例: documents は末尾に `category`、memories は末尾に `source, locked`、messages は `... response_ms, output_tokens, tokens_per_second, model_name`、chats は `... is_temporary, created_at, updated_at`）。
+- ID = `util.NewID(prefix)` = `prefix + "_" + uuid.NewString()`（google/uuid を直接 require に昇格済み）。時刻 = `util.NowISO()`（ms 精度 UTC `Z`、JS `toISOString` 一致）。`tags_json` は `encoding/json`。
+- nullable 列は `*T`（JSON で null 化）。スキャンは `sql.NullX → *T` 変換ヘルパ、バインドは `ptrArg[T]`（nil→SQL NULL）。
+- `*_fts` upsert はすべて `search.BuildSearchText`。**注意: createDocument の検索本文 joinedSearchBody は `", "` 結合だが FTS `tags` 列は `" "` 結合**（TS で区切りが異なる）— 厳密に踏襲済み。
+- updateMemory の `locked = COALESCE(?, locked)` は `*bool`（nil で現状維持）。`hasSimilarMemory` は **Jaccard ではなく** `lower(title)=lower(?) AND lower(content)=lower(?)` の完全一致（SQLite `lower()` は ASCII のみ＝日本語は実質ノーオプ、TS と同じ）。← 旧 HANDOFF の「Jaccard 類似」は誤り。
+- parity 補足: chunker/category の `slice`・`length` は JS=UTF-16 / Go=rune。対象は日本語 BMP のため一致（astral 文字のみ差、各 .go 冒頭コメント参照）。doccategory の `\s` は JS の Unicode 空白に合わせ `[\s\p{Z}]` に補正（全角空白 U+3000 のヘディング検出）。
+- 返り値規約: 単一取得/更新の not-found は `(nil, nil)`、reorder の ID 不一致は `ErrProjectReorderMismatch`（HTTP 層で 404/400 振り分け用）、delete は `(*Record or bool, error)`。
 
 ### Phase 5 — Service 層（`internal/service/`）— 最重要・最大ボリューム
 移植元: `backend/src/services/*.ts`。**各ファイルを精読してから移植**すること（本 HANDOFF は要点のみ）。
