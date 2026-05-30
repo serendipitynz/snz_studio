@@ -22,11 +22,11 @@
 
 ## 1. 現状サマリ（DONE & TESTED）
 
-リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）+ Phase 5（Service 層）+ Phase 6（HTTP API + Wails 結線）まで完了**。React アプリのソースは未変更（フロントは `vite.config.ts` の `outDir` と `.gitignore` のみ調整。Phase 7 のフロント微修正＝`__API_BASE__`/HashRouter は未着手）。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...`（`-race` 含む）全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。新規本番依存なし（HTTP ルータは標準 `net/http` の method+pattern ServeMux を採用＝`chi` 不使用。`google/uuid` は Phase4 で昇格済みの既存直接依存）。
+リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）+ Phase 5（Service 層）+ Phase 6（HTTP API + Wails 結線）+ Phase 7（フロント微修正 + dev 通信是正）まで完了**。Phase 7 でフロントを `window.__API_BASE__`（絶対 URL 直叩き）+ `HashRouter` に最小改修済み（`main.tsx`/`api/client.ts`/`ChatPage.tsx`/`ProjectDetailPage.tsx` + 新規 `global.d.ts`、`vite.config.ts` の proxy はブラウザ直開き用に残置）。それ以外の React ソースは未変更。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...`（`-race` 含む）全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。新規本番依存なし（HTTP ルータは標準 `net/http` の method+pattern ServeMux を採用＝`chi` 不使用。`google/uuid` は Phase4 で昇格済みの既存直接依存）。
 
 ```
 main.go                               ✅ Phase1 Wails 起動 + //go:embed all:frontend/dist
-app.go                                ✅ Phase6 startup で paths 解決→db.Open→config.Load→httpapi.NewServer→Handler 注入→RunStartupTasks→goroutine Serve / shutdown で server+db close / GetApiBase()
+app.go                                ✅ Phase6 startup で paths 解決→db.Open→config.Load→httpapi.NewServer→Handler 注入→RunStartupTasks→goroutine Serve / shutdown で server+db close / GetApiBase()（Phase7: dev/prod とも絶対 URL `http://<ln.Addr>` を返す＝dev も 127.0.0.1:8787 直叩き）
 paths.go                              ✅ Phase6 resolveDataPaths: DATA_DIR/SQLITE_PATH/UPLOAD_DIR env override、既定は dev=cwd/data・prod=os.UserConfigDir()/snz-studio
 env_dev.go (//go:build dev)           ✅ Phase1 isDev=true, apiListenAddr=127.0.0.1:8787（wails dev が dev タグを付与）
 env_prod.go (//go:build !dev)         ✅ Phase1 isDev=false, apiListenAddr=127.0.0.1:0（ephemeral）
@@ -114,7 +114,7 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
   生テキストを直接 FTS に入れてはいけない（検索が静かに壊れる）。
 - **正規表現の差**: JS の `\p{Script=Han}` は Go では `\p{Han}`（`\p{Hiragana}`/`\p{Katakana}`/`\p{L}`/`\p{N}` も対応）。NFKC は `golang.org/x/text/unicode/norm`。
 - **データ保存先**: `os.UserConfigDir()` + `"snz-studio"`（mac `~/Library/Application Support/snz-studio`, win `%AppData%\snz-studio`）配下に `app.sqlite` / `uploads/` / `app-config.json`。起動時 `os.MkdirAll`。dev は env で上書き可。
-- **dev の通信（⚠ 当初設計から是正・2026-05-31）**: Go API は dev=固定 `127.0.0.1:8787` / prod=空きポートで立てる。**dev/prod とも `window.__API_BASE__`（= `GetApiBase()` の絶対 URL）でフロントから直接 :8787 を叩く**。当初は「dev は `vite.config.ts` の `/api`・`/files` proxy で無改修」を想定していたが、**この前提は GET でしか成立しない**: `wails dev` の WebView は Wails dev アセットサーバ（origin `wails.localhost:34115`）からロードされ、その external asset handler は **GET だけ Vite にプロキシし、非 GET（POST/PATCH/DELETE）は 405 を返す**（wails v2.12.0 `pkg/assetserver/assethandler_external.go:64-77` / `assethandler.go:84-109`）。よって相対 URL ではミューテーションが :8787 に届かない。絶対 URL なら Wails dev サーバを迂回して直接 :8787 に届き（Spike #1 で SSE 込み実証済みの経路）、クロスオリジンは Phase6 の `withCORS`（Origin 反射＋OPTIONS 204）が処理する。Vite proxy は localhost:5173 をブラウザ直開きする場合のみ有効＝当面残置、Phase9 で整理。実装は Phase 7。
+- **dev の通信（⚠ 当初設計から是正・2026-05-31）**: Go API は dev=固定 `127.0.0.1:8787` / prod=空きポートで立てる。**dev/prod とも `window.__API_BASE__`（= `GetApiBase()` の絶対 URL）でフロントから直接 :8787 を叩く**。当初は「dev は `vite.config.ts` の `/api`・`/files` proxy で無改修」を想定していたが、**この前提は GET でしか成立しない**: `wails dev` の WebView は Wails dev アセットサーバ（origin `wails.localhost:34115`）からロードされ、その external asset handler は **GET だけ Vite にプロキシし、非 GET（POST/PATCH/DELETE）は 405 を返す**（wails v2.12.0 `pkg/assetserver/assethandler_external.go:64-77` / `assethandler.go:84-109`）。よって相対 URL ではミューテーションが :8787 に届かない。絶対 URL なら Wails dev サーバを迂回して直接 :8787 に届き（Spike #1 で SSE 込み実証済みの経路）、クロスオリジンは Phase6 の `withCORS`（Origin 反射＋OPTIONS 204）が処理する。Vite proxy は localhost:5173 をブラウザ直開きする場合のみ有効＝当面残置、Phase9 で整理。**実装済み（Phase 7 完了 2026-05-31）**: ライブ稼働中の `wails dev` サーバ(:8787)へクロスオリジン直叩きで GET 200 / POST create-chat のプリフライト OPTIONS が 204 + `Allow-Methods: ...POST...` を返すことを headless 検証済み（=405 機構の解消を HTTP 層で実証）。
 - **パッケージング**: クロスコンパイル不可（mac は CGO+SDK 必須）。**GitHub Actions `macos-latest` + `windows-latest` マトリクス**。mac は Developer ID 署名 + notarytool、win は Authenticode + WebView2(`-webview2 download`)。
 
 ---
@@ -199,8 +199,17 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 - **アップロード**: `r.ParseMultipartForm(32MB)` → `r.FormFile("file")`（`http.ErrMissingFile` で未添付判定）。image は `uuid.NewString()+ext` で uploadDir に保存、`filePath=/files/{name}`・`mimeType=part の Content-Type`。非 image+file は本文を utf8 読みして contentText。title は `title || originalname || truncate(先頭行 || "Untitled document", 80)`。category は `doccategory.IsValid` 不通過なら空（repository が推定）。作成後 `embSync.SyncDocument(id)`。`/files/{name}` 配信は `http.ServeFile`＋単一セグメント＋セパレータ拒否で traversal 防止。
 - **テスト範囲（handlers_test.go）**: 全ルートを `httptest` でエンドポイントレス検証。死んだ LLM（`127.0.0.1:1`）＋embedding 無効（空 model）で **chat send/stream の fallback・review の 500/error イベント・organize の dedupe fallback** まで end-to-end 通過。**LLM/embedding 実動の正常系（実 delta 表示・semantic retrieval・実 review）は LM Studio 等が必要＝未確認（§5 据え置き）**。
 
-### Phase 7 — フロント微修正 + dev 通信の是正（全量・最小）
+### Phase 7 — フロント微修正 + dev 通信の是正（全量・最小）✅ DONE（2026-05-31, GUI 起動 + transport headless 検証済 / WebView 操作系は手元確認待ち）
 **前提（必読）**: `wails dev` の新規チャット作成（POST）が **405** になる事象を §2「dev の通信」で要因確定済み（Wails dev アセットサーバは GET のみ Vite プロキシ、非 GET は 405）。よって相対 URL（Vite proxy 依存）ではなく **dev/prod とも絶対 `window.__API_BASE__` で直接 :8787 を叩く**方式に統一する。CORS は Phase6 の `withCORS` が対応済み、SSE 直叩きは Spike #1 で実証済み。
+
+確立した規約・勘所（蒸し返さないこと）:
+- **dev/prod 通信を絶対 URL に統一**: `app.go` の `a.apiBase` は dev/prod とも `"http://" + ln.Addr().String()`（dev=127.0.0.1:8787 固定 / prod=ephemeral 実アドレス）。当初の dev 空文字（Vite proxy 依存）は廃止。`GetApiBase()` は常に絶対 URL を返す。
+- **フロント起動シーケンス**: `main.tsx` は React レンダー前に `bootstrap()` で `GetApiBase()` を await→`window.__API_BASE__` に一度だけ設定→`HashRouter`（必須・`BrowserRouter` から変更）でレンダー。`window.go` が無い環境（ブラウザで Vite を直開き）では catch して `""` フォールバック（=相対 URL→Vite proxy）。型は新規 `frontend/src/global.d.ts` で `Window.__API_BASE__?: string` を宣言。
+- **URL 前置箇所（5）**: `api/client.ts` の `request()`（string input のみ前置、`Request` はそのまま）、`ChatPage.tsx` の 2 ストリーム fetch（messages/stream・review/stream、**SSE パースは無変更**）、`ProjectDetailPage.tsx` の `<img src>`。いずれも `${window.__API_BASE__ ?? ""}` 前置。grep で他に raw fetch / `/api` / `/files` リテラルが無いことを確認済み。
+- **`vite.config.ts` は無変更**: `/api`・`/files` proxy はブラウザ直開き(localhost:5173)用に残置（Phase9 で整理）。
+- **検証結果**: `gofmt` クリーン / `go vet ./...`・`go vet -tags dev ./...`・`go build ./...`・`go test -race ./...` 全グリーン / `tsc --noEmit`（check:client）エラーなし / `vite build`（build:client）成功。`wails dev` は **Wails CLI 経由で dev ビルドが正常コンパイル＆リンク**（"Compiling application: Done."、後述の UTType リンク問題は出ない）し GUI 起動。ライブ :8787 へクロスオリジンで GET 200（Origin 反射）/ POST create-chat プリフライト OPTIONS が 204 + `Allow-Methods` に POST を含むことを headless 確認＝**405 機構の解消を実証**。
+- **⚠ 既知の無害事項（Phase8 で留意）**: plain `go build -tags dev ./...` は **リンク段階**で `_OBJC_CLASS_$_UTType`（`UniformTypeIdentifiers` フレームワーク未リンク）で失敗する。ただし (1) 型検査は通る（`go vet -tags dev` 緑）、(2) **app.go の変更を revert しても同じく失敗＝既存事象・Phase7 とは無関係**、(3) `wails dev`/`wails build` の CLI 経由は正しくフレームワークを付与しリンク成功。よって dev/prod バイナリは wails CLI でビルドすること（plain `go build -tags dev` は dev バイナリの正規ビルド手段ではない）。prod の `go build .` は単体でもリンク成功。
+- **手元確認待ち（WebView 操作系）**: 実 WebView でのクリック操作＝(a) 新規チャット作成 POST が UI で成功、(b) チャット送信の SSE 逐次表示、(c) 画像ドキュメントの `<img>` 表示、(d) LM Studio 接続での §5 正常系 end-to-end（設定 PUT→connected=true→semantic retrieval・実 review）。transport/CORS/ビルドは検証済みなので残るは UI 操作のみ。**注意: 既に起動中の `wails dev` で確認する場合、`main.tsx`(エントリ) の変更が HMR で完全反映されていない可能性があるため、WebView を一度ハードリロード（または `wails dev` 再起動）してから確認すること。**
 
 1. **`app.go`**: dev 分岐の `a.apiBase = ""` を廃止し、**dev/prod とも `a.apiBase = "http://" + ln.Addr().String()`** に統一（dev は `127.0.0.1:8787` 固定、prod は ephemeral 実アドレス）。
 2. **`frontend/src/main.tsx`**: React レンダー**前**に Wails バインド `GetApiBase()`（`frontend/src/wailsjs/go/main/App` から import、型 `(): Promise<string>` 生成済み）を await し `window.__API_BASE__` に一度だけ設定。あわせて `BrowserRouter` → `HashRouter`（必須）。`window.__API_BASE__` の型宣言（`global.d.ts` 等）を追加。
@@ -239,7 +248,7 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 
 - ~~**WebView での SSE 逐次表示**（Spike #1）~~ → ✅ **解消済み（2026-05-30）**。WKWebView から loopback Go への直 fetch で SSE が逐次描画されることを実機確認（詳細は §3 Phase 1）。Wails events 化の保険は不要。
 - **mac/win の署名・notarization・WebView2**: CI と証明書が要る。早めに最小アプリで通すこと（Spike #3）。
-- **統合テスト**には起動中の OpenAI 互換エンドポイントが必要。chat/stream・retrieval・review の正常系 end-to-end はそれ無しでは確認不可。**環境は利用可（2026-05-31 時点でユーザ手元に稼働中）**: LLM=`http://192.168.0.219:1234/v1`(LM Studio, gpt-oss-20b)、embedding=`http://192.168.0.219:7997/v1`(ruri-v3-130m)。**Phase 7 の GUI 検証でこの正常系を初確認する**（dev 通信是正とセット）。
+- **統合テスト**には起動中の OpenAI 互換エンドポイントが必要。chat/stream・retrieval・review の正常系 end-to-end はそれ無しでは確認不可。**環境は利用可（2026-05-31 時点でユーザ手元に稼働中）**: LLM=`http://192.168.0.219:1234/v1`(LM Studio, gpt-oss-20b)、embedding=`http://192.168.0.219:7997/v1`(ruri-v3-130m)。Phase 7 で **dev 通信是正（405 解消）と transport/CORS/ビルドは検証済み**だが、**実 WebView 操作での正常系 end-to-end（設定 PUT→connected=true→チャット SSE 逐次表示・semantic retrieval・実 review・画像 `<img>` 表示）は手元 GUI での実クリック確認が必要（未完了）**。§3 Phase 7 末尾の「手元確認待ち」参照。
 
 ---
 
