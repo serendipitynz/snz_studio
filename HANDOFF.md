@@ -95,7 +95,8 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
   `GetApiBase()`= dev は `""`（vite proxy 利用）/ prod は `http://<実アドレス>`。`shutdown` で graceful close。現状ルートは `/api/health` のみ（22 ルートは Phase 6）。
 - **embed**: `main.go` の `//go:embed all:frontend/dist`。vite `outDir` を `dist`（=`frontend/dist`）に変更済み。`frontend/dist/.gitkeep` を追跡（fresh checkout で `go build` が通るため。`emptyOutDir` がローカルで消すのは想定内）。
 - **monorepo**: `wails.json` の `frontend:*` は cwd=`frontend/`・スペース分割実行のため `pnpm -C .. run ...` 形式（シェル機能不可）。`frontend:dev:serverUrl="auto"` で vite URL 自動検出。`wailsjsdir=frontend/src` → 生成バインドは `frontend/src/wailsjs/`（gitignore 済み、`GetApiBase():Promise<string>` 生成確認済み）。
-- **未確認（GUI 必須・Spike #1 残り）**: `wails dev` で実 UI 描画 / SSE 逐次表示。headless では検証不可。**次に GUI セッションで `~/go/bin/wails dev` を一度起動して目視確認すること**（フロントは Phase 7 まで `__API_BASE__` 未設定だが、空ウィンドウ＋vite proxy 経由で `/api/health` は届くはず）。
+- **GUI 確認 ✅ 完了（2026-05-30）**: `wails dev` で SPA が完全描画（HashRouter・スタイル動作）。`/api/health`=200 が WebView→vite proxy→Go:8787 の疎通を実証（データ系ルートは Phase 6 まで 404 が正常）。
+  **Spike #1（SSE 逐次表示）も解消**: 使い捨て probe `GET /api/_sse_probe`（SSEWriter で 500ms 間隔の delta）を WebView devtools から**絶対 URL `http://127.0.0.1:8787` へ直 fetch**（=prod の `__API_BASE__` 経路）し、+16/+511/+1013/+1514/+2016ms で**逐次受信**を確認 → 即削除。WKWebView は flush を逐次 JS に渡す。ローカル `net/http`+SSE 構成で確定、Wails events 化の保険は不要。
 - 補足: `build/darwin/Info.plist` の bundle id は既定 `com.wails.snz-studio` → 署名/notarization 前に Phase 8 で要変更。
 
 ### Phase 4 — Repository 層（`internal/repository/`）
@@ -170,8 +171,7 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 
 ## 5. 未解決リスク / 要・手元環境
 
-- **WebView での SSE 逐次表示**（Spike #1 の残り）: 実機 Wails アプリ + GUI でのみ確認可能。
-  もし逐次描画されない場合の保険: ローカルサーバ案で回避見込みだが、最終手段は Wails events 化（フロント改修増）。
+- ~~**WebView での SSE 逐次表示**（Spike #1）~~ → ✅ **解消済み（2026-05-30）**。WKWebView から loopback Go への直 fetch で SSE が逐次描画されることを実機確認（詳細は §3 Phase 1）。Wails events 化の保険は不要。
 - **mac/win の署名・notarization・WebView2**: CI と証明書が要る。早めに最小アプリで通すこと（Spike #3）。
 - **統合テスト**には起動中の OpenAI 互換エンドポイント（LM Studio 等）が必要。chat/stream・retrieval・review の end-to-end はそれ無しでは確認不可。
 
