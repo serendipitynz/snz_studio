@@ -13,7 +13,9 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: "../dist/frontend",
+    // Resolved relative to `root` (./frontend) -> ./frontend/dist, which is the
+    // path embedded by main.go (`//go:embed all:frontend/dist`).
+    outDir: "dist",
     emptyOutDir: true
   }
 });
