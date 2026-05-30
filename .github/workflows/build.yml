@@ -1,0 +1,118 @@
+# Builds the SNZ Studio desktop app for macOS and Windows.
+#
+# Cross-compilation is not possible (a macOS build needs CGO + the macOS SDK, and
+# the WebView2 toolchain on Windows), so each OS is built on its own native runner
+# via the matrix below.
+#
+# Code signing and notarization are intentionally NOT wired up yet — they require
+# user-provided certificates/secrets. The unsigned artifacts build and upload
+# today; the signing steps are documented inline and guarded on secrets so they
+# activate without changing the build once those secrets exist.
+name: build
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (universal)
+            os: macos-latest
+            platform: darwin/universal
+          - name: Windows (amd64)
+            os: windows-latest
+            platform: windows/amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Put GOPATH bin on PATH
+        shell: bash
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      # NSIS provides makensis, which `wails build -nsis` invokes to produce the
+      # Windows installer.
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y
+
+      # `wails build` runs the frontend install/build itself (see wails.json
+      # frontend:install / frontend:build), so no separate pnpm install is needed.
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: wails build -platform darwin/universal -clean
+
+      - name: Package .dmg (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil create \
+            -volname "SNZ Studio" \
+            -srcfolder "build/bin/snz-studio.app" \
+            -ov -format UDZO \
+            "build/bin/SNZ-Studio.dmg"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        # -webview2 download ships the Evergreen bootstrapper so the installer can
+        # fetch the WebView2 runtime at install time when it is absent.
+        run: wails build -platform windows/amd64 -nsis -webview2 download -clean
+
+      # --- Signing & notarization (TODO: needs user-provided secrets) -----------
+      #
+      # macOS (Developer ID):
+      #   - Import the Developer ID Application cert from a base64 .p12 secret into
+      #     a temporary keychain.
+      #   - codesign --deep --options runtime --timestamp the .app, then re-create
+      #     the .dmg and submit it with `xcrun notarytool submit --wait`, then
+      #     `xcrun stapler staple` the .dmg.
+      #   Secrets: APPLE_CERT_P12_BASE64, APPLE_CERT_PASSWORD, APPLE_DEVELOPER_ID,
+      #            APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+      #
+      # Windows (Authenticode):
+      #   - signtool sign /fd sha256 /tr <timestamp> /td sha256 the installer with
+      #     the code-signing cert.
+      #   Secrets: WINDOWS_CERT_PFX_BASE64, WINDOWS_CERT_PASSWORD
+      #
+      # Each signing step should be guarded like:
+      #   if: runner.os == 'macOS' && secrets.APPLE_CERT_P12_BASE64 != ''
+      # so the workflow keeps producing unsigned builds until the secrets land.
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: snz-studio-${{ runner.os }}
+          path: |
+            build/bin/*.dmg
+            build/bin/*.exe
+          if-no-files-found: warn
