@@ -22,10 +22,16 @@
 
 ## 1. 現状サマリ（DONE & TESTED）
 
-リポジトリ直下に Go モジュール `snzstudio` を**追加のみ**で作成済み。**既存の Node アプリ（`backend/`・`frontend/`）は一切未変更**で今もそのまま動く。`go test ./...` は全グリーン。
+リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）まで完了**。React アプリのソースは未変更（フロントは `vite.config.ts` の `outDir` と `.gitignore` のみ調整）。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go test ./...` 全グリーン、`gofmt` クリーン、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み。
 
 ```
-go.mod / go.sum                       module snzstudio (go 1.26)
+main.go                               ✅ Phase1 Wails 起動 + //go:embed all:frontend/dist
+app.go                                ✅ Phase1 App: ローカル net/http を goroutine 起動 / GetApiBase() / shutdown / /api/health
+env_dev.go (//go:build dev)           ✅ Phase1 isDev=true, apiListenAddr=127.0.0.1:8787（wails dev が dev タグを付与）
+env_prod.go (//go:build !dev)         ✅ Phase1 isDev=false, apiListenAddr=127.0.0.1:0（ephemeral）
+wails.json                            ✅ Phase1 monorepo 対応（frontend:* は pnpm -C .. 実行 / serverUrl=auto / wailsjsdir=frontend/src）
+build/{appicon.png,darwin/Info.plist} ✅ Phase1 wails 生成の既定テンプレ（bundle id 既定 com.wails.snz-studio → Phase8 で要変更）
+go.mod / go.sum                       module snzstudio (go 1.26) + wails v2.12.0
 internal/search/                      ✅ 日本語トークナイザ + FTS クエリ生成（searchText.ts 移植）
   ├ segmenter.go                       TinySegmenter 0.2 アルゴリズム移植
   ├ model.go                           ★自動生成（編集禁止）: tools/segmenter-parity/gen_model.mjs
@@ -81,14 +87,16 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 
 ## 3. 次の手順（この順で進める）
 
-### Phase 1 — Wails 足場（次セッションの最初）
-- ルートに `main.go` / `app.go` / `wails.json` を作る（`wails init` は既存 `frontend/` を壊すので**使わず手書き**）。
-- `main.go`: Wails v2 アプリ起動。`//go:embed all:frontend/dist`（or `dist/frontend`）で SPA を埋め込み、AssetServer に渡す。
-- `app.go`: `App` struct。`OnStartup` でローカル `net/http` サーバーを goroutine 起動（dev=8787 固定 / prod=`127.0.0.1:0`）。バインドメソッド `GetApiBase() string`（dev は空文字 = vite proxy 利用）。
-- `wails.json`: `frontend:install`=`pnpm install`、`frontend:build`=`pnpm build:client`、`frontend:dist` を vite の出力に一致させる。
-- **monorepo の要調整点**: `frontend/vite.config.ts` は `root: ./frontend` / `outDir: ../dist/frontend`。
-  Wails の embed パスと一致させる（`outDir` を `frontend/dist` に変える or embed 側を `dist/frontend` にする）。
-- 確認: `wails dev` で空 UI が出る → `~/go/bin/wails build` でバイナリが出る（Spike #3 の入口）。
+### Phase 1 — Wails 足場 ✅ DONE（手書き、`wails init` 不使用）
+確立した規約（蒸し返さないこと）:
+- **dev/prod 切替 = Go ビルドタグ**。`wails dev` は OutputType=`dev` で `-tags dev` を付与、`wails build` は `desktop production`（dev タグ無し）。
+  `env_dev.go`(`//go:build dev`) / `env_prod.go`(`//go:build !dev`) が `const isDev` と `apiListenAddr()` を提供。
+- **API サーバ**: `app.go` の `startup` で `net.Listen` → goroutine で `http.Server.Serve`。dev=固定 `127.0.0.1:8787`（vite proxy 先）、prod=`127.0.0.1:0`（OS 採番、`ln.Addr()` から実アドレス取得）。
+  `GetApiBase()`= dev は `""`（vite proxy 利用）/ prod は `http://<実アドレス>`。`shutdown` で graceful close。現状ルートは `/api/health` のみ（22 ルートは Phase 6）。
+- **embed**: `main.go` の `//go:embed all:frontend/dist`。vite `outDir` を `dist`（=`frontend/dist`）に変更済み。`frontend/dist/.gitkeep` を追跡（fresh checkout で `go build` が通るため。`emptyOutDir` がローカルで消すのは想定内）。
+- **monorepo**: `wails.json` の `frontend:*` は cwd=`frontend/`・スペース分割実行のため `pnpm -C .. run ...` 形式（シェル機能不可）。`frontend:dev:serverUrl="auto"` で vite URL 自動検出。`wailsjsdir=frontend/src` → 生成バインドは `frontend/src/wailsjs/`（gitignore 済み、`GetApiBase():Promise<string>` 生成確認済み）。
+- **未確認（GUI 必須・Spike #1 残り）**: `wails dev` で実 UI 描画 / SSE 逐次表示。headless では検証不可。**次に GUI セッションで `~/go/bin/wails dev` を一度起動して目視確認すること**（フロントは Phase 7 まで `__API_BASE__` 未設定だが、空ウィンドウ＋vite proxy 経由で `/api/health` は届くはず）。
+- 補足: `build/darwin/Info.plist` の bundle id は既定 `com.wails.snz-studio` → 署名/notarization 前に Phase 8 で要変更。
 
 ### Phase 4 — Repository 層（`internal/repository/`）
 移植元: `backend/src/repositories/{project,document,memory,chat}Repository.ts`。
