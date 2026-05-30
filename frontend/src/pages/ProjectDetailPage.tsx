@@ -775,7 +775,7 @@ export function ProjectDetailPage() {
               <Card>
                 {selectedDocument.type === "image" && selectedDocument.filePath ? (
                   <img
-                    src={selectedDocument.filePath}
+                    src={`${window.__API_BASE__ ?? ""}${selectedDocument.filePath}`}
                     alt={selectedDocument.title}
                     style={{ width: "100%", borderRadius: 16, display: "block" }}
                   />

@@ -40,9 +40,9 @@ func NewApp() *App {
 
 // startup runs after the WebView is created. It resolves the data directory,
 // opens the SQLite database, wires the repository/service graph behind the HTTP
-// API, binds the local API server to a port (fixed in dev so the Vite proxy can
-// target it, ephemeral in prod), and serves it on a goroutine so wails.Run keeps
-// driving the UI event loop.
+// API, binds the local API server to a port (fixed 127.0.0.1:8787 in dev,
+// ephemeral in prod), and serves it on a goroutine so wails.Run keeps driving
+// the UI event loop.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
@@ -71,15 +71,16 @@ func (a *App) startup(ctx context.Context) {
 		log.Fatalf("api: listen on %s: %v", apiListenAddr(), err)
 	}
 
-	// In dev the SPA is served by the Vite dev server and reaches the API
-	// through Vite's proxy, so the frontend uses relative URLs (empty base).
+	// Both dev and prod use the absolute loopback origin so the SPA can reach
+	// this server directly. In dev the WebView loads the SPA from the Wails dev
+	// asset server (origin wails.localhost), whose external asset handler only
+	// proxies GET to Vite and returns 405 for non-GET (POST/PATCH/DELETE). A
+	// relative URL would therefore never reach :8787 for mutations, so the SPA
+	// must call the absolute origin and bypass the Wails dev server entirely;
+	// the cross-origin call is handled by httpapi's withCORS (Origin reflection).
 	// In prod the SPA is served from embedded assets under the wails:// origin
-	// and must call the loopback server by its absolute origin.
-	if isDev {
-		a.apiBase = ""
-	} else {
-		a.apiBase = fmt.Sprintf("http://%s", ln.Addr().String())
-	}
+	// and likewise needs the absolute loopback origin.
+	a.apiBase = fmt.Sprintf("http://%s", ln.Addr().String())
 	log.Printf("api: listening on http://%s (apiBase=%q, dev=%v)", ln.Addr(), a.apiBase, isDev)
 	log.Printf("api: data dir %s", paths.dataDir)
 
@@ -117,8 +118,11 @@ func (a *App) shutdown(_ context.Context) {
 	}
 }
 
-// GetApiBase is bound to the frontend. The SPA prefixes every API/file request
-// with this value (empty in dev, where the Vite proxy handles routing).
+// GetApiBase is bound to the frontend. It always returns the absolute loopback
+// origin (in both dev and prod). The SPA awaits it once at startup and prefixes
+// every API/file request with it. When this binding is unreachable — e.g. the
+// Vite dev server opened directly in a browser, where window.go is absent — the
+// SPA falls back to relative URLs and the Vite proxy handles /api and /files.
 func (a *App) GetApiBase() string {
 	return a.apiBase
 }

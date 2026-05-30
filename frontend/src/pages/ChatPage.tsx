@@ -252,7 +252,7 @@ export function ChatPage() {
   }
 
   async function streamMessage(content: string, assistantMessageId: string) {
-    const response = await fetch(`/api/chats/${chatId}/messages/stream`, {
+    const response = await fetch(`${window.__API_BASE__ ?? ""}/api/chats/${chatId}/messages/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content })
@@ -559,7 +559,7 @@ export function ChatPage() {
   }
 
   async function streamReviewMessage(messageId: string) {
-    const response = await fetch(`/api/messages/${messageId}/review/stream`, {
+    const response = await fetch(`${window.__API_BASE__ ?? ""}/api/messages/${messageId}/review/stream`, {
       method: "POST"
     });
 

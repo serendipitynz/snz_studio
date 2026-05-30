@@ -124,7 +124,10 @@ export interface ReviewResponse {
 }
 
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  // Prefix string paths with the loopback API origin (set in main.tsx). All
+  // callers below pass a relative "/api/..." string; Request objects pass through.
+  const target = typeof input === "string" ? `${window.__API_BASE__ ?? ""}${input}` : input;
+  const response = await fetch(target, init);
   if (!response.ok) {
     const data = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Error(data?.error ?? `Request failed with ${response.status}`);

@@ -1,8 +1,9 @@
 import { Global, css } from "@emotion/react";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { HashRouter } from "react-router-dom";
 import App from "./App";
+import { GetApiBase } from "./wailsjs/go/main/App";
 import { theme } from "./styles/theme";
 
 const globalStyles = css`
@@ -30,11 +31,26 @@ const globalStyles = css`
   }
 `;
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <Global styles={globalStyles} />
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>
-);
+// Resolve the API origin from the Wails binding before the first render so every
+// request (incl. the SSE streams in ChatPage) targets the loopback Go server
+// directly. HashRouter is required because Wails does not support BrowserRouter.
+async function bootstrap() {
+  try {
+    window.__API_BASE__ = (await GetApiBase()) ?? "";
+  } catch {
+    // window.go is absent when the SPA is opened directly in a browser against
+    // the Vite dev server; fall back to relative URLs handled by the Vite proxy.
+    window.__API_BASE__ = "";
+  }
+
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <Global styles={globalStyles} />
+      <HashRouter>
+        <App />
+      </HashRouter>
+    </React.StrictMode>
+  );
+}
+
+void bootstrap();
