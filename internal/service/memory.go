@@ -109,6 +109,14 @@ func generateMemoryTitle(content, kind string) string {
 	}
 }
 
+// GenerateMemoryTitle derives a memory title from raw content, mirroring the
+// helper the Node backend duplicated in index.ts for the manual-create route. It
+// shares the exact logic used by automatic extraction so both paths title
+// memories identically; the HTTP layer calls this instead of re-implementing it.
+func GenerateMemoryTitle(content, kind string) string {
+	return generateMemoryTitle(content, kind)
+}
+
 func inferKindFromText(input string) string {
 	for _, cue := range durableCues {
 		if cue.regex.MatchString(input) {

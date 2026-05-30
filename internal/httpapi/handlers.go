@@ -1,0 +1,892 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"log"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"github.com/google/uuid"
+
+	"snzstudio/internal/config"
+	"snzstudio/internal/doccategory"
+	"snzstudio/internal/model"
+	"snzstudio/internal/repository"
+	"snzstudio/internal/service"
+	"snzstudio/internal/util"
+)
+
+// --- Configuration -----------------------------------------------------------
+
+func (s *Server) handleGetConfiguration(w http.ResponseWriter, _ *http.Request) {
+	settings := s.cfg.Get()
+	llmConnected, reviewConnected, embeddingConnected := s.checkConnections(settings)
+	editable := s.cfg.GetEditable()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configuration": workspaceConfig(editable, llmConnected, reviewConnected, embeddingConnected),
+	})
+}
+
+func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+
+	llmBaseURL := strings.TrimSpace(bodyString(m, "llmBaseUrl"))
+	llmModel := strings.TrimSpace(bodyString(m, "llmModel"))
+	llmResponseFormat := "standard"
+	if bodyString(m, "llmResponseFormat") == "llm_jp_thinking" {
+		llmResponseFormat = "llm_jp_thinking"
+	}
+	reviewBaseURL := strings.TrimSpace(bodyString(m, "reviewBaseUrl"))
+	if reviewBaseURL == "" {
+		reviewBaseURL = llmBaseURL
+	}
+	reviewModel := strings.TrimSpace(bodyString(m, "reviewModel"))
+	if reviewModel == "" {
+		reviewModel = llmModel
+	}
+	embeddingBaseURL := strings.TrimSpace(bodyString(m, "embeddingBaseUrl"))
+	embeddingModel := strings.TrimSpace(bodyString(m, "embeddingModel"))
+
+	if llmBaseURL == "" {
+		writeError(w, http.StatusBadRequest, "LLM endpoint is required")
+		return
+	}
+
+	updated, err := s.cfg.UpdateEditable(config.Editable{
+		LLMBaseURL:        llmBaseURL,
+		LLMModel:          llmModel,
+		LLMResponseFormat: llmResponseFormat,
+		ReviewBaseURL:     reviewBaseURL,
+		ReviewModel:       reviewModel,
+		EmbeddingBaseURL:  embeddingBaseURL,
+		EmbeddingModel:    embeddingModel,
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+
+	s.embedding.RefreshConfiguration()
+
+	// Warm the models concurrently, matching the Node Promise.all. Results are
+	// advisory (the connection probe below reports reachability), so ignore them.
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { defer wg.Done(); s.llm.EnsureModelLoaded(updated.LLMModel, updated.LLMBaseURL) }()
+	go func() { defer wg.Done(); s.llm.EnsureModelLoaded(updated.ReviewModel, updated.ReviewBaseURL) }()
+	go func() {
+		defer wg.Done()
+		s.embedding.EnsureModelLoaded(updated.EmbeddingModel, updated.EmbeddingBaseURL)
+	}()
+	wg.Wait()
+
+	if s.embedding.IsEnabled() {
+		go func() {
+			if err := s.embeddingSync.RebuildAll(); err != nil {
+				log.Printf("Embedding rebuild skipped: %v", err)
+			}
+		}()
+	}
+
+	llmConnected, reviewConnected, embeddingConnected := s.checkConnections(s.cfg.Get())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configuration": workspaceConfig(updated, llmConnected, reviewConnected, embeddingConnected),
+	})
+}
+
+func (s *Server) handleListConfigurationModels(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	kind := strings.TrimSpace(bodyString(m, "kind"))
+	baseURL := strings.TrimSpace(bodyString(m, "baseUrl"))
+	if baseURL == "" {
+		writeError(w, http.StatusBadRequest, "baseUrl is required")
+		return
+	}
+
+	switch kind {
+	case "llm":
+		models, err := s.llm.ListModels(baseURL)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"models": models})
+	case "embedding":
+		models, err := s.embedding.ListModels(baseURL)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"models": models})
+	default:
+		writeError(w, http.StatusBadRequest, "invalid configuration kind")
+	}
+}
+
+// --- Projects ----------------------------------------------------------------
+
+func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
+	projects, err := s.projects.ListProjects()
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+}
+
+func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	title := strings.TrimSpace(bodyString(m, "title"))
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	description := ""
+	if v, ok := m["description"].(string); ok {
+		description = v
+	}
+	systemPrompt := ""
+	if v, ok := m["systemPrompt"].(string); ok {
+		systemPrompt = v
+	}
+
+	project, err := s.projects.CreateProject(repository.CreateProjectInput{
+		Title:        title,
+		Description:  description,
+		SystemPrompt: systemPrompt,
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"project": project})
+}
+
+func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	raw, _ := m["projectIds"].([]any)
+	projectIDs := make([]string, 0, len(raw))
+	for _, v := range raw {
+		projectIDs = append(projectIDs, stringifyJSONValue(v))
+	}
+	if len(projectIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "projectIds are required")
+		return
+	}
+
+	reordered, err := s.projects.ReorderProjects(projectIDs)
+	if errors.Is(err, repository.ErrProjectReorderMismatch) {
+		writeError(w, http.StatusBadRequest, "projectIds did not match existing projects")
+		return
+	}
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": reordered})
+}
+
+func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
+	project, err := s.projects.GetProject(r.PathValue("projectId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	documents, err := s.documents.ListByProject(project.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	memories, err := s.memories.ListByProject(project.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	chats, err := s.chats.ListByProject(project.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"project":   project,
+		"documents": documents,
+		"memories":  memories,
+		"chats":     chats,
+	})
+}
+
+func (s *Server) handleUpdateProjectTitle(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	title := strings.TrimSpace(bodyString(m, "title"))
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	project, err := s.projects.UpdateProjectTitle(r.PathValue("projectId"), title)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project": project})
+}
+
+func (s *Server) handleUpdateProjectSystemPrompt(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	systemPrompt := ""
+	if v, ok := m["systemPrompt"].(string); ok {
+		systemPrompt = v
+	}
+	project, err := s.projects.UpdateProjectSystemPrompt(r.PathValue("projectId"), systemPrompt)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project": project})
+}
+
+func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	project, err := s.projects.GetProject(r.PathValue("projectId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	// Snapshot the related documents before the cascade delete so their uploaded
+	// files can be unlinked afterwards (the DB cascade handles rows only).
+	relatedDocuments, err := s.documents.ListByProject(project.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+
+	deleted, err := s.projects.DeleteProject(project.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if !deleted {
+		writeError(w, http.StatusInternalServerError, "failed to delete project")
+		return
+	}
+
+	for _, document := range relatedDocuments {
+		s.unlinkFile(document.FilePath)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
+	project, err := s.projects.GetProject(r.PathValue("projectId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	title := bodyString(m, "title")
+	isTemporary, _ := bodyBool(m, "isTemporary")
+
+	chat, err := s.chats.CreateChat(repository.CreateChatInput{
+		ProjectID:   project.ID,
+		Title:       title,
+		IsTemporary: isTemporary,
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"chat": chat})
+}
+
+// --- Memories ----------------------------------------------------------------
+
+func (s *Server) handleCreateMemory(w http.ResponseWriter, r *http.Request) {
+	project, err := s.projects.GetProject(r.PathValue("projectId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+
+	content := strings.TrimSpace(bodyString(m, "content"))
+	kind := bodyString(m, "kind")
+	if kind == "" {
+		kind = "semantic"
+	}
+	// locked defaults to true unless the body explicitly sends false.
+	locked := true
+	if b, ok := bodyBool(m, "locked"); ok && !b {
+		locked = false
+	}
+
+	if content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	if kind != "semantic" && kind != "procedural" && kind != "episodic" {
+		writeError(w, http.StatusBadRequest, "invalid memory kind")
+		return
+	}
+
+	memory, err := s.memories.CreateMemory(repository.CreateMemoryInput{
+		ProjectID: project.ID,
+		Title:     service.GenerateMemoryTitle(content, kind),
+		Content:   content,
+		Kind:      kind,
+		Source:    "manual",
+		Locked:    locked,
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+
+	if err := s.embeddingSync.SyncMemories([]string{memory.ID}); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"memory": memory})
+}
+
+func (s *Server) handleSetMemoryLock(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	locked, isBool := bodyBool(m, "locked")
+	if !isBool {
+		writeError(w, http.StatusBadRequest, "locked must be a boolean")
+		return
+	}
+	memory, err := s.memories.SetMemoryLocked(r.PathValue("memoryId"), locked)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if memory == nil {
+		writeError(w, http.StatusNotFound, "memory not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"memory": memory})
+}
+
+func (s *Server) handleDeleteMemory(w http.ResponseWriter, r *http.Request) {
+	memory, err := s.memories.DeleteMemory(r.PathValue("memoryId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if memory == nil {
+		writeError(w, http.StatusNotFound, "memory not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "memory": memory})
+}
+
+func (s *Server) handleAnalyzeMemoryOrganization(w http.ResponseWriter, r *http.Request) {
+	project, err := s.projects.GetProject(r.PathValue("projectId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	plan, err := s.memoryOrg.AnalyzeProject(project.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"plan": plan})
+}
+
+func (s *Server) handleApplyMemoryOrganization(w http.ResponseWriter, r *http.Request) {
+	project, err := s.projects.GetProject(r.PathValue("projectId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
+	var body struct {
+		Plan *model.MemoryOrganizationPlan `json:"plan"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Plan == nil {
+		writeError(w, http.StatusBadRequest, "plan is required")
+		return
+	}
+
+	memoriesAfter, err := s.memoryOrg.ApplyProjectPlan(project.ID, *body.Plan)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"memories": memoriesAfter})
+}
+
+// --- Documents ---------------------------------------------------------------
+
+func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
+	project, err := s.projects.GetProject(r.PathValue("projectId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid multipart form")
+		return
+	}
+
+	docType := strings.TrimSpace(r.FormValue("type"))
+	if docType != "markdown" && docType != "text" && docType != "image" {
+		writeError(w, http.StatusBadRequest, "invalid document type")
+		return
+	}
+
+	file, header, ferr := r.FormFile("file")
+	hasFile := ferr == nil
+	if hasFile {
+		defer file.Close()
+	} else if !errors.Is(ferr, http.ErrMissingFile) {
+		fail(w, ferr)
+		return
+	}
+
+	contentText := r.FormValue("content")
+	var filePath *string
+	var mimeType *string
+
+	switch {
+	case docType == "image":
+		if !hasFile {
+			writeError(w, http.StatusBadRequest, "image file is required")
+			return
+		}
+		name := uuid.NewString() + filepath.Ext(header.Filename)
+		if err := s.saveUpload(file, name); err != nil {
+			fail(w, err)
+			return
+		}
+		public := toPublicFilePath(name)
+		filePath = &public
+		mt := header.Header.Get("Content-Type")
+		mimeType = &mt
+	case hasFile:
+		data, err := io.ReadAll(file)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		contentText = string(data)
+	}
+
+	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" && hasFile && header.Filename != "" {
+		title = header.Filename
+	}
+	if title == "" {
+		firstLine := contentText
+		if idx := strings.IndexByte(firstLine, '\n'); idx >= 0 {
+			firstLine = firstLine[:idx]
+		}
+		firstLine = strings.TrimSpace(firstLine)
+		if firstLine == "" {
+			firstLine = "Untitled document"
+		}
+		title = util.Truncate(firstLine, 80)
+	}
+
+	category := strings.TrimSpace(r.FormValue("category"))
+	if !doccategory.IsValid(category) {
+		category = ""
+	}
+
+	document, err := s.documents.CreateDocument(repository.CreateDocumentInput{
+		ProjectID:   project.ID,
+		Type:        docType,
+		Category:    category,
+		Title:       title,
+		Note:        r.FormValue("note"),
+		Tags:        util.ParseTags(r.FormValue("tags")),
+		DerivedText: r.FormValue("derivedText"),
+		ContentText: contentText,
+		FilePath:    filePath,
+		MimeType:    mimeType,
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+
+	if err := s.embeddingSync.SyncDocument(document.ID); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"document": document})
+}
+
+func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
+	document, err := s.documents.DeleteDocument(r.PathValue("documentId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if document == nil {
+		writeError(w, http.StatusNotFound, "document not found")
+		return
+	}
+	s.unlinkFile(document.FilePath)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "document": document})
+}
+
+func (s *Server) handleUpdateDocumentCategory(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	category := strings.TrimSpace(bodyString(m, "category"))
+	if !doccategory.IsValid(category) {
+		writeError(w, http.StatusBadRequest, "invalid document category")
+		return
+	}
+	document, err := s.documents.UpdateDocumentCategory(r.PathValue("documentId"), category)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if document == nil {
+		writeError(w, http.StatusNotFound, "document not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"document": document})
+}
+
+// --- Chats -------------------------------------------------------------------
+
+func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
+	chat, err := s.chats.GetChat(r.PathValue("chatId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if chat == nil {
+		writeError(w, http.StatusNotFound, "chat not found")
+		return
+	}
+	project, err := s.projects.GetProject(chat.ProjectID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	summary, err := s.chats.GetSummary(chat.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	messages, err := s.chats.GetMessagesWithReferences(chat.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"project":  project,
+		"chat":     chat,
+		"summary":  summary,
+		"messages": messages,
+	})
+}
+
+func (s *Server) handleUpdateChatTitle(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	title := bodyString(m, "title")
+	chat, err := s.chats.UpdateChatTitle(r.PathValue("chatId"), title)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if chat == nil {
+		writeError(w, http.StatusNotFound, "chat not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chat": chat})
+}
+
+func (s *Server) handleSetChatTemporary(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	isTemporary, isBool := bodyBool(m, "isTemporary")
+	if !isBool {
+		writeError(w, http.StatusBadRequest, "isTemporary must be a boolean")
+		return
+	}
+	chat, err := s.chats.SetTemporary(r.PathValue("chatId"), isTemporary)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if chat == nil {
+		writeError(w, http.StatusNotFound, "chat not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chat": chat})
+}
+
+func (s *Server) handleDeleteChat(w http.ResponseWriter, r *http.Request) {
+	chat, err := s.chats.DeleteChat(r.PathValue("chatId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if chat == nil {
+		writeError(w, http.StatusNotFound, "chat not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "chat": chat})
+}
+
+func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	content := strings.TrimSpace(bodyString(m, "content"))
+	if content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	chatID := r.PathValue("chatId")
+
+	assistantMessage, err := s.chatService.SendMessage(chatID, content)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	chat, err := s.chats.GetChat(chatID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if chat == nil {
+		writeError(w, http.StatusNotFound, "chat not found")
+		return
+	}
+	summary, err := s.chats.GetSummary(chatID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	messages, err := s.chats.GetMessagesWithReferences(chatID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"message":  assistantMessage,
+		"chat":     chat,
+		"summary":  summary,
+		"messages": messages,
+	})
+}
+
+func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	content := strings.TrimSpace(bodyString(m, "content"))
+	if content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	chatID := r.PathValue("chatId")
+
+	sse, err := NewSSEWriter(w)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+
+	_, streamErr := s.chatService.SendMessageStream(chatID, content, func(chunk string) {
+		_ = sse.Event("delta", map[string]string{"content": chunk})
+	})
+	if streamErr != nil {
+		_ = sse.Event("error", map[string]string{"message": streamErr.Error()})
+		return
+	}
+
+	chat, err := s.chats.GetChat(chatID)
+	if err != nil {
+		_ = sse.Event("error", map[string]string{"message": err.Error()})
+		return
+	}
+	if chat == nil {
+		_ = sse.Event("error", map[string]string{"message": "chat not found"})
+		return
+	}
+	messages, err := s.chats.GetMessagesWithReferences(chatID)
+	if err != nil {
+		_ = sse.Event("error", map[string]string{"message": err.Error()})
+		return
+	}
+	summary, err := s.chats.GetSummary(chatID)
+	if err != nil {
+		_ = sse.Event("error", map[string]string{"message": err.Error()})
+		return
+	}
+	_ = sse.Event("done", map[string]any{
+		"chat":     chat,
+		"messages": messages,
+		"summary":  summary,
+	})
+}
+
+// --- Messages / review -------------------------------------------------------
+
+func (s *Server) handleReviewMessage(w http.ResponseWriter, r *http.Request) {
+	result, err := s.reviewService.ReviewMessage(r.PathValue("messageId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleReviewMessageStream(w http.ResponseWriter, r *http.Request) {
+	sse, err := NewSSEWriter(w)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+
+	result, streamErr := s.reviewService.ReviewMessageStream(r.PathValue("messageId"), func(chunk string) {
+		_ = sse.Event("delta", map[string]string{"content": chunk})
+	})
+	if streamErr != nil {
+		_ = sse.Event("error", map[string]string{"message": streamErr.Error()})
+		return
+	}
+	_ = sse.Event("done", result)
+}
+
+// --- Static files ------------------------------------------------------------
+
+// fileHandler serves uploaded files from uploadDir, mirroring
+// express.static(config.uploadDir). Uploaded names are flat (uuid+ext), so the
+// single-segment {name} pattern plus an explicit separator guard prevents any
+// path traversal out of the upload directory.
+func (s *Server) fileHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(s.uploadDir, name))
+	})
+}
+
+// saveUpload writes a multipart file to uploadDir under name.
+func (s *Server) saveUpload(src multipart.File, name string) error {
+	if err := os.MkdirAll(s.uploadDir, 0o755); err != nil {
+		return err
+	}
+	dst, err := os.Create(filepath.Join(s.uploadDir, name))
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		return err
+	}
+	return dst.Close()
+}
+
+// toPublicFilePath mirrors fileStorage.toPublicFilePath.
+func toPublicFilePath(name string) string {
+	return "/files/" + name
+}
+
+// unlinkFile removes the on-disk upload backing a public /files path, ignoring a
+// missing file. The DB cascade only removes rows, so deletes/cascades that drop a
+// document must unlink its file here (HANDOFF §4).
+func (s *Server) unlinkFile(filePath *string) {
+	if filePath == nil || !strings.HasPrefix(*filePath, "/files/") {
+		return
+	}
+	_ = os.Remove(filepath.Join(s.uploadDir, path.Base(*filePath)))
+}

@@ -2,16 +2,22 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
+
+	"snzstudio/internal/config"
+	"snzstudio/internal/db"
+	"snzstudio/internal/httpapi"
 )
 
 // App is the Wails application object. It owns the lifecycle of the local
 // loopback HTTP server that serves the SNZ Studio API (/api) and uploaded
-// files (/files).
+// files (/files), plus the SQLite handle that backs them.
 //
 // Why a separate net/http server instead of mounting handlers on the Wails
 // AssetServer: chat/review responses stream over SSE, which depends on
@@ -22,6 +28,7 @@ import (
 type App struct {
 	ctx     context.Context
 	server  *http.Server
+	db      *sql.DB
 	apiBase string
 }
 
@@ -31,11 +38,33 @@ func NewApp() *App {
 	return &App{}
 }
 
-// startup runs after the WebView is created. It binds the local API server to
-// a port (fixed in dev so the Vite proxy can target it, ephemeral in prod) and
-// serves it on a goroutine so wails.Run keeps driving the UI event loop.
+// startup runs after the WebView is created. It resolves the data directory,
+// opens the SQLite database, wires the repository/service graph behind the HTTP
+// API, binds the local API server to a port (fixed in dev so the Vite proxy can
+// target it, ephemeral in prod), and serves it on a goroutine so wails.Run keeps
+// driving the UI event loop.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	paths, err := resolveDataPaths()
+	if err != nil {
+		log.Fatalf("api: resolve data paths: %v", err)
+	}
+	if err := os.MkdirAll(paths.dataDir, 0o755); err != nil {
+		log.Fatalf("api: create data dir %s: %v", paths.dataDir, err)
+	}
+	if err := os.MkdirAll(paths.uploadDir, 0o755); err != nil {
+		log.Fatalf("api: create upload dir %s: %v", paths.uploadDir, err)
+	}
+
+	database, err := db.Open(paths.sqlitePath)
+	if err != nil {
+		log.Fatalf("api: open database %s: %v", paths.sqlitePath, err)
+	}
+	a.db = database
+
+	cfg := config.Load(paths.appConfigPath)
+	srv := httpapi.NewServer(database, cfg, paths.uploadDir)
 
 	ln, err := net.Listen("tcp", apiListenAddr())
 	if err != nil {
@@ -52,11 +81,17 @@ func (a *App) startup(ctx context.Context) {
 		a.apiBase = fmt.Sprintf("http://%s", ln.Addr().String())
 	}
 	log.Printf("api: listening on http://%s (apiBase=%q, dev=%v)", ln.Addr(), a.apiBase, isDev)
+	log.Printf("api: data dir %s", paths.dataDir)
 
 	a.server = &http.Server{
-		Handler:           a.handler(),
+		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// Rebuild the Go-tokenized FTS indexes before accepting traffic so no request
+	// can observe a half-rebuilt index (embedding rebuild, if enabled, continues
+	// in the background). Mirrors the Node backend's pre-listen bootstrap.
+	srv.RunStartupTasks()
 
 	go func() {
 		if err := a.server.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -65,15 +100,20 @@ func (a *App) startup(ctx context.Context) {
 	}()
 }
 
-// shutdown gracefully stops the local API server when the app closes.
+// shutdown gracefully stops the local API server and closes the database when the
+// app closes.
 func (a *App) shutdown(_ context.Context) {
-	if a.server == nil {
-		return
+	if a.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := a.server.Shutdown(ctx); err != nil {
+			log.Printf("api: shutdown: %v", err)
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := a.server.Shutdown(ctx); err != nil {
-		log.Printf("api: shutdown: %v", err)
+	if a.db != nil {
+		if err := a.db.Close(); err != nil {
+			log.Printf("api: close database: %v", err)
+		}
 	}
 }
 
@@ -81,16 +121,4 @@ func (a *App) shutdown(_ context.Context) {
 // with this value (empty in dev, where the Vite proxy handles routing).
 func (a *App) GetApiBase() string {
 	return a.apiBase
-}
-
-// handler builds the local API mux. Phase 1 exposes only a health check; the 22
-// routes ported from backend/src/index.ts and the /files static handler are
-// mounted here in Phase 6.
-func (a *App) handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	return mux
 }
