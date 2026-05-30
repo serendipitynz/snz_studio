@@ -2,8 +2,8 @@
 
 最終更新: 2026-05-09
 
-この文書は、現在の SNZ Studio 実装の仕様を、Go での再実装やデスクトップアプリ化を見据えて整理したものです。  
-実装コードの断片ではなく、動作上の責務と境界を優先してまとめています。
+この文書は、現在の SNZ Studio 実装（Wails v2 + Go バックエンド + React フロント のデスクトップアプリ）の
+仕様を、動作上の責務と境界を優先してまとめたものです。実装コードの断片ではなく振る舞いを記述します。
 
 ## 1. 目的
 
@@ -41,23 +41,32 @@ UX の狙いは、ChatGPT / Claude の Projects に近い体験を、軽量な�
 - Emotion
 - React Router
 
+### Desktop shell
+
+- Wails v2（Go コア + OS ネイティブ WebView）
+- SPA は AssetServer で配信
+
 ### Backend
 
-- Express
-- TypeScript
-- better-sqlite3
-- multer
+- Go
+- 標準 `net/http`（loopback `127.0.0.1`、`/api`・`/files` を配信）
+- `modernc.org/sqlite`（pure Go、FTS5 / bm25 同梱）
+- multipart アップロードは `net/http`（`r.FormFile`）
 
 ### Storage
 
-- SQLite database: `data/app.sqlite`
-- app config: `data/app-config.json`
-- upload files: `data/uploads/`
+データディレクトリ配下に保存します。配布版は OS のユーザー設定ディレクトリ
+（macOS `~/Library/Application Support/snz-studio` / Windows `%AppData%\snz-studio`）、
+開発時は `./data`（cwd 相対）。
+
+- SQLite database: `<dataDir>/app.sqlite`
+- app config: `<dataDir>/app-config.json`
+- upload files: `<dataDir>/uploads/`
 
 ### Process model
 
-- browser UI
-- local API server
+- OS ネイティブ WebView（Wails）上の SPA
+- 同一プロセス内の loopback HTTP API サーバー（SSE 温存のため AssetServer ではなく `net/http`）
 - OpenAI-compatible LLM endpoint
 - optional OpenAI-compatible embedding endpoint
 
@@ -524,12 +533,12 @@ debug flags:
 - stream parsing
 - model-specific response cleanup
 
-### desktop app 化での論点
+### desktop app 化で確定した方針
 
-- backend を内包するか外部 process とするか
-- config file と upload/data path の扱い
-- stream lifecycle を renderer ではなく app-level service に寄せるか
-- local LLM process control を app が持つかどうか
+- backend は Wails アプリに内包（同一プロセス内の loopback `net/http` サーバー）
+- config / upload / data path は OS のユーザー設定ディレクトリ配下に集約（dev は `./data`）
+- stream lifecycle は現在の HTTP stream request に依存（app-level job queue は持たない）
+- local LLM process control は app が持たない（外部の OpenAI-compatible endpoint に接続するだけ）
 
 ## 16. 現在の割り切り
 

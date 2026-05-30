@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-09
 
-This document summarizes the current behavior of SNZ Studio for future reimplementation in Go or conversion into a desktop application.
+This document summarizes the current behavior of SNZ Studio, now implemented as a Wails v2 desktop app (Go backend + React frontend).
 
 ## Goal
 
@@ -26,10 +26,11 @@ The UX target is a lightweight local analogue of ChatGPT / Claude Projects.
 
 ## Current stack
 
+- Desktop shell: Wails v2 (Go core + OS-native WebView)
 - Frontend: React + Vite + TypeScript + Emotion
-- Backend: Express + TypeScript
-- Database: SQLite via `better-sqlite3`
-- Storage: local filesystem
+- Backend: Go + standard `net/http` (loopback `127.0.0.1`, serving `/api` and `/files`)
+- Database: SQLite via `modernc.org/sqlite` (pure Go, FTS5 / bm25)
+- Storage: local filesystem under the OS user config dir (`./data` in dev)
 - LLM API: OpenAI-compatible endpoint
 - Embeddings: optional OpenAI-compatible endpoint
 

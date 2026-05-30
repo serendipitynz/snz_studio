@@ -45,9 +45,10 @@ The UX should feel like a lightweight local version of ChatGPT Projects:
 - No tailwind
 
 ## Tech preferences
+- Desktop shell: Wails v2 (Go core + OS-native WebView)
 - Frontend: React + Vite + TypeScript (No tailwind)
-- Backend: TypeScript local API server
-- Database: SQLite
+- Backend: Go local API server (`net/http` over loopback, SSE preserved)
+- Database: SQLite (`modernc.org/sqlite`, pure Go)
 - File storage: local filesystem
 
 Use lightweight, mainstream libraries only when they clearly simplify the implementation.
@@ -55,7 +56,7 @@ Use lightweight, mainstream libraries only when they clearly simplify the implem
 ## Search / retrieval
 Retrieval uses a hybrid approach: SQLite FTS5 for keyword matching, combined with
 optional embedding-based semantic search (vectors stored in SQLite as JSON).
-The retrieval layer in `retrievalService.ts` is isolated; additional strategies
+The retrieval layer in `internal/service/retrieval.go` is isolated; additional strategies
 (e.g., re-ranking, cross-encoder) can be plugged in without touching chat logic.
 Embeddings are opt-in (disabled when `EMBEDDING_MODEL` is not configured).
 

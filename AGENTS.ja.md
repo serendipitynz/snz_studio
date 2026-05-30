@@ -45,16 +45,17 @@
 - Tailwind 不使用
 
 ## 技術スタック
+- デスクトップシェル: Wails v2（Go コア + OS ネイティブ WebView）
 - フロントエンド: React + Vite + TypeScript（Tailwind なし）
-- バックエンド: TypeScript ローカル API サーバー
-- データベース: SQLite
+- バックエンド: Go ローカル API サーバー（loopback の `net/http`、SSE 温存）
+- データベース: SQLite（`modernc.org/sqlite`、pure Go）
 - ファイルストレージ: ローカルファイルシステム
 
 実装を明らかに簡略化できる場合に限り、軽量でメジャーなライブラリを使用する。
 
 ## 検索・検索（Retrieval）
 ハイブリッドアプローチを採用：SQLite FTS5 によるキーワードマッチングと、オプションの Embedding ベースセマンティック検索（ベクトルは SQLite に JSON で保存）を組み合わせる。
-Retrieval 層は `retrievalService.ts` に分離されており、再ランキングやクロスエンコーダーなどの追加戦略をチャットロジックに触れずに組み込める。
+Retrieval 層は `internal/service/retrieval.go` に分離されており、再ランキングやクロスエンコーダーなどの追加戦略をチャットロジックに触れずに組み込める。
 Embedding はオプトイン方式（`EMBEDDING_MODEL` が未設定の場合は無効）。
 
 ## ドキュメント

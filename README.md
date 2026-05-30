@@ -1,7 +1,7 @@
 # SNZ Studio
 
 個人用途向けのローカル LLM プロジェクト管理ツールの最小実装です。  
-ChatGPT / Claude の Project に近い体験を、React + Vite、TypeScript API、SQLite、ローカル filesystem だけで構成しています。
+ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS ネイティブ WebView）+ React/Vite フロントエンド + SQLite + ローカル filesystem** だけで構成した、インストールして起動するだけのスタンドアロン・デスクトップアプリです。
 
 ## できること
 
@@ -20,30 +20,39 @@ ChatGPT / Claude の Project に近い体験を、React + Vite、TypeScript API�
 
 ## 構成
 
+Go バックエンドは `internal/` 配下にレイヤ分割されています。フロントは React のまま、ローカル
+`127.0.0.1` の Go `net/http` サーバー（`/api`・`/files`）に絶対 URL で直接アクセスします（SSE 温存のため
+Wails AssetServer 経由ではなくローカルサーバーを使用）。
+
 ```text
-backend/
-  src/
-    db/              SQLite 接続、schema、seed
-    repositories/    persistence layer
-    services/        retrieval / context / llm / summary / memory
-    storage/         file upload
-    index.ts         API server
+main.go                Wails 起動 + SPA を embed
+app.go                 App ライフサイクル / ローカル API サーバー起動 / GetApiBase バインド
+internal/
+  bootstrap/           データパス解決・初回データ移行・dev/prod 環境切替
+  config/              app-config.json + env 既定値
+  db/                  SQLite 接続・schema・9 migrations
+  repository/          project / document / memory / chat の永続化層
+  search/              日本語トークナイザ移植 + FTS クエリ生成
+  vector/              cosine 類似度
+  service/             retrieval / context / llm / embedding / summary / memory / review
+  httpapi/             22 ルートのハンドラ + SSE
 frontend/
   src/
-    api/             HTTP client
-    components/      shell
-    pages/           画面
-    styles/          emotion styles
+    api/               HTTP client
+    components/        shell
+    pages/             画面
+    styles/            emotion styles
+    wailsjs/           生成バインド（GetApiBase）
 ```
 
 レイヤは以下の粒度に留めています。
 
 - UI layer: `frontend/src/pages`
-- API layer: `backend/src/index.ts`
-- domain / service layer: `backend/src/services`
-- persistence layer: `backend/src/repositories`
-- retrieval layer: `backend/src/services/retrievalService.ts`
-- llm integration layer: `backend/src/services/llmClient.ts`
+- API layer: `internal/httpapi`
+- domain / service layer: `internal/service`
+- persistence layer: `internal/repository`
+- retrieval layer: `internal/service/retrieval.go`
+- llm integration layer: `internal/service/llmclient.go`
 
 ## データモデル
 
@@ -60,36 +69,49 @@ SQLite には最低限以下を持たせています。
 - `memories_fts`
 - `assistant_message_references`
 
-## 起動手順
+## 必要なツール
 
-1. 依存をインストール
+- Go 1.26+
+- Node 22 / pnpm（フロントのビルドに使用。`wails` が自動で実行します）
+- [Wails CLI v2](https://wails.io/)（`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`）
 
-```bash
-pnpm install
-```
+## 開発（wails dev）
 
-2. 環境変数を作成
-
-```bash
-cp .env.example .env
-```
-
-3. サンプルデータを投入
+リポジトリ直下で次を実行します。Go API（`127.0.0.1:8787`）とフロント（Vite）が起動し、OS ネイティブ
+WebView 上に SPA が表示されます。
 
 ```bash
-pnpm seed
+wails dev
 ```
 
-4. 開発サーバを起動
+- 開発時のデータは `./data`（cwd 相対）に作成されます。`.env`（任意・`cp .env.example .env`）で
+  `LLM_BASE_URL` などの既定値を上書きできますが、通常は UI の `Configuration` から設定します。
+- ブラウザ直開き（`localhost:5173`）での開発は廃止しました（API への非 GET が届かないため）。開発は
+  `wails dev` を使ってください。
+
+## ビルド（配布物）
 
 ```bash
-pnpm dev
+wails build                              # 現在の OS 向け
+wails build -platform darwin/universal   # macOS universal（.app）
+wails build -platform windows/amd64 -nsis -webview2 download
 ```
 
-5. ブラウザで開く
+成果物は `build/bin/`（macOS は `SNZ Studio.app`、Windows は `.exe`）に出力されます。両 OS のビルドと
+署名/notarization は GitHub Actions（`.github/workflows/build.yml`）で行います。
 
-- Frontend: [http://127.0.0.1:5173](http://127.0.0.1:5173)
-- API: [http://127.0.0.1:8787/api/health](http://127.0.0.1:8787/api/health)
+## データ保存先と移行
+
+- 配布版（prod）のデータは OS のユーザー設定ディレクトリ配下に保存されます。
+  - macOS: `~/Library/Application Support/snz-studio`
+  - Windows: `%AppData%\snz-studio`
+  - 配下に `app.sqlite` / `uploads/` / `app-config.json`。
+- 旧 Node 版の `data/` を引き継ぎたい場合は、初回起動時に `SNZ_MIGRATE_FROM` で移行元を指定します
+  （初回・移行先が空のときだけ実行され、ソースは変更しません）。
+
+```bash
+SNZ_MIGRATE_FROM="/path/to/old/data" "build/bin/SNZ Studio.app/Contents/MacOS/SNZ Studio"
+```
 
 ## LLM 接続
 
@@ -115,14 +137,10 @@ OpenAI 互換 API を前提にしています。`.env` の主な設定は以下�
 
 embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未設定なら retrieval は FTS のみで動作します。設定されていれば、document / memory の retrieval は `FTS + embedding rerank` の hybrid になります。
 
-切り分け時だけ backend ログを増やしたい場合は、`.env` で次を使えます。
+`DEBUG_CHAT_FLOW` / `DEBUG_RETRIEVAL` は互換のため受け付けますが、Go 版はログを最小限に保つ方針のため
+verbose トレースは出力しません。
 
-- `DEBUG_CHAT_FLOW=1`
-  - chat prepare / context assembly のログ
-- `DEBUG_RETRIEVAL=1`
-  - retrieval / embedding のログ
-
-Dashboard の `Configuration` から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値は `data/app-config.json` に保存され、`.env` より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
+Dashboard の `Configuration` から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値はアプリのデータディレクトリの `app-config.json` に保存され、`.env` より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
 
 ローカル LLM が起動していない場合でも、アプリ自体は動作します。  
 その場合 chat 返答は fallback 文面になり、どの参照が選ばれたかの確認に使えます。
@@ -154,7 +172,6 @@ Dashboard の `Configuration` から接続先、モデル、`LLM Response Format
 - chat summary 更新を LLM ベースに切り替え
 - memory 抽出を LLM ベースに切り替え
 - document 編集 / 削除 UI
-- assistant streaming
 - rerank 層の追加
 - image document の manual annotation UX 改善
 
