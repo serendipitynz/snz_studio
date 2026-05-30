@@ -22,17 +22,22 @@
 
 ## 1. 現状サマリ（DONE & TESTED）
 
-リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）+ Phase 5（Service 層）+ Phase 6（HTTP API + Wails 結線）+ Phase 7（フロント微修正 + dev 通信是正）まで完了**。Phase 7 でフロントを `window.__API_BASE__`（絶対 URL 直叩き）+ `HashRouter` に最小改修済み（`main.tsx`/`api/client.ts`/`ChatPage.tsx`/`ProjectDetailPage.tsx` + 新規 `global.d.ts`、`vite.config.ts` の proxy はブラウザ直開き用に残置）。それ以外の React ソースは未変更。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...`（`-race` 含む）全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。新規本番依存なし（HTTP ルータは標準 `net/http` の method+pattern ServeMux を採用＝`chi` 不使用。`google/uuid` は Phase4 で昇格済みの既存直接依存）。
+リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）+ Phase 5（Service 層）+ Phase 6（HTTP API + Wails 結線）+ Phase 7（フロント微修正 + dev 通信是正）+ Phase 8（データ移行 + パッケージング下地）まで完了**。Phase 8 では `migrate.go`（`SNZ_MIGRATE_FROM` 駆動の初回 seed・`VACUUM INTO` で WAL 安全コピー）を追加し、bundle id を `net.serenebach.snz-studio` に確定、ローカル `wails build`（prod）の疎通と bundle id 適用を実機確認、GitHub Actions の build マトリクス（`.github/workflows/build.yml`、署名/notarization は secrets ゲートで後送り）を雛形作成。Phase 7 でフロントを `window.__API_BASE__`（絶対 URL 直叩き）+ `HashRouter` に最小改修済み（`main.tsx`/`api/client.ts`/`ChatPage.tsx`/`ProjectDetailPage.tsx` + 新規 `global.d.ts`、`vite.config.ts` の proxy はブラウザ直開き用に残置）。それ以外の React ソースは未変更。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...`（`-race` 含む）全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。新規本番依存なし（HTTP ルータは標準 `net/http` の method+pattern ServeMux を採用＝`chi` 不使用。`google/uuid` は Phase4 で昇格済みの既存直接依存）。
 
 ```
-main.go                               ✅ Phase1 Wails 起動 + //go:embed all:frontend/dist
-app.go                                ✅ Phase6 startup で paths 解決→db.Open→config.Load→httpapi.NewServer→Handler 注入→RunStartupTasks→goroutine Serve / shutdown で server+db close / GetApiBase()（Phase7: dev/prod とも絶対 URL `http://<ln.Addr>` を返す＝dev も 127.0.0.1:8787 直叩き）
-paths.go                              ✅ Phase6 resolveDataPaths: DATA_DIR/SQLITE_PATH/UPLOAD_DIR env override、既定は dev=cwd/data・prod=os.UserConfigDir()/snz-studio
-env_dev.go (//go:build dev)           ✅ Phase1 isDev=true, apiListenAddr=127.0.0.1:8787（wails dev が dev タグを付与）
-env_prod.go (//go:build !dev)         ✅ Phase1 isDev=false, apiListenAddr=127.0.0.1:0（ephemeral）
-wails.json                            ✅ Phase1 monorepo 対応（frontend:* は pnpm -C .. 実行 / serverUrl=auto / wailsjsdir=frontend/src）
-build/{appicon.png,darwin/Info.plist} ✅ Phase1 wails 生成の既定テンプレ（bundle id 既定 com.wails.snz-studio → Phase8 で要変更）
+main.go                               ✅ Phase1 Wails 起動 + //go:embed all:frontend/dist（※embed は親参照 `..` 不可かつパス相対なのでルート必須）
+app.go                                ✅ Phase6 startup で bootstrap.ResolveDataPaths→MkdirAll→bootstrap.MaybeSeedDataDir→db.Open→config.Load→httpapi.NewServer→Handler 注入→RunStartupTasks→goroutine Serve / shutdown で server+db close / GetApiBase()（Phase7: dev/prod とも絶対 URL `http://<ln.Addr>` を返す）。★Phase8: App はバインド対象なので main パッケージ＝ルート維持（バインドは `wailsjs/go/main/App`）
+（ルート直下の .go は main.go と app.go のみ。Wails 制約=`wails build` は wails.json のあるルートでパッケージ引数なし `go build` する＝main パッケージはルート必須。それ以外の起動時インフラは internal/bootstrap へ集約＝Phase8 リファクタ）
+wails.json                            ✅ Phase1 monorepo（frontend:* は pnpm -C .. / serverUrl=auto / wailsjsdir=frontend/src）。Phase8: author email=takuya.otani@serenebach.net
+build/{appicon.png,darwin/Info.plist} ✅ Phase8 CFBundleIdentifier=net.serenebach.snz-studio（Info.plist + Info.dev.plist。既定 com.wails.{{.Name}} から置換）
+.github/workflows/build.yml           ✅ Phase8 CI 雛形（mac universal+dmg / win NSIS+webview2、署名は secrets ゲートで後送り。Actions 未実行）
 go.mod / go.sum                       module snzstudio (go 1.26) + wails v2.12.0
+internal/bootstrap/                   ✅ Phase8 プロセス起動時インフラ（旧ルート .go を集約。パッケージ bootstrap）
+  ├ paths.go                           ResolveDataPaths/Paths: DATA_DIR/SQLITE_PATH/UPLOAD_DIR env override、既定 dev=cwd/data・prod=os.UserConfigDir()/snz-studio
+  ├ env_dev.go (//go:build dev)        IsDev=true, ListenAddr=127.0.0.1:8787（wails dev が dev タグ付与）
+  ├ env_prod.go (//go:build !dev)      IsDev=false, ListenAddr=127.0.0.1:0（ephemeral）
+  ├ migrate.go                         MaybeSeedDataDir/seedDataDir: SNZ_MIGRATE_FROM=旧dataDir→初回のみ seed（dest に app.sqlite が在れば no-op）。DB は mode=ro 接続から VACUUM INTO（source 非破壊・WAL も取り込み単一ファイル化）、uploads/ 再帰コピー、app-config.json は欠落時のみ
+  └ migrate_test.go                    WAL 安全コピー（書込接続を開いたまま=未checkpointの行が dest に来る）/ dest既存=no-op / source無=no-op / env 結線
 internal/search/                      ✅ 日本語トークナイザ + FTS クエリ生成（searchText.ts 移植）
   ├ segmenter.go                       TinySegmenter 0.2 アルゴリズム移植
   ├ model.go                           ★自動生成（編集禁止）: tools/segmenter-parity/gen_model.mjs
@@ -220,10 +225,17 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 
 **検証（手元 GUI 環境）**: `wails dev` で (a) 新規チャット作成（POST）が成功＝405 解消、(b) チャット送信が SSE 逐次表示、(c) 画像ドキュメントの `<img>`（/files 経由）が表示、(d) `pnpm -C frontend ... build:client`・`go build`/`go test ./...` が緑。LM Studio 稼働中なら設定画面（PUT /api/configuration）で LLM=`http://192.168.0.219:1234/v1`(gpt-oss-20b)・embedding=`http://192.168.0.219:7997/v1`(ruri-v3-130m) を設定し、connected=true と **semantic retrieval・実 review の正常系 end-to-end（§5 の積み残し）**もここで初確認できる。
 
-### Phase 8 — データ移行 + パッケージング
-- 既存 `data/`（app.sqlite/uploads/app-config.json）→ ユーザーデータディレクトリへ初回起動時にコピー。
-- 起動時に FTS index 再構築（既存 FTS は JS トークナイズ済みのため Go 版で作り直す）。
-- `wails build`（mac universal + dmg、win NSIS + webview2 download）。CI マトリクス・署名/notarization。
+### Phase 8 — データ移行 + パッケージング ✅ DONE & TESTED（2026-05-31, ローカル wails build まで実機確認 / 素の .app 起動による移行 GUI 確認は手元待ち）
+確立した規約・勘所（蒸し返さないこと）:
+- **移行は `SNZ_MIGRATE_FROM` 環境変数で明示駆動（ユーザー承認の確定方針）**。旧 Node は `data/` を **cwd 相対**（`backend/src/config.ts`: `process.cwd()/data`）に置いていたため、packaged app から辿れる「絶対の旧既定パス」は存在しない＝自動探索は原理的に不安定。よって移行元は env で明示。`maybeSeedDataDir` は env 未設定なら no-op、設定時のみ `seedDataDir(src, dataDir)` を呼ぶ。**dev は dataDir=cwd/data が既に app.sqlite を持つため、たとえ env を設定しても dest ガードで自動 no-op＝実質 prod 専用・初回専用**。
+- **冪等＆非破壊ガード（2 段）**: (1) `dest/app.sqlite` が在れば no-op（＝初期化済み環境を絶対に上書きしない・二度目以降も走らない）、(2) `src/app.sqlite` が無ければ no-op（＝新規インストールはクリーン起動）。`app.go` startup の `MkdirAll(dataDir)` 直後・`db.Open` 直前に実行（コピー済み DB を開いて FTS 再構築させるため順序が重要）。
+- **DB コピー = `VACUUM INTO`（WAL 安全の核）**: source を `file:<path>?mode=ro&_pragma=busy_timeout(5000)` で **read-only** に開き `VACUUM INTO '<dest>'`。SQLite は read-only source からの VACUUM INTO を公式サポートし、**checkpoint 済みの単一ファイル**を吐く＝source の `-wal` に残った未 checkpoint 行も取り込み、生ファイルコピーで起きる WAL 取りこぼしを構造的に回避。**source は一切変更されない**（実データ `data/`=6,291,456B が migration 後も同サイズ・`-wal`/`-shm` 生成なしを確認）。dest は VACUUM により compact 化（実データで 6.29MB→5.25MB、行数は projects5/documents25/memories4/chats14/messages73 で完全一致）。`-wal`/`-shm` の 3 点セット手動コピーは不採用（VACUUM INTO が上位互換）。
+- **uploads/ は再帰コピー（regular file のみ・symlink等スキップ）、app-config.json は dest 欠落時のみコピー**（いずれも WAL 非依存なので素のファイルコピーで正）。
+- **起動時 FTS 再構築は Phase6 の `RunStartupTasks` が既に同期実行**（移行後は自動で走る）。embedding rebuild は非同期。Phase8 で追加実装は不要。
+- **bundle id = `net.serenebach.snz-studio`（ユーザー確定）**: `build/darwin/Info.plist` と `Info.dev.plist` の `CFBundleIdentifier` を既定 `com.wails.{{.Name}}` から置換。`wails.json` の author email も `takuya.otani@serenebach.net` に更新。`wails build`（prod・darwin/arm64）で生成 `.app` の `CFBundleIdentifier`＝`net.serenebach.snz-studio`、self-sign Identifier も一致を確認（`TeamIdentifier=not set`＝Developer ID 署名は後送り）。
+- **ローカル wails build 疎通確認済み**: `wails build`（prod）で "Compiling application: Done." → `.app` 生成・self-sign 成功。**Phase7 の UTType リンク懸念は prod build でも再現せず**（wails CLI がフレームワークを付与）。
+- **CI = `.github/workflows/build.yml`（雛形・未実行）**: `macos-latest`(darwin/universal→`.app`+`hdiutil` で dmg) / `windows-latest`(windows/amd64・`-nsis -webview2 download`・NSIS は choco 導入) のマトリクス。setup-go(go.mod) + pnpm + node22、`go install wails@v2.12.0`、GOPATH/bin を PATH へ。**トリガは tag `v*` と workflow_dispatch**。**署名/notarization は secrets ゲートで後送り**（YAML 内に手順・必要 secrets 名をコメント明記: mac=APPLE_CERT_P12_BASE64/…/APPLE_TEAM_ID, win=WINDOWS_CERT_PFX_BASE64/…）。当環境では Actions 実行不可のため **YAML 構文検証のみ（actionlint 未導入）＝CI 実走は次セッション/実際の push で要確認**。
+- **ルート整理（root に Go を置かない方針）**: ルート直下の `.go` は **`main.go` と `app.go` の 2 つだけ**に集約。起動時インフラ（旧 `paths.go`/`migrate.go`/`env_dev.go`/`env_prod.go`）は **`internal/bootstrap`（package bootstrap）へ移動**し、`ResolveDataPaths`/`Paths`/`MaybeSeedDataDir`/`IsDev`/`ListenAddr` を export して app.go から呼ぶ。**Wails のハード制約（蒸し返さない）**: (1) `wails build` は `wails.json` のあるルートで**パッケージ引数なしの `go build`** を実行する（wails v2.12.0 `pkg/commands/build/base.go:286-293`, `cmd.Dir=projectData.Path`）＝**main パッケージはルート必須**、(2) `//go:embed all:frontend/dist` は embed パスが相対かつ `..` 禁止のため**ルートの .go にしか書けない**。よって main.go はルートから動かせない。`App`（バインド対象）も main パッケージに残すことで生成バインドは `wailsjs/go/main/App` のまま＝**フロント無改修**（`main.tsx` の import 変更不要）。`wails build` 後にバインド名前空間・bundle id・リンク成功を再確認済み。ユーザーデータディレクトリ（`~/Library/Application Support/snz-studio`）に DB/uploads/app-config が seed され、既存のチャット/文書/記憶が表示されること、および §5 の LM Studio 正常系。`open` は env を渡しにくいので確認時はバイナリ直叩き例: `SNZ_MIGRATE_FROM="$PWD/data" "build/bin/snz-studio.app/Contents/MacOS/SNZ Studio"`。
 
 ### Phase 9 — クリーンアップ
 - 旧 `backend/`・Node 依存・vite proxy を削除。`package.json` の整理。
@@ -247,7 +259,8 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 ## 5. 未解決リスク / 要・手元環境
 
 - ~~**WebView での SSE 逐次表示**（Spike #1）~~ → ✅ **解消済み（2026-05-30）**。WKWebView から loopback Go への直 fetch で SSE が逐次描画されることを実機確認（詳細は §3 Phase 1）。Wails events 化の保険は不要。
-- **mac/win の署名・notarization・WebView2**: CI と証明書が要る。早めに最小アプリで通すこと（Spike #3）。
+- **mac/win の署名・notarization・WebView2**: CI と証明書が要る。早めに最小アプリで通すこと（Spike #3）。**Phase8 で CI マトリクス雛形（`.github/workflows/build.yml`）は作成済みだが、署名/notarization は secrets ゲートで後送り＝証明書（mac Developer ID / win Authenticode）はユーザー提供待ち**。当環境では Actions 未実行のため、実際の push で CI 実走（特に win の NSIS/WebView2、mac universal+dmg）を要確認。
+- **データ移行の GUI 確認（Phase8 積み残し）**: 移行ロジック自体は実データ headless 検証済み（`data/` → temp dest に全行・uploads・config が来る／source 非破壊）。ただし **素の `.app` を `SNZ_MIGRATE_FROM` 付きで初回起動し、`~/Library/Application Support/snz-studio` へ seed → 既存データが UI に出る** end-to-end は手元 GUI 実機での確認が未完了。
 - **統合テスト**には起動中の OpenAI 互換エンドポイントが必要。chat/stream・retrieval・review の正常系 end-to-end はそれ無しでは確認不可。**環境は利用可（2026-05-31 時点でユーザ手元に稼働中）**: LLM=`http://192.168.0.219:1234/v1`(LM Studio, gpt-oss-20b)、embedding=`http://192.168.0.219:7997/v1`(ruri-v3-130m)。Phase 7 で **dev 通信是正（405 解消）と transport/CORS/ビルドは検証済み**だが、**実 WebView 操作での正常系 end-to-end（設定 PUT→connected=true→チャット SSE 逐次表示・semantic retrieval・実 review・画像 `<img>` 表示）は手元 GUI での実クリック確認が必要（未完了）**。§3 Phase 7 末尾の「手元確認待ち」参照。
 
 ---
