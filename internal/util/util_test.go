@@ -30,6 +30,28 @@ func TestNewID(t *testing.T) {
 	}
 }
 
+func TestTruncate(t *testing.T) {
+	if got := Truncate("short", 10); got != "short" {
+		t.Fatalf("no-op truncate = %q, want short", got)
+	}
+	// At the boundary (len == maxLength) the text is returned unchanged.
+	if got := Truncate("abcde", 5); got != "abcde" {
+		t.Fatalf("boundary truncate = %q, want abcde", got)
+	}
+	// Beyond the limit: keep maxLength-1 runes, trim trailing space, append "…".
+	if got := Truncate("abcdef", 4); got != "abc…" {
+		t.Fatalf("truncate = %q, want abc…", got)
+	}
+	// Trailing whitespace before the ellipsis is trimmed.
+	if got := Truncate("ab def", 4); got != "ab…" {
+		t.Fatalf("truncate with trailing space = %q, want ab…", got)
+	}
+	// Rune-based: multibyte characters are never split mid-rune.
+	if got := Truncate("あいうえお", 3); got != "あい…" {
+		t.Fatalf("multibyte truncate = %q, want あい…", got)
+	}
+}
+
 func TestParseTags(t *testing.T) {
 	cases := []struct {
 		in   string

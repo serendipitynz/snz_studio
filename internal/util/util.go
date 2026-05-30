@@ -6,6 +6,7 @@ package util
 import (
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -39,4 +40,25 @@ func ParseTags(raw string) []string {
 		}
 	}
 	return tags
+}
+
+// Truncate clips text to maxLength, appending a single "…" (U+2026) when it had
+// to cut. Mirrors truncate() from utils.ts:
+//
+//	if (text.length <= maxLength) return text;
+//	return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+//
+// Lengths are measured in runes rather than UTF-16 code units; the two agree for
+// every BMP character (i.e. all Japanese text), differing only for astral
+// characters — the same parity caveat noted across the rest of the port.
+func Truncate(text string, maxLength int) string {
+	r := []rune(text)
+	if len(r) <= maxLength {
+		return text
+	}
+	cut := maxLength - 1
+	if cut < 0 {
+		cut = 0
+	}
+	return strings.TrimRightFunc(string(r[:cut]), unicode.IsSpace) + "…"
 }
