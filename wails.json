@@ -1,0 +1,21 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "version": "2",
+  "name": "snz-studio",
+  "outputfilename": "SNZ Studio",
+  "frontend:dir": "frontend",
+  "frontend:install": "pnpm -C .. install",
+  "frontend:build": "pnpm -C .. run build:client",
+  "frontend:dev:watcher": "pnpm -C .. run dev:client",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "frontend/src",
+  "author": {
+    "name": "Takuya Otani",
+    "email": "takuya.otani@justincase-tech.com"
+  },
+  "info": {
+    "companyName": "SNZ Studio",
+    "productName": "SNZ Studio",
+    "productVersion": "0.1.0"
+  }
+}

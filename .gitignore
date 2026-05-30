@@ -1,7 +1,15 @@
 node_modules
-dist
+/dist
 data
 .DS_Store
 .env
 /sample-docs
 .vscode
+
+# Vite build output embedded by main.go; keep the placeholder so go:embed resolves.
+frontend/dist/*
+!frontend/dist/.gitkeep
+
+# Wails build artifacts and generated bindings.
+/build/bin
+frontend/src/wailsjs
