@@ -1,6 +1,6 @@
 # SNZ Studio — Wails + Go デスクトップ化 引き継ぎ (HANDOFF)
 
-最終更新: 2026-05-30 / 対象: 次セッションの実装者（あなた）
+最終更新: 2026-05-31 / 対象: 次セッションの実装者（あなた）
 
 > このファイル1枚＋ `~/.claude/plans/electron-tauri-elegant-naur.md`（承認済み計画）＋ project memory
 > で文脈を完全復元できるように書いてあります。**まずこの順に読んでください**:
@@ -22,7 +22,7 @@
 
 ## 1. 現状サマリ（DONE & TESTED）
 
-リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）まで完了**。React アプリのソースは未変更（フロントは `vite.config.ts` の `outDir` と `.gitignore` のみ調整）。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...` 全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。
+リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）+ Phase 5（Service 層）まで完了**。React アプリのソースは未変更（フロントは `vite.config.ts` の `outDir` と `.gitignore` のみ調整）。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...` 全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。
 
 ```
 main.go                               ✅ Phase1 Wails 起動 + //go:embed all:frontend/dist
@@ -56,6 +56,25 @@ internal/repository/                  ✅ Phase4 4リポジトリ（projectRepos
   ├ memory.go                          CRUD + FTS upsert + locked COALESCE + hasSimilarMemory + embedding + rebuild
   ├ chat.go                            chat/message/summary/参照 CRUD + ストリーミング保存(updateContent/finalize) + getMessagesWithReferences
   └ repository_test.go                 4リポジトリ網羅（FTS検索可否・順序・cascade・COALESCE 等）
+internal/config/                      ✅ Phase5 config.ts のLLM/embedding/debug部を移植（Settingsスナップショット）
+  ├ config.go                          Editable/Settings, Defaults(env)/Load(app-config.json)/Get/GetEditable/UpdateEditable（RWMutex）
+  └ config_test.go                     env フォールバック連鎖・override 適用・update 永続化の round-trip
+internal/llmresponse/                 ✅ Phase5 lib/llmResponse.ts 移植（純関数・format引数化、config非依存リーフ）
+  ├ llmresponse.go                     ParseAssistantResponse / SanitizePromptContent（llm_jp_thinking の reasoning 除去）
+  └ llmresponse_test.go                standard / llm_jp_thinking の各分岐（endpoint不要）
+internal/service/                     ✅ Phase5 backend/src/services/*.ts 全移植
+  ├ service.go                         共有: stripTrailingSlash/getLmStudioAPIRoot/round2/sliceFromRune/collapseWhitespace/lastN/extractJSONObject/marshalJSONIndentNoEscape
+  ├ llmclient.go                       LLMClient: createChatCompletion(Stream)、SSEパーサ(\n\n分割/[DONE]/usage)、★スライディングtimeout(AfterFunc+Reset)、metrics、listModels/listAvailable/ensureModelLoaded
+  ├ embeddingclient.go                 EmbeddingClient: 失敗で自己disable(mutex)・null返し・batch、空modelで初期disabled→FTS only
+  ├ retrieval.go                       RetrievalService(*sql.DB直): bm25(10,2,1,1,4 / 2,6,8)*-1、doc 0.55/0.45×category、mem 0.5/0.5、semantic=(cos+1)/2、intent判定/重み表、cosineはinternal/vectorでアプリ側計算
+  ├ context.go                         ContextService: 明示doc/chat解決(NFKC一致)・quote判定・procedural memory4・promptContext組立・references(slice8)
+  ├ chat.go                            ChatService: ストリーミング保存(空assistant→delta更新→finalize)、LLM失敗時referenceフォールバック、temporaryはmemory抽出せず
+  ├ memory.go                          MemoryService: ルール抽出(DURABLE_CUES/質問除外/一時依頼除外)＋『覚えて』LLM抽出(失敗時ヒューリスティック)
+  ├ summary.go                         SummaryService: updateSummary/generateChatTitle（LLM失敗時フォールバック）
+  ├ review.go                          ReviewService: reviewMessage(Stream)、review用base/model、assembled.PromptContext使用
+  ├ memoryorganizer.go                 MemoryOrganizerService: analyze(LLM→sanitizePlan / 失敗時dedupe fallback)、apply(locked不可触)
+  ├ embeddingsync.go                   EmbeddingSyncService: syncDocument/syncMemories/rebuildAll、batch=32
+  └ *_test.go                          SSEパーサ(httptest)/metrics/intent/scoring/ルール抽出/chat フォールバック end-to-end(DB+死んだLLM)/organizer dedupe
 tools/segmenter-parity/               パリティ再生成ツール
   ├ gen_model.mjs                      tiny-segmenter のモデル → internal/search/model.go
   └ gen_golden.ts                      JS の出力 → internal/search/testdata/golden.json
@@ -123,8 +142,25 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 - parity 補足: chunker/category の `slice`・`length` は JS=UTF-16 / Go=rune。対象は日本語 BMP のため一致（astral 文字のみ差、各 .go 冒頭コメント参照）。doccategory の `\s` は JS の Unicode 空白に合わせ `[\s\p{Z}]` に補正（全角空白 U+3000 のヘディング検出）。
 - 返り値規約: 単一取得/更新の not-found は `(nil, nil)`、reorder の ID 不一致は `ErrProjectReorderMismatch`（HTTP 層で 404/400 振り分け用）、delete は `(*Record or bool, error)`。
 
-### Phase 5 — Service 層（`internal/service/`）— 最重要・最大ボリューム
-移植元: `backend/src/services/*.ts`。**各ファイルを精読してから移植**すること（本 HANDOFF は要点のみ）。
+### Phase 5 — Service 層（`internal/service/`）✅ DONE & TESTED（2026-05-31）
+移植元: `backend/src/services/*.ts` 全11ファイル + `lib/llmResponse.ts`。下記の要点はすべて踏襲済み。
+
+確立した規約・勘所（蒸し返さないこと）:
+- **設定 = `internal/config`（不変スナップショット）**: TS は mutable な module singleton を全 service が live 参照していた。Go は並行実行のため `Config.Get() Settings`（RWMutex下のコピー）を各リクエスト冒頭で取得する方式に変更。編集7項目は `UpdateEditable`（app-config.json へ 2space+末尾改行で永続化）。port/dataDir 等インフラ設定は config に入れず app.go/env_*.go の管轄（Phase6/8）。clients は `cfg` を保持し毎回 `Get()`。
+- **`internal/llmresponse` をリーフ化**: `parseAssistantResponse`/`sanitizePromptContent` は TS では config 直読みだが、Go では format を引数化して config 非依存の純関数に（endpoint 無し単体テスト可）。RE2 はlookahead無のため llm_jp の noAnalysis ブロックは end-of-string まで除去（到達条件＝タグ無し入力なので実質no-op、コメント参照）。`\s*`→`[\s\p{Z}]*`（doccategory と同じ補正）。
+- **LLM クライアント（★最重要）**: `fetch`+AbortController → `net/http`+`context`。**非ストリーム=`context.WithTimeout`、ストリーム=`context.WithCancel`+`time.AfterFunc(timeout, cancel)` を各 read で `timer.Reset` するスライディング方式**（TS の resetTimeout 等価）。SSE は生バイトを蓄積し `\n\n` で分割（TS と同じく "\n\n" 固定。\r\n\r\n は分割しない）、各チャンクを `/\r?\n/` 分割→`data:` 行抽出→`trimStart`→`[DONE]` 終端→`choices[0].delta.content`/`usage.completion_tokens`。**可視デルタは `sliceFromRune(parse(rawAll), runeLen(prevVisible))`**（TS の `next.slice(prev.length)` を rune 基準で再現＝BMPパリティ）。malformed JSON はストリーム中断（TS の throw 相当）。temperature 既定 0.25 は `*float64` の nil で表現。
+- **metrics**: `estimateTokenCount`=`max(wordLike, ⌈jp/1.8⌉, ⌈runeLen/4⌉)`、`buildGenerationMetrics`=elapsed の 1ms フロア / usage 優先 / tps=`round2(tokens/(ms/1000))`。length は rune 基準（UTF-16 と BMP一致）。
+- **EmbeddingClient**: 失敗で `disabled=true`（mutex 保護、warn 1回）→以後 nil 返し。空 model で初期 disabled → retrieval は FTS only に degrade（**endpoint 無しでもテスト/動作可**）。`CreateEmbeddings` は error を返さず nil（TS の null 相当）。
+- **RetrievalService は `*sql.DB` 直**: TS が better-sqlite3 ハンドルを持っていたのと同様、bm25 候補クエリと embedding 取得は raw SQL。**単一接続規律**: 各 read は slice に全部読み→close→次クエリ（カーソル開いたまま次を投げない）。**cosine は SQL でなく `internal/vector` でアプリ側計算**。bm25 重み doc=`10,2,1,1,4`/mem=`2,6,8`（×-1）、doc ハイブリッド=`fts*0.55+sem*0.45×categoryWeight(intent)`、mem=`fts*0.5+sem*0.5`、semantic=`(cos+1)/2` クランプ。intent 判定/category 重み表は retrievalService.ts 完全移植。**Map 挿入順＋安定ソート**で JS の stable sort + Map 反復順を再現（`sort.SliceStable` + `order []string`）。doc の no-embedding 時は `ftsScores[i] || rawScore`（0なら raw bm25）の JS truthy 挙動も踏襲。
+- **AssembledContext.References は `[]model.SearchReference`（base のみ）**: TS は document ref が RetrievedDocumentReference のまま references に混ざるが、フロント(`ReviewReference`/`AssistantReference`)が消費するのは base 5項目だけ＆永続化も base のみ。よって Go は base に平坦化（promptContext 用の chunk 等は `normalizedDocumentRefs []RetrievedDocumentReference` をローカル保持）。
+- **ChatService ストリーミング保存**: 空 assistant message → onDelta 毎に `UpdateMessageContent`（best-effort, error 無視＝TS同様）→ `FinalizeMessage` で metrics/references/summary/title 確定。LLM 失敗時は reference 抜粋フォールバック（metrics は nil）。temporary chat は memory 抽出スキップ。`prepareTurn` 内で systemPrompt 構築（explicitMemory/quote/temporary/llm_jp 分岐）。
+- **MemoryService**: `splitSentences` は TS の lookbehind split `/\n|(?<=[.!?。！？])/` を手書き再現（newline は消費、terminator は前文に付随、空片は length≥10 フィルタで除去）。`generateMemoryTitle` は `\s+→" "` 折り畳み**後**に `[。！？.!?\n]` 分割するため改行は区切りにならない（TS の順序どおり）。長さ比較は rune。『覚えて』抽出は LLM/JSON 失敗のみフォールバックへ（repository error は伝播）。
+- **MemoryOrganizer**: prompt の JSON は `JSON.stringify(_,null,2)` 相当（`SetEscapeHTML(false)`+2space）。`sanitizePlan`/`buildFallbackPlan`/`applyProjectPlan` 移植。locked は update/remove 不可。
+- **ロギング**: TS の `config.debug*` ゲート付き verbose トレースは観測専用なので省略。無条件の warn（LLM 失敗・embedding self-disable）のみ標準 `log` で残置。
+- **テストできる範囲**: SSE パーサ/metrics/intent/scoring/ルール抽出/title 生成/config round-trip は endpoint 無しで単体テスト済み。chat フォールバック経路・retrieval(FTS)・organizer dedupe は **DB（temp sqlite）+ 死んだ LLM(httptest 500/未接続)** で end-to-end テスト済み。**LLM/embedding が実際に動く chat/stream・review・semantic retrieval の正常系 end-to-end は LM Studio 等が必要（未確認、§5）**。
+
+---
+旧メモ（移植時の指針。済）:
 - **llmClient.ts（★最重要）**: OpenAI 互換。`createChatCompletion` / `createChatCompletionStream`。
   SSE 受信は `data:` 行を `\n\n` で分割、`[DONE]` 終端、`choices[0].delta.content` を抽出、`usage.completion_tokens`。
   **タイムアウトはチャンク毎にリセット（スライディング）**。temperature 既定 0.25。`fetch`+AbortController → Go は `net/http`+`context`+`bufio.Scanner`。
@@ -148,9 +184,12 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 
 ### Phase 6 — HTTP API（`internal/httpapi/`）+ Wails 結線
 移植元: `backend/src/index.ts`（22 ルート）。標準 `net/http`（必要なら軽量 `chi`）。
+- **service グラフの結線（Phase5 で全 `NewXxx` 用意済み）**: 順序は `cfg := config.Load(appConfigPath)` → repos（`repository.NewXxxRepository(db)`）→ `emb := service.NewEmbeddingClient(cfg)` / `llm := service.NewLLMClient(cfg)` → `retr := service.NewRetrievalService(db, emb)` → `embSync := service.NewEmbeddingSyncService(documents, memories, emb)` → `ctx := service.NewContextService(projects, chats, documents, memories, retr)` → `summary := service.NewSummaryService(llm)` / `mem := service.NewMemoryService(memories, llm)` → `chat := service.NewChatService(chats, ctx, llm, summary, mem, embSync, cfg)` / `review := service.NewReviewService(chats, ctx, llm, cfg)` / `org := service.NewMemoryOrganizerService(memories, chats, llm, embSync)`。
+- **設定 GET/PUT**: `cfg.GetEditable()` / `cfg.UpdateEditable(...)`。connected 判定は `llm.CheckConnection("","")` 等＋ models は `llm.ListModels("")`/`emb.ListModels("")`。PUT 後は `emb.RefreshConfiguration()` を呼ぶ（disabled 再評価）。`WorkspaceConfiguration` の `*Connected` 3項目はフロント契約（client.ts:108-119）。
 - 主要ルート群: configuration(GET/PUT, models), projects(CRUD+reorder), documents(multipart upload/category/delete), memories(CRUD/lock/organize analyze・apply), chats(CRUD/temporary), messages(send, **/stream SSE**), review(**/stream SSE**), `GET /files/*`（static）。
-- SSE は `internal/httpapi/sse.go` の `SSEWriter` を使用（`delta`/`done`/`error` イベント）。
-- アップロードは multer → `r.FormFile`。保存名は uuid+ext、公開パスは `/files/{name}`。
+- SSE は `internal/httpapi/sse.go` の `SSEWriter` を使用（`delta`/`done`/`error` イベント）。`chat.SendMessageStream(chatID, content, onDelta)` / `review.ReviewMessageStream(messageID, onDelta)` の onDelta を `SSEWriter.Event("delta", ...)` に繋ぐ。
+- **document/project 削除時のファイル unlink は HTTP 層で実施**（repository は DB cascade のみ。`/files` 実体の削除＝§4 の積み残し）。アップロードは multer → `r.FormFile`。保存名は uuid+ext、公開パスは `/files/{name}`。
+- document 作成後は `embSync.SyncDocument(id)` を呼ぶ（embedding 同期）。
 - CORS: dev で vite(5173) からのアクセスを許可。
 
 ### Phase 7 — フロント微修正（全量・最小）
@@ -174,15 +213,15 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 
 ## 4. 移植時の不変条件チェックリスト（parity invariants）
 
-- [ ] `*_fts` 投入テキストは必ず `search.BuildSearchText`、クエリは `search.ToFtsQuery`。
-- [ ] bm25 重み: doc `10,2,1,1,4`、memory `2,6,8`、いずれも `*-1`。
-- [ ] ハイブリッド: doc `0.55/0.45`×category、memory `0.5/0.5`。semantic=`(cos+1)/2`。
-- [ ] ストリーミング保存: 空 assistant → delta 更新 → 完了時メトリクス確定。
-- [ ] temporary chat は memory 自動抽出しない（`覚えて` も無効、organizer 対象外）。
-- [ ] `locked=true` の memory は organizer が触らない。
-- [ ] `llm_jp_thinking` は reasoning 除去後の final answer のみ保存。
-- [ ] LLM ストリームのタイムアウトはチャンク毎リセット。失敗時は reference 抜粋フォールバック。
-- [ ] cascade delete とファイル削除（document/project 削除時に `/files` の実体を unlink）。
+- [x] `*_fts` 投入テキストは必ず `search.BuildSearchText`、クエリは `search.ToFtsQuery`。（repository=Phase4 / retrieval=Phase5）
+- [x] bm25 重み: doc `10,2,1,1,4`、memory `2,6,8`、いずれも `*-1`。（retrieval.go）
+- [x] ハイブリッド: doc `0.55/0.45`×category、memory `0.5/0.5`。semantic=`(cos+1)/2`。（retrieval.go）
+- [x] ストリーミング保存: 空 assistant → delta 更新 → 完了時メトリクス確定。（chat.go）
+- [x] temporary chat は memory 自動抽出しない（`覚えて` も無効、organizer 対象外）。（chat.go: IsTemporary 分岐）
+- [x] `locked=true` の memory は organizer が触らない。（memoryorganizer.go）
+- [x] `llm_jp_thinking` は reasoning 除去後の final answer のみ保存。（llmresponse.go + llmclient.go の可視デルタ）
+- [x] LLM ストリームのタイムアウトはチャンク毎リセット。失敗時は reference 抜粋フォールバック。（llmclient.go / chat.go）
+- [ ] cascade delete とファイル削除（document/project 削除時に `/files` の実体を unlink）。← cascade=Phase4済 / ファイル unlink は **Phase 6（HTTP 層）** で対応。
 
 ---
 
