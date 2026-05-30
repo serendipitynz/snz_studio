@@ -22,11 +22,12 @@
 
 ## 1. 現状サマリ（DONE & TESTED）
 
-リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）+ Phase 5（Service 層）まで完了**。React アプリのソースは未変更（フロントは `vite.config.ts` の `outDir` と `.gitignore` のみ調整）。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...` 全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。
+リポジトリ直下に Go モジュール `snzstudio` を作成済み。**Phase 1（Wails 足場）+ Phase 4（Repository 層）+ Phase 5（Service 層）+ Phase 6（HTTP API + Wails 結線）まで完了**。React アプリのソースは未変更（フロントは `vite.config.ts` の `outDir` と `.gitignore` のみ調整。Phase 7 のフロント微修正＝`__API_BASE__`/HashRouter は未着手）。旧 Node アプリ（`backend/`）も未変更で今もそのまま動く。`go build ./...` / `go vet ./...` / `go test ./...`（`-race` 含む）全グリーン、`gofmt` クリーン（`internal/search/model.go` は自動生成のため対象外）、`wails build` で `build/bin/snz-studio.app`（darwin/arm64・自己署名）まで生成確認済み（Phase1 時点）。新規本番依存なし（HTTP ルータは標準 `net/http` の method+pattern ServeMux を採用＝`chi` 不使用。`google/uuid` は Phase4 で昇格済みの既存直接依存）。
 
 ```
 main.go                               ✅ Phase1 Wails 起動 + //go:embed all:frontend/dist
-app.go                                ✅ Phase1 App: ローカル net/http を goroutine 起動 / GetApiBase() / shutdown / /api/health
+app.go                                ✅ Phase6 startup で paths 解決→db.Open→config.Load→httpapi.NewServer→Handler 注入→RunStartupTasks→goroutine Serve / shutdown で server+db close / GetApiBase()
+paths.go                              ✅ Phase6 resolveDataPaths: DATA_DIR/SQLITE_PATH/UPLOAD_DIR env override、既定は dev=cwd/data・prod=os.UserConfigDir()/snz-studio
 env_dev.go (//go:build dev)           ✅ Phase1 isDev=true, apiListenAddr=127.0.0.1:8787（wails dev が dev タグを付与）
 env_prod.go (//go:build !dev)         ✅ Phase1 isDev=false, apiListenAddr=127.0.0.1:0（ephemeral）
 wails.json                            ✅ Phase1 monorepo 対応（frontend:* は pnpm -C .. 実行 / serverUrl=auto / wailsjsdir=frontend/src）
@@ -42,9 +43,12 @@ internal/db/                          ✅ DB 層
   ├ connection.go                      Open(path): modernc.org/sqlite, pragmas, SetMaxOpenConns(1)
   ├ schema.go                          9 migrations を schema.ts から忠実移植
   └ db_test.go                         FTS5 + bm25() + 冪等 migration + FK を検証
-internal/httpapi/                     ✅ SSE 基盤
+internal/httpapi/                     ✅ Phase6 HTTP API（index.ts 22ルート移植）
   ├ sse.go                             SSEWriter（frontend のパーサと同じ event:/data: 形式, 各 Event で Flush）
-  └ sse_test.go                        逐次配信（ハンドラ完了前に受信できる）を実証
+  ├ sse_test.go                        逐次配信（ハンドラ完了前に受信できる）を実証
+  ├ server.go                          Server: NewServer(db,cfg,uploadDir) で service グラフ結線 / Handler()（mux+CORS） / RunStartupTasks（backfill+FTS再構築+async embedding rebuild） / 共有ヘルパ（writeJSON SetEscapeHTML(false)/writeError/fail/decodeBody/bodyString/bodyBool/checkConnections 並行3チェック/workspaceConfiguration）
+  ├ handlers.go                        22ルートのハンドラ（config/projects/memories/documents/chats/messages/review）＋ /files static（path traversal ガード）＋ multipart upload（uuid+ext 保存・公開/files/{name}）＋ unlinkFile
+  └ handlers_test.go                   httptest エンドポイントレス: 全ルートの JSON整形/ステータス/multipart/404・400 振り分け/SSE配線（delta+done/error）/CORS。死んだLLM(127.0.0.1:1)＋embedding無効でchat fallback・review error を end-to-end 検証
 internal/model/                       ✅ Phase4 ドメイン型（lib/types.ts 移植, JSON タグはフロント契約に一致, nullable は *T）
 internal/util/                        ✅ Phase4 lib/utils.ts 移植: NowISO（ms UTC Z）/ NewID（google/uuid v4）/ ParseTags
 internal/chunk/                       ✅ Phase4 documentChunker.ts 移植: Document()=1000rune窓/150 overlap（rune基準, UTF-16差はBMP外のみ）
@@ -182,15 +186,18 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 - **summaryService.ts / reviewService.ts / memoryOrganizerService.ts / embeddingSyncService.ts / documentChunker.ts（1000字/150 overlap, 行境界尊重）**。
 - **lib/llmResponse.ts**: `llm_jp_thinking` 時に reasoning タグ除去 → final answer のみ保存。`lib/documentCategory.ts`（自動推定）も移植。
 
-### Phase 6 — HTTP API（`internal/httpapi/`）+ Wails 結線
-移植元: `backend/src/index.ts`（22 ルート）。標準 `net/http`（必要なら軽量 `chi`）。
-- **service グラフの結線（Phase5 で全 `NewXxx` 用意済み）**: 順序は `cfg := config.Load(appConfigPath)` → repos（`repository.NewXxxRepository(db)`）→ `emb := service.NewEmbeddingClient(cfg)` / `llm := service.NewLLMClient(cfg)` → `retr := service.NewRetrievalService(db, emb)` → `embSync := service.NewEmbeddingSyncService(documents, memories, emb)` → `ctx := service.NewContextService(projects, chats, documents, memories, retr)` → `summary := service.NewSummaryService(llm)` / `mem := service.NewMemoryService(memories, llm)` → `chat := service.NewChatService(chats, ctx, llm, summary, mem, embSync, cfg)` / `review := service.NewReviewService(chats, ctx, llm, cfg)` / `org := service.NewMemoryOrganizerService(memories, chats, llm, embSync)`。
-- **設定 GET/PUT**: `cfg.GetEditable()` / `cfg.UpdateEditable(...)`。connected 判定は `llm.CheckConnection("","")` 等＋ models は `llm.ListModels("")`/`emb.ListModels("")`。PUT 後は `emb.RefreshConfiguration()` を呼ぶ（disabled 再評価）。`WorkspaceConfiguration` の `*Connected` 3項目はフロント契約（client.ts:108-119）。
-- 主要ルート群: configuration(GET/PUT, models), projects(CRUD+reorder), documents(multipart upload/category/delete), memories(CRUD/lock/organize analyze・apply), chats(CRUD/temporary), messages(send, **/stream SSE**), review(**/stream SSE**), `GET /files/*`（static）。
-- SSE は `internal/httpapi/sse.go` の `SSEWriter` を使用（`delta`/`done`/`error` イベント）。`chat.SendMessageStream(chatID, content, onDelta)` / `review.ReviewMessageStream(messageID, onDelta)` の onDelta を `SSEWriter.Event("delta", ...)` に繋ぐ。
-- **document/project 削除時のファイル unlink は HTTP 層で実施**（repository は DB cascade のみ。`/files` 実体の削除＝§4 の積み残し）。アップロードは multer → `r.FormFile`。保存名は uuid+ext、公開パスは `/files/{name}`。
-- document 作成後は `embSync.SyncDocument(id)` を呼ぶ（embedding 同期）。
-- CORS: dev で vite(5173) からのアクセスを許可。
+### Phase 6 — HTTP API（`internal/httpapi/`）+ Wails 結線 ✅ DONE & TESTED（2026-05-31）
+移植元: `backend/src/index.ts`（22 ルート）。**標準 `net/http` のみ**（method+pattern ServeMux、Go1.22+。`chi` 等の新規依存は不採用）。
+確立した規約・勘所（蒸し返さないこと）:
+- **service グラフは `httpapi.NewServer(db, cfg, uploadDir)` が構築**（app.go で組まず httpapi に集約＝temp DB でのエンドポイントレステストが容易）。順序は HANDOFF 既述どおり（repos → emb/llm → retrieval → embeddingSync → context → summary/memory → chat/review/organizer）。app.go の startup は `resolveDataPaths()` → `os.MkdirAll`（dataDir/uploadDir）→ `db.Open(sqlitePath)`（マイグレーション込み）→ `config.Load(appConfigPath)` → `NewServer` → `http.Server{Handler: srv.Handler()}` → **`srv.RunStartupTasks()` を Serve 前に同期実行**（backfill+FTS再構築。半再構築の index を配信しないため。embedding rebuild だけ goroutine）→ goroutine で `Serve`。shutdown で server.Shutdown + db.Close。
+- **ルーティング = enhanced ServeMux**。`"GET /api/projects/{projectId}"` 形式、`r.PathValue("projectId")` で取得。メソッド不一致は mux が 405 を返す。CORS は `withCORS` ミドルウェアで mux をラップし、**Origin をそのまま反射**（loopback 専用なので安全。dev=vite 5173 / prod=WebView origin の両対応。OPTIONS は 204 で短絡）。
+- **JSON 入出力ヘルパ**: レスポンスは `writeJSON`（`enc.SetEscapeHTML(false)`＝`JSON.stringify`/`res.json` とバイト一致）/ `writeError`（`{error}`）/ `fail`（500）。リクエストボディは TS の `req.body?.x` 動的アクセスを忠実再現するため **`decodeBody` で `map[string]any` にデコード**し、`bodyString`（`String(x)` 相当の coercion）/`bodyBool`（`typeof===="boolean"` 判定で 400 振り分け）/`stringifyJSONValue` で取り出す。空ボディは空 map（エラーにしない）、壊れた JSON は 400。**例外**: organize/apply の `plan` だけは `model.MemoryOrganizationPlan` への型付きデコード（nil/失敗→400 "plan is required"）。
+- **設定 GET/PUT**: connected 3項目は `checkConnections` が `llm.CheckConnection("","")` / `llm.CheckConnection(reviewBaseURL, reviewModel)` / `emb.CheckConnection()` を **goroutine 3並行**で実行（死活チェックは最大 timeout ブロックするため Promise.all 相当の並行が必須）。レスポンス形は埋め込み `config.Editable` + `*Connected` 3 bool の `workspaceConfiguration`（client.ts:108-119 一致）。PUT は trim→空 review/embedding は llm 値で補完→`UpdateEditable`→**`emb.RefreshConfiguration()`**→ensureModelLoaded×3 並行→enabled なら async `RebuildAll`→connected 再取得。`llmBaseUrl` 空は 400。
+- **manual memory のタイトル生成**: index.ts はこの関数を memoryService と二重定義していたが、Go は単一ソースにするため **`service.GenerateMemoryTitle(content, kind)` を export して HTTP 層から呼ぶ**（重複ドリフト防止）。`generateMemoryTitle` は見出し除去→`collapseWhitespace`（改行も空白に畳む）**後**に文区切りするため、`# 見出し\n本文` は「見出し 本文」に連結される（index.ts と一致＝正しい挙動。test 参照）。
+- **SSE**: `NewSSEWriter(w)` は成功時に 200+ヘッダを即 flush。`delta`=`{content}`、chat done=`{chat,messages,summary}`、review done=`{review,references}`、error=`{message}`（フロント ChatPage.tsx の消費キーに一致）。`chat.SendMessageStream` は LLM 失敗でも fallback を返す（error なし→done）、`review.ReviewMessageStream` は LLM 失敗を error 伝播（→ヘッダ送出済みのため error イベント）。content 空は SSE 開始前に通常 400。
+- **§4 のファイル unlink を実装（完了）**: document delete / project delete 時、repository の DB cascade に加え HTTP 層の `unlinkFile`（`/files/` prefix の実体を `os.Remove`、無ければ無視）。project delete は cascade 前に `documents.ListByProject` で対象ファイルをスナップショット。
+- **アップロード**: `r.ParseMultipartForm(32MB)` → `r.FormFile("file")`（`http.ErrMissingFile` で未添付判定）。image は `uuid.NewString()+ext` で uploadDir に保存、`filePath=/files/{name}`・`mimeType=part の Content-Type`。非 image+file は本文を utf8 読みして contentText。title は `title || originalname || truncate(先頭行 || "Untitled document", 80)`。category は `doccategory.IsValid` 不通過なら空（repository が推定）。作成後 `embSync.SyncDocument(id)`。`/files/{name}` 配信は `http.ServeFile`＋単一セグメント＋セパレータ拒否で traversal 防止。
+- **テスト範囲（handlers_test.go）**: 全ルートを `httptest` でエンドポイントレス検証。死んだ LLM（`127.0.0.1:1`）＋embedding 無効（空 model）で **chat send/stream の fallback・review の 500/error イベント・organize の dedupe fallback** まで end-to-end 通過。**LLM/embedding 実動の正常系（実 delta 表示・semantic retrieval・実 review）は LM Studio 等が必要＝未確認（§5 据え置き）**。
 
 ### Phase 7 — フロント微修正（全量・最小）
 1. `frontend/src/main.tsx`: `BrowserRouter` → `HashRouter`（必須）。
@@ -221,7 +228,7 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 - [x] `locked=true` の memory は organizer が触らない。（memoryorganizer.go）
 - [x] `llm_jp_thinking` は reasoning 除去後の final answer のみ保存。（llmresponse.go + llmclient.go の可視デルタ）
 - [x] LLM ストリームのタイムアウトはチャンク毎リセット。失敗時は reference 抜粋フォールバック。（llmclient.go / chat.go）
-- [ ] cascade delete とファイル削除（document/project 削除時に `/files` の実体を unlink）。← cascade=Phase4済 / ファイル unlink は **Phase 6（HTTP 層）** で対応。
+- [x] cascade delete とファイル削除（document/project 削除時に `/files` の実体を unlink）。← cascade=Phase4 / ファイル unlink=Phase6 `httpapi.Server.unlinkFile`（handlers.go）で完了。
 
 ---
 
