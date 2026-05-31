@@ -17,3 +17,7 @@ frontend/src/wailsjs
 # Per-OS llama-server sidecar binaries staged for dev/packaging (downloaded, large).
 # Downloaded model GGUFs live under the (already-ignored) data dir at data/models.
 /build/sidecar
+
+# Working tree for scripts/build-ruri-gguf.sh (llama.cpp source/release, venv, HF
+# snapshot, f16 intermediate — all large and regenerable).
+/build/model-build

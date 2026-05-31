@@ -29,14 +29,23 @@ type ModelSpec struct {
 // (the converter needs a one-line SentencePiece-vocab patch, applied host-side at
 // build time) and quantized to q8_0. ModernBERT-Ja, 256-dim, mean pooling.
 //
-// TODO(track-b): URL is a placeholder until the converted q8_0 GGUF is hosted at an
-// immutable location (e.g. a pinned Hugging Face revision). SHA256/SizeBytes are the
-// spike's q8_0 artifact (verified locally); re-confirm after upload.
+// Packaged builds bundle this GGUF inside the app (scripts/build-mac-signed.sh stages
+// it into Contents/Resources; seedBundledModel copies it into the models dir on first
+// launch), so the URL below is only a fallback for unbundled/dev builds.
+//
+// SHA256/SizeBytes identify the reproducible q8_0 artifact built by
+// scripts/build-ruri-gguf.sh (llama.cpp b9437 + the pinned converter deps; the patched
+// set_vocab writes add_bos/eos/sep=True per ruri's tokenizer config). Re-run that
+// script to regenerate it byte-for-byte; update these two fields if the toolchain drifts.
+//
+// TODO(track-b): URL is a placeholder — fill it in only if/when the q8_0 GGUF is also
+// hosted at an immutable location (e.g. a pinned Hugging Face revision) as a download
+// fallback; bundling (above) is the primary distribution path and needs no URL.
 var RuriV3_30m = ModelSpec{
 	ModelID:        "ruri-v3-30m",
 	FileName:       "ruri-v3-30m-q8_0.gguf",
 	URL:            "https://huggingface.co/REPLACE_OWNER/ruri-v3-30m-GGUF/resolve/REPLACE_REVISION/ruri-v3-30m-q8_0.gguf",
-	SHA256:         "517044b3d5837e90e0a2b26c1ff369ee9a7985d974a5d9e9f8c9ff2cdc27d06b",
+	SHA256:         "2a6cb2d9889140cd214bc4eaee14114f276a52afcf0a2fe65fae3d467f7480fe",
 	SizeBytes:      41569120,
 	Dim:            256,
 	QueryPrefix:    "検索クエリ: ",
