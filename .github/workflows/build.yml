@@ -10,11 +10,11 @@
 # activate without changing the build once those secrets exist.
 name: build
 
+# Manual-only trigger: this is a private repo, where GitHub-hosted minutes are
+# billed against a monthly quota (macOS counts 10x), so the workflow runs only on
+# an explicit dispatch from the Actions tab — never automatically on a tag push.
 on:
   workflow_dispatch: {}
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read
