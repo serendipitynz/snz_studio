@@ -1,6 +1,6 @@
 import { useTheme } from "@emotion/react";
 import { DragEvent, FormEvent, useEffect, useState } from "react";
-import { api, Project, WorkspaceConfiguration } from "../api/client";
+import { api, EmbeddingStatus, Project, WorkspaceConfiguration } from "../api/client";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { useThemeController, ThemeMode } from "../styles/ThemeController";
 import type { ThemeFamily } from "../styles/themes";
@@ -33,6 +33,28 @@ import {
   WorkspaceShell
 } from "../styles/ui";
 
+// embeddingStatusLabel renders the internal sidecar's lifecycle into a short status
+// line, reassuring the user that keyword search keeps working while the model loads.
+function embeddingStatusLabel(status: EmbeddingStatus | null): string {
+  if (!status) {
+    return "Preparing the bundled embedding model… keyword search is active meanwhile.";
+  }
+  switch (status.state) {
+    case "downloading": {
+      const pct = status.total > 0 ? Math.floor((status.downloaded / status.total) * 100) : 0;
+      return `Downloading the embedding model (${pct}%)… keyword search is active meanwhile.`;
+    }
+    case "starting":
+      return "Starting the embedding model… keyword search is active meanwhile.";
+    case "ready":
+      return "Bundled embedding model is ready — semantic search is active.";
+    case "error":
+      return `Embedding model unavailable — keyword search only.${status.error ? ` (${status.error})` : ""}`;
+    default:
+      return "Keyword search only.";
+  }
+}
+
 export function ProjectListPage() {
   const theme = useTheme();
   const { family, mode, families, setFamily, setMode } = useThemeController();
@@ -45,8 +67,10 @@ export function ProjectListPage() {
     reviewBaseUrl: "",
     reviewModel: "",
     embeddingBaseUrl: "",
-    embeddingModel: ""
+    embeddingModel: "",
+    embeddingMode: "internal" as "internal" | "external"
   });
+  const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
   const [title, setTitle] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [loading, setLoading] = useState(true);
@@ -77,7 +101,8 @@ export function ProjectListPage() {
         reviewBaseUrl: configurationResponse.configuration.reviewBaseUrl,
         reviewModel: configurationResponse.configuration.reviewModel,
         embeddingBaseUrl: configurationResponse.configuration.embeddingBaseUrl,
-        embeddingModel: configurationResponse.configuration.embeddingModel
+        embeddingModel: configurationResponse.configuration.embeddingModel,
+        embeddingMode: configurationResponse.configuration.embeddingMode
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to load projects");
@@ -89,6 +114,34 @@ export function ProjectListPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  // Poll the internal embedding sidecar's status while it is downloading/starting so
+  // the UI can show progress and switch the messaging to "ready" once it is live.
+  useEffect(() => {
+    if (configuration?.embeddingMode !== "internal") {
+      setEmbeddingStatus(null);
+      return;
+    }
+    let active = true;
+    let timer = 0;
+    const tick = async () => {
+      try {
+        const status = await api.getEmbeddingStatus();
+        if (!active) return;
+        setEmbeddingStatus(status);
+        if (status.state === "downloading" || status.state === "starting") {
+          timer = window.setTimeout(tick, 2000);
+        }
+      } catch {
+        /* transient; the next user action will refresh */
+      }
+    };
+    void tick();
+    return () => {
+      active = false;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [configuration?.embeddingMode]);
 
   useEffect(() => {
     if (!isConfigModalOpen || !configDraft.llmBaseUrl.trim()) {
@@ -173,7 +226,8 @@ export function ProjectListPage() {
         reviewBaseUrl: response.configuration.reviewBaseUrl,
         reviewModel: response.configuration.reviewModel,
         embeddingBaseUrl: response.configuration.embeddingBaseUrl,
-        embeddingModel: response.configuration.embeddingModel
+        embeddingModel: response.configuration.embeddingModel,
+        embeddingMode: response.configuration.embeddingMode
       });
       setIsConfigModalOpen(false);
     } catch (nextError) {
@@ -465,34 +519,58 @@ export function ProjectListPage() {
                 </Subtle>
               </Field>
               <Field>
-                Embedding Endpoint
-                <Input
-                  value={configDraft.embeddingBaseUrl}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingBaseUrl: event.target.value }))}
-                  placeholder="http://127.0.0.1:8080/v1"
-                />
-              </Field>
-              <Field>
-                Embedding Model
-                <Input
-                  list="embedding-model-options"
-                  value={configDraft.embeddingModel}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingModel: event.target.value }))}
-                  placeholder="text-embeddings-inference"
-                />
-                <datalist id="embedding-model-options">
-                  {embeddingModelOptions.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
+                Embedding Source
+                <Select
+                  value={configDraft.embeddingMode}
+                  onChange={(event) =>
+                    setConfigDraft((current) => ({
+                      ...current,
+                      embeddingMode: event.target.value as "internal" | "external"
+                    }))
+                  }
+                >
+                  <option value="internal">Internal — bundled ruri-v3-30m (recommended)</option>
+                  <option value="external">External — OpenAI-compatible endpoint</option>
+                </Select>
                 <Subtle>
-                  {loadingEmbeddingModels
-                    ? "Loading model candidates..."
-                    : embeddingModelOptions.length
-                      ? `${embeddingModelOptions.length} candidates found`
-                      : "No model candidates available"}
+                  {configDraft.embeddingMode === "internal"
+                    ? embeddingStatusLabel(embeddingStatus)
+                    : "Embeddings are computed by the endpoint configured below."}
                 </Subtle>
               </Field>
+              {configDraft.embeddingMode === "external" ? (
+                <>
+                  <Field>
+                    Embedding Endpoint
+                    <Input
+                      value={configDraft.embeddingBaseUrl}
+                      onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingBaseUrl: event.target.value }))}
+                      placeholder="http://127.0.0.1:8080/v1"
+                    />
+                  </Field>
+                  <Field>
+                    Embedding Model
+                    <Input
+                      list="embedding-model-options"
+                      value={configDraft.embeddingModel}
+                      onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingModel: event.target.value }))}
+                      placeholder="text-embeddings-inference"
+                    />
+                    <datalist id="embedding-model-options">
+                      {embeddingModelOptions.map((model) => (
+                        <option key={model} value={model} />
+                      ))}
+                    </datalist>
+                    <Subtle>
+                      {loadingEmbeddingModels
+                        ? "Loading model candidates..."
+                        : embeddingModelOptions.length
+                          ? `${embeddingModelOptions.length} candidates found`
+                          : "No model candidates available"}
+                    </Subtle>
+                  </Field>
+                </>
+              ) : null}
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
                 <Button type="button" variant="ghost" onClick={() => setIsConfigModalOpen(false)}>
                   Cancel

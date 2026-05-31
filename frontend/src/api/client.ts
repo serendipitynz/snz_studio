@@ -113,9 +113,21 @@ export interface WorkspaceConfiguration {
   reviewModel: string;
   embeddingBaseUrl: string;
   embeddingModel: string;
+  embeddingMode: "internal" | "external";
   llmConnected: boolean;
   reviewConnected: boolean;
   embeddingConnected: boolean;
+}
+
+// EmbeddingStatus mirrors the Go embed.Status: the lifecycle of the bundled internal
+// embedding sidecar (model download + llama-server).
+export interface EmbeddingStatus {
+  state: "disabled" | "downloading" | "starting" | "ready" | "error";
+  modelId: string;
+  dim: number;
+  downloaded: number;
+  total: number;
+  error?: string;
 }
 
 export interface ReviewResponse {
@@ -145,6 +157,7 @@ export const api = {
     reviewModel: string;
     embeddingBaseUrl: string;
     embeddingModel: string;
+    embeddingMode: "internal" | "external";
   }) =>
     request<{ configuration: WorkspaceConfiguration }>("/api/configuration", {
       method: "PUT",
@@ -157,6 +170,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
     }),
+  getEmbeddingStatus: () => request<EmbeddingStatus>("/api/embedding/status"),
   getProjects: () => request<{ projects: Project[] }>("/api/projects"),
   createProject: (input: { title: string; description: string; systemPrompt: string }) =>
     request<{ project: Project }>("/api/projects", {
