@@ -31,6 +31,12 @@ type Editable struct {
 	ReviewModel       string `json:"reviewModel"`
 	EmbeddingBaseURL  string `json:"embeddingBaseUrl"`
 	EmbeddingModel    string `json:"embeddingModel"`
+	// EmbeddingMode selects the embedding source: "internal" (the bundled
+	// ruri-v3-30m llama.cpp sidecar) or "external" (a user-configured
+	// OpenAI-compatible endpoint via EmbeddingBaseURL/Model). When internal, the
+	// sidecar endpoint is overlaid at read time by Config.Get without touching the
+	// persisted EmbeddingBaseURL/Model.
+	EmbeddingMode string `json:"embeddingMode"`
 }
 
 // Settings is an immutable snapshot of every config value the service layer reads.
@@ -51,6 +57,13 @@ type Config struct {
 	mu            sync.RWMutex
 	settings      Settings
 	appConfigPath string
+
+	// internalEmbedURL/Model are the runtime-only overlay for the bundled
+	// embedding sidecar. They are NOT persisted; Config.Get substitutes them into
+	// the returned Settings when EmbeddingMode=="internal". Empty model means the
+	// sidecar is not ready yet (retrieval degrades to FTS-only).
+	internalEmbedURL   string
+	internalEmbedModel string
 }
 
 func getenv(key, fallback string) string {
@@ -99,11 +112,30 @@ func normalizeResponseFormat(value string) string {
 	return "standard"
 }
 
+// normalizeEmbeddingMode canonicalises an embedding mode. It returns "internal"
+// or "external" for recognised values, or "" for anything else so callers can
+// decide to keep the current value (e.g. an UpdateEditable payload from an older
+// frontend that omits the field must not silently flip the mode).
+func normalizeEmbeddingMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "external":
+		return "external"
+	case "internal":
+		return "internal"
+	default:
+		return ""
+	}
+}
+
 // Defaults builds the Settings from environment variables with the same defaults
 // and fallback chains as config.ts. It does not read app-config.json.
 func Defaults() Settings {
 	llmBaseURL := getenv("LLM_BASE_URL", "http://127.0.0.1:1234/v1")
 	llmTimeout := parseIntEnv(getenv("LLM_TIMEOUT_MS", ""), 60000)
+	embeddingMode := normalizeEmbeddingMode(getenv("EMBEDDING_MODE", "internal"))
+	if embeddingMode == "" {
+		embeddingMode = "internal"
+	}
 	return Settings{
 		Editable: Editable{
 			LLMBaseURL:        llmBaseURL,
@@ -113,6 +145,7 @@ func Defaults() Settings {
 			ReviewModel:       firstNonEmptyEnv("local-model", "REVIEW_MODEL", "LLM_MODEL"),
 			EmbeddingBaseURL:  firstNonEmptyEnv("http://127.0.0.1:1234/v1", "EMBEDDING_BASE_URL", "LLM_BASE_URL"),
 			EmbeddingModel:    getenv("EMBEDDING_MODEL", ""),
+			EmbeddingMode:     embeddingMode,
 		},
 		LLMAPIKey:          getenv("LLM_API_KEY", ""),
 		LLMTimeoutMs:       llmTimeout,
@@ -127,6 +160,17 @@ func Defaults() Settings {
 // by the bootstrap once it has resolved the data directory).
 func New(settings Settings, appConfigPath string) *Config {
 	settings.LLMResponseFormat = normalizeResponseFormat(settings.LLMResponseFormat)
+	if m := normalizeEmbeddingMode(settings.EmbeddingMode); m != "" {
+		settings.EmbeddingMode = m
+	} else if strings.TrimSpace(settings.EmbeddingModel) != "" {
+		// An explicit Settings that carries an embedding model but no mode clearly
+		// wants that external model active, so default to external (mirrors the
+		// app-config.json migration in applyOverrides) rather than internal — which
+		// would overlay an empty model and disable embeddings.
+		settings.EmbeddingMode = "external"
+	} else {
+		settings.EmbeddingMode = "internal"
+	}
 	return &Config{settings: settings, appConfigPath: appConfigPath}
 }
 
@@ -183,14 +227,66 @@ func (c *Config) applyOverrides(path string) {
 	applyString("reviewModel", &c.settings.ReviewModel, true)
 	applyString("embeddingBaseUrl", &c.settings.EmbeddingBaseURL, true)
 	applyString("embeddingModel", &c.settings.EmbeddingModel, true)
+
+	// embeddingMode override + migration. When the key is present we honour a
+	// valid value; an invalid value keeps the env default. When the key is ABSENT
+	// from an existing app-config.json (a pre-Track-B user), migrate by intent: a
+	// non-empty persisted embeddingModel means they configured an external
+	// endpoint, so keep them on external; otherwise default to internal. (A fresh
+	// install has no app-config.json, so this function returns early above and the
+	// Defaults() value — internal — stands.)
+	if v, ok := overrides["embeddingMode"]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			if m := normalizeEmbeddingMode(s); m != "" {
+				c.settings.EmbeddingMode = m
+			}
+		}
+	} else if strings.TrimSpace(c.settings.EmbeddingModel) != "" {
+		c.settings.EmbeddingMode = "external"
+	} else {
+		c.settings.EmbeddingMode = "internal"
+	}
 }
 
 // Get returns the current settings snapshot. Reads are cheap and lock-free for the
 // caller's purposes (a value copy under a short read lock).
+//
+// When EmbeddingMode=="internal" the bundled sidecar endpoint is overlaid onto the
+// returned snapshot WITHOUT mutating the persisted EmbeddingBaseURL/Model — so the
+// EmbeddingClient/retrieval/sync layers reach the sidecar with no changes. If the
+// sidecar is not ready (internalEmbedModel==""), EmbeddingModel comes back empty,
+// which the EmbeddingClient treats as disabled (retrieval degrades to FTS-only).
+// External users' persisted endpoint is left untouched and still used in external
+// mode.
 func (c *Config) Get() Settings {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.settings
+	s := c.settings
+	if s.EmbeddingMode == "internal" {
+		s.EmbeddingBaseURL = c.internalEmbedURL
+		s.EmbeddingModel = c.internalEmbedModel
+		s.EmbeddingAPIKey = ""
+	}
+	return s
+}
+
+// SetInternalEmbedding points the internal-mode overlay at the bundled sidecar's
+// loopback endpoint and model id. Called from the sidecar manager's ready callback.
+func (c *Config) SetInternalEmbedding(baseURL, model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.internalEmbedURL = baseURL
+	c.internalEmbedModel = model
+}
+
+// ClearInternalEmbedding drops the internal overlay (e.g. on sidecar crash or when
+// switching to external mode), so internal mode degrades to FTS-only.
+func (c *Config) ClearInternalEmbedding() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.internalEmbedURL = ""
+	c.internalEmbedModel = ""
 }
 
 // GetEditable returns just the user-editable subset, mirroring
@@ -214,6 +310,12 @@ func (c *Config) UpdateEditable(input Editable) (Editable, error) {
 	c.settings.ReviewModel = strings.TrimSpace(input.ReviewModel)
 	c.settings.EmbeddingBaseURL = strings.TrimSpace(input.EmbeddingBaseURL)
 	c.settings.EmbeddingModel = strings.TrimSpace(input.EmbeddingModel)
+	// Apply embeddingMode only when the payload carries a valid value; an empty or
+	// unrecognised value keeps the current mode so an older frontend that omits the
+	// field cannot silently flip an external user back to internal.
+	if m := normalizeEmbeddingMode(input.EmbeddingMode); m != "" {
+		c.settings.EmbeddingMode = m
+	}
 	editable := c.settings.Editable
 	path := c.appConfigPath
 	c.mu.Unlock()

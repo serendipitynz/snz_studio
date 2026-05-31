@@ -93,3 +93,97 @@ func TestUpdateEditablePersists(t *testing.T) {
 		t.Fatalf("reloaded llmModel = %q, want m", reloaded.LLMModel)
 	}
 }
+
+func TestEmbeddingModeDefaultInternal(t *testing.T) {
+	os.Unsetenv("EMBEDDING_MODE")
+	os.Unsetenv("EMBEDDING_MODEL")
+	if s := Defaults(); s.EmbeddingMode != "internal" {
+		t.Fatalf("default EmbeddingMode = %q, want internal", s.EmbeddingMode)
+	}
+}
+
+func TestInternalOverlayAndDegrade(t *testing.T) {
+	os.Unsetenv("EMBEDDING_MODE")
+	os.Unsetenv("EMBEDDING_MODEL")
+	c := New(Defaults(), "") // internal mode, no persisted external model
+
+	// Before the sidecar is ready, internal mode must degrade to FTS-only: Get's
+	// EmbeddingModel comes back empty regardless of any persisted base URL.
+	if got := c.Get(); got.EmbeddingModel != "" {
+		t.Fatalf("not-ready internal EmbeddingModel = %q, want empty", got.EmbeddingModel)
+	}
+
+	c.SetInternalEmbedding("http://127.0.0.1:9999/v1", "ruri-v3-30m")
+	got := c.Get()
+	if got.EmbeddingModel != "ruri-v3-30m" || got.EmbeddingBaseURL != "http://127.0.0.1:9999/v1" || got.EmbeddingAPIKey != "" {
+		t.Fatalf("ready internal overlay = %+v, want sidecar url/model and empty key", got.Editable)
+	}
+
+	c.ClearInternalEmbedding()
+	if got := c.Get(); got.EmbeddingModel != "" {
+		t.Fatalf("after clear, internal EmbeddingModel = %q, want empty", got.EmbeddingModel)
+	}
+}
+
+func TestExternalModeNoOverlay(t *testing.T) {
+	s := Defaults()
+	s.EmbeddingMode = "external"
+	s.EmbeddingBaseURL = "http://ext/v1"
+	s.EmbeddingModel = "ext-model"
+	c := New(s, "")
+
+	// Even with an internal overlay set, external mode must keep the persisted
+	// external endpoint/model.
+	c.SetInternalEmbedding("http://internal/v1", "ruri-v3-30m")
+	got := c.Get()
+	if got.EmbeddingModel != "ext-model" || got.EmbeddingBaseURL != "http://ext/v1" {
+		t.Fatalf("external mode overlaid = %+v, want persisted ext values", got.Editable)
+	}
+}
+
+func TestEmbeddingModeMigration(t *testing.T) {
+	os.Unsetenv("EMBEDDING_MODE")
+	os.Unsetenv("EMBEDDING_MODEL")
+	write := func(t *testing.T, body string) string {
+		p := filepath.Join(t.TempDir(), "app-config.json")
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		return p
+	}
+
+	// Legacy external user (embeddingModel set, no embeddingMode) => external.
+	if m := Load(write(t, `{"embeddingModel":"my-ext","embeddingBaseUrl":"http://ext/v1"}`)).GetEditable().EmbeddingMode; m != "external" {
+		t.Fatalf("legacy-with-model migration = %q, want external", m)
+	}
+	// Legacy user with no embedding model and no mode => internal.
+	if m := Load(write(t, `{"llmModel":"m"}`)).GetEditable().EmbeddingMode; m != "internal" {
+		t.Fatalf("legacy-no-model migration = %q, want internal", m)
+	}
+	// An explicit embeddingMode wins over the migration heuristic.
+	if m := Load(write(t, `{"embeddingModel":"x","embeddingMode":"internal"}`)).GetEditable().EmbeddingMode; m != "internal" {
+		t.Fatalf("explicit mode = %q, want internal", m)
+	}
+}
+
+func TestEmbeddingModeRoundTripAndKeepCurrent(t *testing.T) {
+	os.Unsetenv("EMBEDDING_MODE")
+	os.Unsetenv("EMBEDDING_MODEL")
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	c := New(Defaults(), path)
+
+	if _, err := c.UpdateEditable(Editable{LLMBaseURL: "http://h/v1", EmbeddingMode: "external", EmbeddingModel: "e"}); err != nil {
+		t.Fatalf("UpdateEditable: %v", err)
+	}
+	if m := Load(path).GetEditable().EmbeddingMode; m != "external" {
+		t.Fatalf("round-trip EmbeddingMode = %q, want external", m)
+	}
+
+	// An empty/omitted mode in a later update must not flip the current mode.
+	if _, err := c.UpdateEditable(Editable{LLMBaseURL: "http://h/v1", EmbeddingMode: ""}); err != nil {
+		t.Fatalf("UpdateEditable(empty mode): %v", err)
+	}
+	if m := c.GetEditable().EmbeddingMode; m != "external" {
+		t.Fatalf("empty-mode update flipped mode to %q, want external kept", m)
+	}
+}
