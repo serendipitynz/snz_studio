@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"snzstudio/internal/config"
+	"snzstudio/internal/embed"
 )
 
 // EmbeddingClient ports embeddingClient.ts: an OpenAI-compatible embedding client
@@ -59,6 +60,30 @@ func (c *EmbeddingClient) RefreshConfiguration() {
 	defer c.mu.Unlock()
 	c.disabled = strings.TrimSpace(c.cfg.Get().EmbeddingModel) == ""
 	c.unavailableLogged = false
+}
+
+// PrefixScheme is the asymmetric query/document prefix pair for the active embedding
+// model. The zero value (empty prefixes) is a no-op, used for models that do not
+// require prefixes.
+type PrefixScheme struct {
+	Query    string
+	Document string
+}
+
+// Active reports whether this scheme applies a prefix (non-empty).
+func (p PrefixScheme) Active() bool { return p.Query != "" || p.Document != "" }
+
+// ActivePrefixScheme returns the prefix scheme for the currently-active embedding
+// model. It is non-empty only for the bundled ruri model (ModernBERT-Ja, which uses
+// an asymmetric 検索クエリ:/検索文書: scheme); external/unknown models get a no-op
+// scheme. The prefixes are baked into stored vectors, so changing them (or the
+// model) requires a full RebuildAll. Matching on the model id also correctly applies
+// the prefixes when a user points an external endpoint at the same ruri model.
+func (c *EmbeddingClient) ActivePrefixScheme() PrefixScheme {
+	if strings.TrimSpace(c.cfg.Get().EmbeddingModel) == embed.RuriV3_30m.ModelID {
+		return PrefixScheme{Query: embed.RuriV3_30m.QueryPrefix, Document: embed.RuriV3_30m.DocumentPrefix}
+	}
+	return PrefixScheme{}
 }
 
 func (c *EmbeddingClient) authHeader(req *http.Request, apiKey string) {

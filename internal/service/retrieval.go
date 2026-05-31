@@ -45,6 +45,21 @@ func semanticToUnitRange(value float64) float64 {
 	return clampScore((value + 1) / 2)
 }
 
+// semanticFallbackFloor is the minimum score a candidate needs to qualify in the
+// semantic-ONLY fallback (used when FTS returned too few candidates). ruri
+// (ModernBERT-Ja) cosines cluster high — even unrelated Japanese text scores ~0.78,
+// mapping to ~0.89 unit — so the default floor calibrated for wider-spread
+// embeddings would admit almost everything. Use a higher floor for ruri.
+//
+// PROVISIONAL: the ruri floor is derived from limited spike data (S2). Calibrate it
+// with more labeled negatives during GUI E2E before relying on the fallback path.
+func semanticFallbackFloor(defaultFloor float64, ruri bool) float64 {
+	if ruri {
+		return 0.9
+	}
+	return defaultFloor
+}
+
 // Retrieval intent detection regexes, ported verbatim from retrievalService.ts.
 var (
 	reIntentTranslation = regexp.MustCompile(`(?i)(翻訳|訳して|英訳|和訳|訳文|用語統一)`)
@@ -147,7 +162,9 @@ func (r *RetrievalService) SearchDocuments(projectID, query string, limit, chunk
 		candidateRows = rows
 	}
 
-	queryEmbedding := r.embeddings.CreateEmbedding(query)
+	// The query gets the ruri query prefix (no-op for other models); the FTS query
+	// above stays raw.
+	queryEmbedding := r.embeddings.CreateEmbedding(r.embeddings.ActivePrefixScheme().Query + query)
 
 	ranked, err := r.rankDocumentCandidates(candidateRows, queryEmbedding, chunksPerDocument, intent)
 	if err != nil {
@@ -245,7 +262,7 @@ func (r *RetrievalService) SearchMemories(projectID, query string, limit int) ([
 		candidateRows = rows
 	}
 
-	queryEmbedding := r.embeddings.CreateEmbedding(query)
+	queryEmbedding := r.embeddings.CreateEmbedding(r.embeddings.ActivePrefixScheme().Query + query)
 
 	ranked, err := r.rankMemoryCandidates(candidateRows, queryEmbedding)
 	if err != nil {
@@ -566,6 +583,7 @@ func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbe
 		chunkIndex   int
 		score        float64
 	}
+	floor := semanticFallbackFloor(0.55, r.embeddings.ActivePrefixScheme().Active())
 	var scored []semRow
 	for rows.Next() {
 		var sr semRow
@@ -575,7 +593,7 @@ func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbe
 			return nil, err
 		}
 		sr.score = semanticToUnitRange(vector.CosineSimilarity(queryEmbedding, parseEmbeddingJSON(raw))) * getCategoryWeight(sr.category, intent)
-		if sr.score > 0.55 {
+		if sr.score > floor {
 			scored = append(scored, sr)
 		}
 	}
@@ -757,6 +775,7 @@ func (r *RetrievalService) searchMemoriesBySemantic(projectID string, queryEmbed
 		content  string
 		score    float64
 	}
+	floor := semanticFallbackFloor(0.58, r.embeddings.ActivePrefixScheme().Active())
 	var scored []scoredMemory
 	for rows.Next() {
 		var sm scoredMemory
@@ -769,7 +788,7 @@ func (r *RetrievalService) searchMemoriesBySemantic(projectID string, queryEmbed
 			continue
 		}
 		sm.score = semanticToUnitRange(vector.CosineSimilarity(queryEmbedding, parseEmbeddingJSON(raw)))
-		if sm.score > 0.58 {
+		if sm.score > floor {
 			scored = append(scored, sm)
 		}
 	}

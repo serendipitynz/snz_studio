@@ -171,18 +171,32 @@ func toMemoryEmbeddings(memories []repository.MemoryForEmbedding, vectors [][]fl
 
 // embedInBatches mirrors embedInBatches: embeds inputs in chunks of 32, returning
 // nil as soon as any batch is unavailable.
+//
+// All inputs here are stored CORPUS items (document chunks and memories), so when
+// the active model uses an asymmetric prefix scheme (ruri) they get the DOCUMENT
+// prefix — queries get the query prefix in retrieval.go instead. The prefix is baked
+// into the stored vectors, so changing it requires a RebuildAll.
 func (s *EmbeddingSyncService) embedInBatches(inputs []string) [][]float64 {
+	docPrefix := s.embeddings.ActivePrefixScheme().Document
 	vectors := make([][]float64, 0, len(inputs))
 	for start := 0; start < len(inputs); start += embeddingBatchSize {
 		end := start + embeddingBatchSize
 		if end > len(inputs) {
 			end = len(inputs)
 		}
-		batch := s.embeddings.CreateEmbeddings(inputs[start:end])
-		if batch == nil {
+		batch := inputs[start:end]
+		if docPrefix != "" {
+			prefixed := make([]string, len(batch))
+			for i, in := range batch {
+				prefixed[i] = docPrefix + in
+			}
+			batch = prefixed
+		}
+		vecs := s.embeddings.CreateEmbeddings(batch)
+		if vecs == nil {
 			return nil
 		}
-		vectors = append(vectors, batch...)
+		vectors = append(vectors, vecs...)
 	}
 	return vectors
 }
