@@ -46,7 +46,7 @@ func newTestServer(t *testing.T) *Server {
 		EmbeddingTimeoutMs: 500,
 	}
 	cfg := config.New(settings, filepath.Join(dir, "app-config.json"))
-	return NewServer(d, cfg, filepath.Join(dir, "uploads"))
+	return NewServer(d, cfg, filepath.Join(dir, "uploads"), nil)
 }
 
 func doJSON(t *testing.T, h http.Handler, method, target string, body any) *httptest.ResponseRecorder {

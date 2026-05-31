@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,6 +18,7 @@ import (
 
 	"snzstudio/internal/config"
 	"snzstudio/internal/doccategory"
+	"snzstudio/internal/embed"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
@@ -56,6 +58,7 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 	}
 	embeddingBaseURL := strings.TrimSpace(bodyString(m, "embeddingBaseUrl"))
 	embeddingModel := strings.TrimSpace(bodyString(m, "embeddingModel"))
+	embeddingMode := strings.TrimSpace(bodyString(m, "embeddingMode"))
 
 	if llmBaseURL == "" {
 		writeError(w, http.StatusBadRequest, "LLM endpoint is required")
@@ -70,23 +73,40 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 		ReviewModel:       reviewModel,
 		EmbeddingBaseURL:  embeddingBaseURL,
 		EmbeddingModel:    embeddingModel,
+		EmbeddingMode:     embeddingMode,
 	})
 	if err != nil {
 		fail(w, err)
 		return
 	}
 
+	// Apply the embedding-mode switch before refreshing the client: internal starts
+	// (or keeps) the sidecar asynchronously; external stops it and drops the overlay
+	// so the persisted external endpoint is used.
+	if s.embedManager != nil {
+		if updated.EmbeddingMode == "external" {
+			s.embedManager.Shutdown()
+			s.cfg.ClearInternalEmbedding()
+		} else {
+			s.embedManager.EnsureInternalReady(context.Background())
+		}
+	}
+
 	s.embedding.RefreshConfiguration()
 
 	// Warm the models concurrently, matching the Node Promise.all. Results are
 	// advisory (the connection probe below reports reachability), so ignore them.
+	// Embedding uses the EFFECTIVE settings (cfg.Get) so internal mode targets the
+	// sidecar overlay — empty until the sidecar is ready — not the persisted
+	// external model.
+	eff := s.cfg.Get()
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() { defer wg.Done(); s.llm.EnsureModelLoaded(updated.LLMModel, updated.LLMBaseURL) }()
 	go func() { defer wg.Done(); s.llm.EnsureModelLoaded(updated.ReviewModel, updated.ReviewBaseURL) }()
 	go func() {
 		defer wg.Done()
-		s.embedding.EnsureModelLoaded(updated.EmbeddingModel, updated.EmbeddingBaseURL)
+		s.embedding.EnsureModelLoaded(eff.EmbeddingModel, eff.EmbeddingBaseURL)
 	}()
 	wg.Wait()
 
@@ -134,6 +154,18 @@ func (s *Server) handleListConfigurationModels(w http.ResponseWriter, r *http.Re
 	default:
 		writeError(w, http.StatusBadRequest, "invalid configuration kind")
 	}
+}
+
+// handleGetEmbeddingStatus reports the internal embedding sidecar's lifecycle state
+// (download progress / ready / error) so the settings UI can show "downloading…"
+// and switch on once embeddings are live. Returns disabled when no manager is wired
+// (e.g. tests).
+func (s *Server) handleGetEmbeddingStatus(w http.ResponseWriter, _ *http.Request) {
+	if s.embedManager == nil {
+		writeJSON(w, http.StatusOK, embed.Status{State: embed.StateDisabled})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.embedManager.Status())
 }
 
 // --- Projects ----------------------------------------------------------------

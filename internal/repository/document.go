@@ -370,6 +370,17 @@ func (r *DocumentRepository) UpsertChunkEmbeddings(rows []ChunkEmbedding) error 
 	return tx.Commit()
 }
 
+// HasEmbeddingsForModel reports whether any document chunk embedding is stored for
+// the given model id. Used as a run-once guard so the internal sidecar's ready
+// callback does not re-embed an already-embedded corpus on every launch.
+func (r *DocumentRepository) HasEmbeddingsForModel(model string) (bool, error) {
+	var exists int
+	if err := r.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM document_chunk_embeddings WHERE model = ?)`, model).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists == 1, nil
+}
+
 // RebuildSearchIndex rebuilds document_chunks_fts from scratch, re-tokenizing all
 // text with the current tokenizer. Mirrors rebuildSearchIndex.
 func (r *DocumentRepository) RebuildSearchIndex() error {

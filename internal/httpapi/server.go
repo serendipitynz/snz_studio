@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"snzstudio/internal/config"
+	"snzstudio/internal/embed"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
 )
@@ -45,6 +46,11 @@ type Server struct {
 	chatService   *service.ChatService
 	reviewService *service.ReviewService
 
+	// embedManager owns the bundled embedding sidecar (download + llama-server). It
+	// is nil in tests that don't exercise internal embeddings; all uses are
+	// nil-guarded. Its ready/lost callbacks drive config's internal overlay.
+	embedManager *embed.Manager
+
 	// uploadDir is where image uploads are stored and /files is served from. It
 	// is an infrastructure path resolved by the process bootstrap, not part of
 	// the editable config snapshot.
@@ -55,7 +61,7 @@ type Server struct {
 // config snapshot source, and the upload directory. The dependency order matches
 // HANDOFF §3 Phase 6 (repos -> emb/llm -> retrieval -> embeddingSync -> context
 // -> summary/memory -> chat/review/organizer).
-func NewServer(db *sql.DB, cfg *config.Config, uploadDir string) *Server {
+func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *embed.Manager) *Server {
 	projects := repository.NewProjectRepository(db)
 	documents := repository.NewDocumentRepository(db)
 	memories := repository.NewMemoryRepository(db)
@@ -73,7 +79,7 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string) *Server {
 	reviewService := service.NewReviewService(chats, contextService, llm, cfg)
 	memoryOrg := service.NewMemoryOrganizerService(memories, chats, llm, embeddingSync)
 
-	return &Server{
+	srv := &Server{
 		cfg:           cfg,
 		projects:      projects,
 		documents:     documents,
@@ -89,8 +95,44 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string) *Server {
 		memoryOrg:     memoryOrg,
 		chatService:   chatService,
 		reviewService: reviewService,
+		embedManager:  embedManager,
 		uploadDir:     uploadDir,
 	}
+
+	// Wire the sidecar lifecycle to config's internal-embedding overlay: when the
+	// sidecar comes up, point embeddings at it (and rebuild once); when it is lost,
+	// clear the overlay so retrieval degrades to FTS-only.
+	if embedManager != nil {
+		embedManager.SetCallbacks(srv.onEmbeddingReady, srv.onEmbeddingLost)
+	}
+	return srv
+}
+
+// onEmbeddingReady is the sidecar manager's ready callback. It overlays the internal
+// sidecar endpoint onto config, refreshes the embedding client, and rebuilds
+// embeddings exactly once per model (guarded so it does not re-embed on every
+// launch/restart of an already-embedded corpus).
+func (s *Server) onEmbeddingReady(baseURL, modelID string) {
+	s.cfg.SetInternalEmbedding(baseURL, modelID)
+	s.embedding.RefreshConfiguration()
+
+	hasDoc, derr := s.documents.HasEmbeddingsForModel(modelID)
+	hasMem, merr := s.memories.HasEmbeddingsForModel(modelID)
+	if (derr == nil && hasDoc) || (merr == nil && hasMem) {
+		return // corpus already embedded for this model — skip the rebuild
+	}
+	go func() {
+		if err := s.embeddingSync.RebuildAll(); err != nil {
+			log.Printf("Embedding rebuild (internal sidecar ready) skipped: %v", err)
+		}
+	}()
+}
+
+// onEmbeddingLost clears the internal overlay (sidecar crashed or gave up), leaving
+// retrieval on FTS-only until the sidecar recovers.
+func (s *Server) onEmbeddingLost() {
+	s.cfg.ClearInternalEmbedding()
+	s.embedding.RefreshConfiguration()
 }
 
 // RunStartupTasks reproduces the module-load side effects of index.ts: backfill
@@ -131,6 +173,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/configuration", s.handleGetConfiguration)
 	mux.HandleFunc("PUT /api/configuration", s.handlePutConfiguration)
 	mux.HandleFunc("POST /api/configuration/models", s.handleListConfigurationModels)
+	mux.HandleFunc("GET /api/embedding/status", s.handleGetEmbeddingStatus)
 
 	// Projects
 	mux.HandleFunc("GET /api/projects", s.handleListProjects)

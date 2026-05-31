@@ -18,6 +18,9 @@ type Paths struct {
 	SQLitePath    string
 	UploadDir     string
 	AppConfigPath string
+	// ModelsDir holds downloaded embedding model GGUFs (internal/embed). Defaults
+	// to <dataDir>/models.
+	ModelsDir string
 }
 
 // resolveDataDir decides where app data lives. The DATA_DIR override mirrors
@@ -66,5 +69,6 @@ func ResolveDataPaths() (Paths, error) {
 		SQLitePath:    sqlitePath,
 		UploadDir:     uploadDir,
 		AppConfigPath: filepath.Join(dataDir, "app-config.json"),
+		ModelsDir:     filepath.Join(dataDir, "models"),
 	}, nil
 }

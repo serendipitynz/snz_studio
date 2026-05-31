@@ -13,6 +13,7 @@ import (
 	"snzstudio/internal/bootstrap"
 	"snzstudio/internal/config"
 	"snzstudio/internal/db"
+	"snzstudio/internal/embed"
 	"snzstudio/internal/httpapi"
 )
 
@@ -27,10 +28,11 @@ import (
 // not guaranteed, so the API is served from a real loopback connection where
 // Flusher behaves correctly. See internal/httpapi/sse.go and the migration plan.
 type App struct {
-	ctx     context.Context
-	server  *http.Server
-	db      *sql.DB
-	apiBase string
+	ctx      context.Context
+	server   *http.Server
+	db       *sql.DB
+	apiBase  string
+	embedMgr *embed.Manager
 }
 
 // NewApp constructs the App. The HTTP server is created lazily in startup once
@@ -64,6 +66,9 @@ func (a *App) startup(ctx context.Context) {
 	if err := os.MkdirAll(paths.UploadDir, 0o755); err != nil {
 		log.Fatalf("api: create upload dir %s: %v", paths.UploadDir, err)
 	}
+	if err := os.MkdirAll(paths.ModelsDir, 0o755); err != nil {
+		log.Fatalf("api: create models dir %s: %v", paths.ModelsDir, err)
+	}
 
 	database, err := db.Open(paths.SQLitePath)
 	if err != nil {
@@ -72,7 +77,8 @@ func (a *App) startup(ctx context.Context) {
 	a.db = database
 
 	cfg := config.Load(paths.AppConfigPath)
-	srv := httpapi.NewServer(database, cfg, paths.UploadDir)
+	a.embedMgr = embed.NewManager(paths.ModelsDir)
+	srv := httpapi.NewServer(database, cfg, paths.UploadDir, a.embedMgr)
 
 	ln, err := net.Listen("tcp", bootstrap.ListenAddr())
 	if err != nil {
@@ -102,6 +108,14 @@ func (a *App) startup(ctx context.Context) {
 	// in the background). Mirrors the Node backend's pre-listen bootstrap.
 	srv.RunStartupTasks()
 
+	// In internal embedding mode, bring up the bundled sidecar (download +
+	// llama-server) in the background. Non-blocking: the app serves immediately and
+	// retrieval runs FTS-only until the sidecar reports ready, at which point the
+	// server's ready callback overlays the endpoint and rebuilds embeddings once.
+	if cfg.Get().EmbeddingMode == "internal" {
+		a.embedMgr.EnsureInternalReady(ctx)
+	}
+
 	go func() {
 		if err := a.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("api: serve: %v", err)
@@ -112,6 +126,9 @@ func (a *App) startup(ctx context.Context) {
 // shutdown gracefully stops the local API server and closes the database when the
 // app closes.
 func (a *App) shutdown(_ context.Context) {
+	if a.embedMgr != nil {
+		a.embedMgr.Shutdown()
+	}
 	if a.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

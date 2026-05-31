@@ -338,6 +338,17 @@ func (r *MemoryRepository) UpsertMemoryEmbeddings(rows []MemoryEmbedding) error 
 	return tx.Commit()
 }
 
+// HasEmbeddingsForModel reports whether any memory embedding is stored for the given
+// model id. Paired with the document equivalent as the internal sidecar's run-once
+// rebuild guard.
+func (r *MemoryRepository) HasEmbeddingsForModel(model string) (bool, error) {
+	var exists int
+	if err := r.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM memory_embeddings WHERE model = ?)`, model).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists == 1, nil
+}
+
 // RebuildSearchIndex rebuilds memories_fts from scratch with current tokenization.
 // Mirrors rebuildSearchIndex.
 func (r *MemoryRepository) RebuildSearchIndex() error {
