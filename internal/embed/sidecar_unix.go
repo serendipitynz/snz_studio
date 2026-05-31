@@ -43,3 +43,16 @@ func defaultServerBinaryPath() string {
 func devServerBinaryPath() string {
 	return filepath.Join("build", "sidecar", runtime.GOOS+"-"+runtime.GOARCH, "llama-server")
 }
+
+// bundledModelPath returns the production location of a model GGUF shipped inside
+// the .app bundle's Resources directory (a sibling of the Contents/MacOS
+// executable, alongside the bundled llama-server), or "" if it cannot be resolved.
+// seedBundledModel copies from here into the per-user models dir on first launch.
+func bundledModelPath(fileName string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	// <app>.app/Contents/MacOS/<exe> -> <app>.app/Contents/Resources/<fileName>
+	return filepath.Join(filepath.Dir(exe), "..", "Resources", fileName)
+}

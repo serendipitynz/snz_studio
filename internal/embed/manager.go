@@ -97,6 +97,9 @@ func (m *Manager) EnsureInternalReady(ctx context.Context) {
 
 func (m *Manager) run(ctx context.Context) {
 	m.setState(StateDownloading, "")
+	// Packaged builds ship the GGUF inside the app bundle; seed it into the
+	// per-user models dir so downloadModel verifies and skips the network.
+	seedBundledModel(m.modelsDir, m.spec)
 	modelPath, err := downloadModel(ctx, m.client, m.spec, m.modelsDir, func(d, t int64) {
 		m.setProgress(d, t)
 	})

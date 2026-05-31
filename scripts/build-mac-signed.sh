@@ -87,6 +87,21 @@ done
 cp -R "$SRCDIR"/. "$RES"/
 echo "    staged sidecar into $RES"
 
+echo "==> Staging the embedding model GGUF"
+# The GGUF is a data file (not Mach-O), so it needs no codesign of its own — the
+# outer .app signing below seals it via CodeResources. It is copied BEFORE that
+# signing so it is covered by the seal (and thus notarized). At runtime,
+# seedBundledModel copies it from Contents/Resources into the per-user models dir.
+MODEL_FILE="ruri-v3-30m-q8_0.gguf"
+MODEL_SRC="${MODEL_SRC:-data/models/$MODEL_FILE}"
+if [[ ! -f "$MODEL_SRC" ]]; then
+  echo "ERROR: model GGUF not found at $MODEL_SRC" >&2
+  echo "       Regenerate it with scripts/build-ruri-gguf.sh, or set MODEL_SRC=/path/to/$MODEL_FILE." >&2
+  exit 1
+fi
+cp "$MODEL_SRC" "$RES/$MODEL_FILE"
+echo "    staged model into $RES/$MODEL_FILE"
+
 echo "==> Codesigning the sidecar first (inner-most), then the app (do NOT rely on --deep)"
 # Sign every sidecar dylib with a hardened runtime + secure timestamp, then the
 # llama-server executable with the JIT entitlements. Signing inner code before the

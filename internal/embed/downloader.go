@@ -41,6 +41,52 @@ func verifyFile(path string, spec ModelSpec) bool {
 	return hex.EncodeToString(h.Sum(nil)) == spec.SHA256
 }
 
+// seedBundledModel copies the model GGUF shipped inside the app bundle (packaged
+// builds stage it next to the llama-server sidecar — see scripts/build-mac-signed.sh)
+// into dir on first launch, so the network download is skipped entirely.
+//
+// It is best-effort: if no verified copy is present in the bundle (e.g. `wails dev`,
+// an unbundled build, or a corrupt/missing file) it is a no-op and the caller falls
+// through to downloadModel. The copy goes via a temp file and is verified+renamed
+// atomically, so a verified dest is never left half-written.
+func seedBundledModel(dir string, spec ModelSpec) {
+	dest := filepath.Join(dir, spec.FileName)
+	if verifyFile(dest, spec) {
+		return // already present in the per-user models dir
+	}
+	src := bundledModelPath(spec.FileName)
+	if src == "" || !verifyFile(src, spec) {
+		return // no usable bundled copy; let downloadModel handle it
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	tmp := dest + ".seed"
+	if err := copyFile(src, tmp); err != nil || !verifyFile(tmp, spec) {
+		_ = os.Remove(tmp)
+		return
+	}
+	_ = os.Rename(tmp, dest)
+}
+
+// copyFile copies src to dst, truncating dst if it exists.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
 // downloadModel ensures spec is present and verified under dir, returning its path.
 // It is idempotent (returns immediately if the file already verifies), streams to a
 // <file>.part with HTTP Range resume, verifies size+sha256, and atomically renames

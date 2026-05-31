@@ -42,3 +42,14 @@ func defaultServerBinaryPath() string {
 func devServerBinaryPath() string {
 	return filepath.Join("build", "sidecar", runtime.GOOS+"-"+runtime.GOARCH, "llama-server.exe")
 }
+
+// bundledModelPath returns the production location of a model GGUF shipped
+// alongside the app executable (next to llama-server.exe), or "" if it cannot be
+// resolved. seedBundledModel copies from here into the per-user models dir.
+func bundledModelPath(fileName string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(exe), fileName)
+}
