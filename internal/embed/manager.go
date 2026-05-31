@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -248,20 +249,29 @@ func (m *Manager) lostCallback() func() {
 	return m.onLost
 }
 
-// resolveServerBinary finds the llama-server binary: the dev override env var first,
-// otherwise the per-OS bundled location. Returns "" if the chosen path is absent.
+// resolveServerBinary finds the llama-server binary, in order: the
+// SNZ_LLAMA_SERVER_BIN dev override, the per-OS bundled location (packaged app), then
+// the cwd-relative dev fallback build/sidecar/<os>-<arch>/. Returns an ABSOLUTE path
+// (so the sidecar's DYLD_LIBRARY_PATH/cwd resolve correctly) or "" if none exists.
 func resolveServerBinary() string {
 	if p := strings.TrimSpace(os.Getenv("SNZ_LLAMA_SERVER_BIN")); p != "" {
-		if fileExists(p) {
-			return p
-		}
-		return ""
+		return absIfExists(p)
 	}
-	p := defaultServerBinaryPath()
-	if fileExists(p) {
+	if p := absIfExists(defaultServerBinaryPath()); p != "" {
 		return p
 	}
-	return ""
+	return absIfExists(devServerBinaryPath())
+}
+
+// absIfExists returns the absolute form of path if it exists as a regular file, else "".
+func absIfExists(path string) string {
+	if !fileExists(path) {
+		return ""
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }
 
 func fileExists(path string) bool {

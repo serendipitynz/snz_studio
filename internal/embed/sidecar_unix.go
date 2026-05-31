@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"syscall"
 )
 
@@ -33,4 +34,12 @@ func defaultServerBinaryPath() string {
 	}
 	// <app>.app/Contents/MacOS/<exe> -> <app>.app/Contents/Resources/llama-server
 	return filepath.Join(filepath.Dir(exe), "..", "Resources", "llama-server")
+}
+
+// devServerBinaryPath is the cwd-relative dev fallback (matching the dev data dir
+// convention): build/sidecar/<os>-<arch>/llama-server. `wails dev` runs from the
+// repo root, so a developer can drop the per-OS sidecar there instead of setting
+// SNZ_LLAMA_SERVER_BIN.
+func devServerBinaryPath() string {
+	return filepath.Join("build", "sidecar", runtime.GOOS+"-"+runtime.GOARCH, "llama-server")
 }
