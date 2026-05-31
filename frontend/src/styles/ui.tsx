@@ -1,14 +1,13 @@
 import styled from "@emotion/styled";
 import { Link } from "react-router-dom";
-import { theme } from "./theme";
 
 export const Page = styled.div`
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(42, 161, 152, 0.12) 0%, transparent 30%),
-    radial-gradient(circle at bottom right, rgba(181, 137, 0, 0.08) 0%, transparent 24%),
-    linear-gradient(180deg, #fdf6e3 0%, #f7f0da 100%);
-  color: ${theme.colors.ink};
+    radial-gradient(circle at top left, ${({ theme }) => theme.bgRadialAccent} 0%, transparent 30%),
+    radial-gradient(circle at bottom right, ${({ theme }) => theme.bgRadialWarm} 0%, transparent 24%),
+    linear-gradient(180deg, ${({ theme }) => theme.bgGradientFrom} 0%, ${({ theme }) => theme.bgGradientTo} 100%);
+  color: ${({ theme }) => theme.ink};
 `;
 
 export const Container = styled.div`
@@ -34,11 +33,11 @@ export const WorkspaceShell = styled.div`
 `;
 
 export const SidebarPane = styled.aside`
-  background: rgba(255, 251, 240, 0.92);
-  border: 1px solid rgba(101, 123, 131, 0.14);
+  background: ${({ theme }) => theme.surfacePane};
+  border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: 24px;
   padding: 18px;
-  box-shadow: ${theme.shadow};
+  box-shadow: ${({ theme }) => theme.shadow};
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -51,21 +50,21 @@ export const MainPane = styled.main`
   min-height: 0;
   height: 100%;
   position: relative;
-  background: rgba(255, 251, 240, 0.9);
-  border: 1px solid rgba(101, 123, 131, 0.14);
+  background: ${({ theme }) => theme.surfacePane};
+  border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: 24px;
-  box-shadow: ${theme.shadow};
+  box-shadow: ${({ theme }) => theme.shadow};
   overflow: hidden;
   display: flex;
   flex-direction: column;
 `;
 
 export const InspectorPane = styled.aside`
-  background: rgba(255, 251, 240, 0.92);
-  border: 1px solid rgba(101, 123, 131, 0.14);
+  background: ${({ theme }) => theme.surfacePane};
+  border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: 24px;
   padding: 18px;
-  box-shadow: ${theme.shadow};
+  box-shadow: ${({ theme }) => theme.shadow};
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -88,7 +87,7 @@ export const Eyebrow = styled.div`
   font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: ${theme.colors.warm};
+  color: ${({ theme }) => theme.warm};
 `;
 
 export const Heading = styled.h1`
@@ -105,13 +104,19 @@ export const SectionTitle = styled.h2`
 
 export const Subtle = styled.p`
   margin: 0;
-  color: ${theme.colors.muted};
+  color: ${({ theme }) => theme.muted};
+  line-height: 1.5;
+`;
+
+export const ErrorText = styled.p`
+  margin: 0;
+  color: ${({ theme }) => theme.dangerText};
   line-height: 1.5;
 `;
 
 export const Divider = styled.hr`
   border: none;
-  border-top: 1px solid rgba(101, 123, 131, 0.14);
+  border-top: 1px solid ${({ theme }) => theme.lineMedium};
   margin: 0;
 `;
 
@@ -140,9 +145,9 @@ export const Grid = styled.div<{ columns?: string }>`
 `;
 
 export const Card = styled.section`
-  background: rgba(255, 255, 255, 0.46);
-  border: 1px solid rgba(101, 123, 131, 0.14);
-  border-radius: ${theme.radius};
+  background: ${({ theme }) => theme.surfaceCardFaint};
+  border: 1px solid ${({ theme }) => theme.lineMedium};
+  border-radius: ${({ theme }) => theme.radius};
   padding: 16px;
   min-width: 0;
 `;
@@ -153,8 +158,8 @@ export const PaneHeader = styled.div`
   justify-content: space-between;
   gap: 12px;
   padding: 18px 20px;
-  border-bottom: 1px solid rgba(101, 123, 131, 0.12);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 250, 240, 0.35));
+  border-bottom: 1px solid ${({ theme }) => theme.line};
+  background: linear-gradient(180deg, ${({ theme }) => theme.paneHeaderFrom}, ${({ theme }) => theme.paneHeaderTo});
   flex-shrink: 0;
 `;
 
@@ -191,7 +196,7 @@ export const SidebarSectionLabel = styled.div`
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: ${theme.colors.muted};
+  color: ${({ theme }) => theme.muted};
 `;
 
 export const SidebarLink = styled(Link, {
@@ -202,55 +207,55 @@ export const SidebarLink = styled(Link, {
   color: inherit;
   padding: 11px 12px;
   border-radius: 14px;
-  background: ${({ $active }) => ($active ? "rgba(42, 161, 152, 0.12)" : "transparent")};
-  border: 1px solid ${({ $active }) => ($active ? "rgba(42, 161, 152, 0.22)" : "rgba(101, 123, 131, 0.08)")};
+  background: ${({ $active, theme }) => ($active ? theme.accentSoft : "transparent")};
+  border: 1px solid ${({ $active, theme }) => ($active ? theme.accentBorder : theme.lineIdle)};
 
   &:hover {
-    background: rgba(101, 123, 131, 0.06);
+    background: ${({ theme }) => theme.lineSoft};
   }
 `;
 
 export const SidebarMeta = styled.div`
   font-size: 12px;
-  color: ${theme.colors.muted};
+  color: ${({ theme }) => theme.muted};
   margin-top: 4px;
 `;
 
 export const Input = styled.input`
   width: 100%;
-  border: 1px solid ${theme.colors.line};
-  background: rgba(255, 255, 255, 0.72);
-  color: ${theme.colors.ink};
+  border: 1px solid ${({ theme }) => theme.fieldBorder};
+  background: ${({ theme }) => theme.surfaceField};
+  color: ${({ theme }) => theme.ink};
   border-radius: 14px;
   padding: 12px 14px;
   font: inherit;
 
   &::placeholder {
-    color: ${theme.colors.muted};
+    color: ${({ theme }) => theme.muted};
   }
 `;
 
 export const Textarea = styled.textarea`
   width: 100%;
   min-height: 120px;
-  border: 1px solid ${theme.colors.line};
-  background: rgba(255, 255, 255, 0.72);
-  color: ${theme.colors.ink};
+  border: 1px solid ${({ theme }) => theme.fieldBorder};
+  background: ${({ theme }) => theme.surfaceField};
+  color: ${({ theme }) => theme.ink};
   border-radius: 14px;
   padding: 12px 14px;
   font: inherit;
   resize: vertical;
 
   &::placeholder {
-    color: ${theme.colors.muted};
+    color: ${({ theme }) => theme.muted};
   }
 `;
 
 export const Select = styled.select`
   width: 100%;
-  border: 1px solid ${theme.colors.line};
-  background: rgba(255, 255, 255, 0.72);
-  color: ${theme.colors.ink};
+  border: 1px solid ${({ theme }) => theme.fieldBorder};
+  background: ${({ theme }) => theme.surfaceField};
+  color: ${({ theme }) => theme.ink};
   border-radius: 14px;
   padding: 12px 14px;
   font: inherit;
@@ -261,7 +266,7 @@ export const Field = styled.label`
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: ${theme.colors.muted};
+  color: ${({ theme }) => theme.muted};
 `;
 
 export const FieldHeader = styled.div`
@@ -276,25 +281,21 @@ export const StatusDot = styled.span<{ $connected: boolean }>`
   height: 10px;
   border-radius: 999px;
   flex-shrink: 0;
-  background: ${({ $connected }) => ($connected ? "#2aa198" : "#dc322f")};
-  box-shadow: 0 0 0 3px ${({ $connected }) => ($connected ? "rgba(42, 161, 152, 0.16)" : "rgba(220, 50, 47, 0.12)")};
+  background: ${({ $connected, theme }) => ($connected ? theme.accent : theme.danger)};
+  box-shadow: 0 0 0 3px ${({ $connected, theme }) => ($connected ? theme.statusOkGlow : theme.dangerSoft)};
 `;
 
 export const Button = styled.button<{ variant?: "solid" | "ghost" | "warm" }>`
   border: 1px solid
-    ${({ variant }) =>
-      variant === "ghost"
-        ? theme.colors.line
-        : variant === "warm"
-          ? "rgba(181, 137, 0, 0.35)"
-          : "rgba(181, 137, 0, 0.3)"};
-  background: ${({ variant }) =>
+    ${({ variant, theme }) =>
+      variant === "ghost" ? theme.fieldBorder : variant === "warm" ? theme.warmBorderStrong : theme.warmBorder};
+  background: ${({ variant, theme }) =>
     variant === "ghost"
       ? "transparent"
       : variant === "warm"
-        ? "rgba(181, 137, 0, 0.12)"
-        : "linear-gradient(180deg, rgba(181, 137, 0, 0.2) 0%, rgba(181, 137, 0, 0.4) 100%)"};
-  color: ${theme.colors.ink};
+        ? theme.warmSoft
+        : `linear-gradient(180deg, ${theme.warmBtnFrom} 0%, ${theme.warmBtnTo} 100%)`};
+  color: ${({ theme }) => theme.ink};
   border-radius: 12px;
   padding: 11px 16px;
   font: inherit;
@@ -310,10 +311,10 @@ export const List = styled.div`
 `;
 
 export const Item = styled.article`
-  border: 1px solid rgba(101, 123, 131, 0.12);
+  border: 1px solid ${({ theme }) => theme.line};
   border-radius: 16px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.42);
+  background: ${({ theme }) => theme.surfaceElevate};
   min-width: 0;
 `;
 
@@ -323,9 +324,9 @@ export const Badge = styled.span<{ tone?: "accent" | "warm" | "muted" }>`
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 11px;
-  background: ${({ tone }) =>
-    tone === "warm" ? theme.colors.warmSoft : tone === "muted" ? "rgba(101, 123, 131, 0.1)" : theme.colors.accentSoft};
-  color: ${({ tone }) => (tone === "warm" ? theme.colors.warm : tone === "muted" ? theme.colors.muted : theme.colors.accent)};
+  background: ${({ tone, theme }) =>
+    tone === "warm" ? theme.warmSoft : tone === "muted" ? theme.mutedBadgeBg : theme.accentSoft};
+  color: ${({ tone, theme }) => (tone === "warm" ? theme.warm : tone === "muted" ? theme.muted : theme.accent)};
 `;
 
 export const RouterLink = styled(Link)`
@@ -350,33 +351,33 @@ export const MessageBubble = styled.article<{ $role: "user" | "assistant" | "sys
   padding: 16px 18px;
   border-radius: 20px;
   border: 1px solid
-    ${({ $role }) => ($role === "assistant" ? "rgba(42, 161, 152, 0.2)" : "rgba(101, 123, 131, 0.12)")};
-  background: ${({ $role }) =>
+    ${({ $role, theme }) => ($role === "assistant" ? theme.accentBubbleBorder : theme.line)};
+  background: ${({ $role, theme }) =>
     $role === "assistant"
-      ? "linear-gradient(180deg, rgba(42, 161, 152, 0.09), rgba(42, 161, 152, 0.03))"
-      : "rgba(255, 255, 255, 0.42)"};
+      ? `linear-gradient(180deg, ${theme.accentBubbleFrom}, ${theme.accentBubbleTo})`
+      : theme.surfaceElevate};
 `;
 
 export const Composer = styled.form`
   flex-shrink: 0;
   padding: 14px 20px 20px;
-  border-top: 1px solid rgba(101, 123, 131, 0.12);
-  background: linear-gradient(180deg, rgba(253, 246, 227, 0.2), rgba(247, 240, 218, 0.86));
+  border-top: 1px solid ${({ theme }) => theme.line};
+  background: linear-gradient(180deg, ${({ theme }) => theme.composerFrom}, ${({ theme }) => theme.composerTo});
 `;
 
 export const ComposerBox = styled.div`
   display: flex;
   flex-direction: column;
   gap: 12px;
-  border: 1px solid rgba(101, 123, 131, 0.14);
+  border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: 18px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.42);
+  background: ${({ theme }) => theme.surfaceElevate};
 `;
 
 export const MetaText = styled.div`
   font-size: 12px;
-  color: ${theme.colors.muted};
+  color: ${({ theme }) => theme.muted};
 `;
 
 export const FloatingScrollButton = styled.button`
@@ -390,10 +391,10 @@ export const FloatingScrollButton = styled.button`
   gap: 8px;
   padding: 10px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(42, 161, 152, 0.24);
-  background: rgba(255, 250, 240, 0.94);
-  box-shadow: 0 12px 28px rgba(88, 110, 117, 0.18);
-  color: ${theme.colors.ink};
+  border: 1px solid ${({ theme }) => theme.floatBtnBorder};
+  background: ${({ theme }) => theme.floatBtnBg};
+  box-shadow: ${({ theme }) => theme.shadowPopover};
+  color: ${({ theme }) => theme.ink};
   cursor: pointer;
 
   @media (max-width: 900px) {
@@ -408,15 +409,15 @@ export const IconButton = styled.button`
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  border: 1px solid rgba(101, 123, 131, 0.16);
-  background: rgba(255, 255, 255, 0.52);
-  color: ${theme.colors.ink};
+  border: 1px solid ${({ theme }) => theme.iconBorder};
+  background: ${({ theme }) => theme.surfaceButton};
+  color: ${({ theme }) => theme.ink};
   cursor: pointer;
 `;
 
 export const DropZone = styled.div<{ $active?: boolean }>`
-  border: 1px dashed ${({ $active }) => ($active ? "rgba(42, 161, 152, 0.4)" : "rgba(101, 123, 131, 0.24)")};
-  background: ${({ $active }) => ($active ? "rgba(42, 161, 152, 0.08)" : "rgba(255, 255, 255, 0.34)")};
+  border: 1px dashed ${({ $active, theme }) => ($active ? theme.accentDropActive : theme.dropzoneBorder)};
+  background: ${({ $active, theme }) => ($active ? theme.accentDragBg : theme.surfaceDropzone)};
   border-radius: 18px;
   padding: 18px;
 `;
@@ -424,7 +425,7 @@ export const DropZone = styled.div<{ $active?: boolean }>`
 export const ModalOverlay = styled.div`
   position: fixed;
   inset: 0;
-  background: rgba(47, 59, 66, 0.34);
+  background: ${({ theme }) => theme.modalScrim};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -436,9 +437,9 @@ export const ModalCard = styled.div`
   width: min(860px, 100%);
   max-height: calc(100vh - 48px);
   overflow: auto;
-  background: #fffaf0;
-  border: 1px solid rgba(101, 123, 131, 0.14);
+  background: ${({ theme }) => theme.surfaceCard};
+  border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: 24px;
-  box-shadow: ${theme.shadow};
+  box-shadow: ${({ theme }) => theme.shadow};
   padding: 20px;
 `;

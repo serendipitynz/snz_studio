@@ -1,3 +1,4 @@
+import { useTheme } from "@emotion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -6,6 +7,7 @@ interface MarkdownPreviewProps {
 }
 
 export function MarkdownPreview({ source }: MarkdownPreviewProps) {
+  const t = useTheme();
   return (
     <div style={{ lineHeight: 1.7, overflowWrap: "anywhere" }}>
       <ReactMarkdown
@@ -24,8 +26,8 @@ export function MarkdownPreview({ source }: MarkdownPreviewProps) {
               style={{
                 margin: "0 0 14px",
                 padding: "10px 14px",
-                borderLeft: "4px solid rgba(42, 161, 152, 0.45)",
-                background: "rgba(42, 161, 152, 0.08)",
+                borderLeft: `4px solid ${t.accentStrong}`,
+                background: t.accentDragBg,
                 borderRadius: 12
               }}
             >
@@ -33,7 +35,7 @@ export function MarkdownPreview({ source }: MarkdownPreviewProps) {
             </blockquote>
           ),
           a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer" style={{ color: "#2aa198" }}>
+            <a href={href} target="_blank" rel="noreferrer" style={{ color: t.accent }}>
               {children}
             </a>
           ),
@@ -47,15 +49,15 @@ export function MarkdownPreview({ source }: MarkdownPreviewProps) {
               style={{
                 textAlign: "left",
                 padding: "8px 10px",
-                border: "1px solid rgba(101, 123, 131, 0.18)",
-                background: "rgba(101, 123, 131, 0.08)"
+                border: `1px solid ${t.tableBorder}`,
+                background: t.preBg
               }}
             >
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td style={{ padding: "8px 10px", border: "1px solid rgba(101, 123, 131, 0.18)" }}>{children}</td>
+            <td style={{ padding: "8px 10px", border: `1px solid ${t.tableBorder}` }}>{children}</td>
           ),
           code: ({ className, children }) =>
             !className && !String(children).includes("\n") ? (
@@ -63,7 +65,7 @@ export function MarkdownPreview({ source }: MarkdownPreviewProps) {
                 style={{
                   padding: "0.12em 0.35em",
                   borderRadius: 8,
-                  background: "rgba(101, 123, 131, 0.12)",
+                  background: t.codeBg,
                   fontSize: "0.92em"
                 }}
               >
@@ -79,13 +81,13 @@ export function MarkdownPreview({ source }: MarkdownPreviewProps) {
                 padding: 14,
                 borderRadius: 14,
                 overflow: "auto",
-                background: "rgba(101, 123, 131, 0.08)"
+                background: t.preBg
               }}
             >
               {children}
             </pre>
           ),
-          hr: () => <hr style={{ border: "none", borderTop: "1px solid rgba(101, 123, 131, 0.2)", margin: "18px 0" }} />
+          hr: () => <hr style={{ border: "none", borderTop: `1px solid ${t.hrBorder}`, margin: "18px 0" }} />
         }}
       >
         {source}

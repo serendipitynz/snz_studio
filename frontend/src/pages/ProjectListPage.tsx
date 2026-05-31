@@ -1,11 +1,15 @@
+import { useTheme } from "@emotion/react";
 import { DragEvent, FormEvent, useEffect, useState } from "react";
 import { api, Project, WorkspaceConfiguration } from "../api/client";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
+import { useThemeController, ThemeMode } from "../styles/ThemeController";
+import type { ThemeFamily } from "../styles/themes";
 import {
   Badge,
   Button,
   Card,
   ComposerBox,
+  ErrorText,
   Field,
   FieldHeader,
   Grid,
@@ -30,6 +34,8 @@ import {
 } from "../styles/ui";
 
 export function ProjectListPage() {
+  const theme = useTheme();
+  const { family, mode, families, setFamily, setMode } = useThemeController();
   const [projects, setProjects] = useState<Project[]>([]);
   const [configuration, setConfiguration] = useState<WorkspaceConfiguration | null>(null);
   const [configDraft, setConfigDraft] = useState({
@@ -217,7 +223,7 @@ export function ProjectListPage() {
                   <SectionTitle>Projects</SectionTitle>
                   <Badge tone="accent">{projects.length} projects</Badge>
                 </div>
-                {error ? <Subtle style={{ color: "#ff7a6c" }}>{error}</Subtle> : null}
+                {error ? <ErrorText>{error}</ErrorText> : null}
                 <List>
                   {!loading && projects.length === 0 ? <Item>No projects yet.</Item> : null}
                   {projects.map((project) => (
@@ -252,14 +258,13 @@ export function ProjectListPage() {
                         padding: 0,
                         overflow: "hidden",
                         cursor: "grab",
-                        borderColor:
-                          dropTargetProjectId === project.id ? "rgba(42, 161, 152, 0.34)" : "rgba(101, 123, 131, 0.12)",
+                        borderColor: dropTargetProjectId === project.id ? theme.accentDragBorder : theme.line,
                         background:
                           draggedProjectId === project.id
-                            ? "rgba(42, 161, 152, 0.08)"
+                            ? theme.accentDragBg
                             : dropTargetProjectId === project.id
-                              ? "rgba(42, 161, 152, 0.06)"
-                              : "rgba(255, 255, 255, 0.42)"
+                              ? theme.accentSoft
+                              : theme.surfaceElevate
                       }}
                     >
                       <RouterLink
@@ -358,6 +363,30 @@ export function ProjectListPage() {
                 <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
               </FieldHeader>
               <Subtle>{configuration?.embeddingModel || "Not configured"}</Subtle>
+            </Field>
+          </Stack>
+        </Card>
+
+        <Card>
+          <Stack>
+            <Badge tone="accent">Appearance</Badge>
+            <Field>
+              Theme
+              <Select value={family} onChange={(event) => setFamily(event.target.value as ThemeFamily)}>
+                {families.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field>
+              Mode
+              <Select value={mode} onChange={(event) => setMode(event.target.value as ThemeMode)}>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="auto">Auto (follow OS)</option>
+              </Select>
             </Field>
           </Stack>
         </Card>

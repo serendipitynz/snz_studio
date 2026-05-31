@@ -18,6 +18,7 @@ import {
   Composer,
   ComposerBox,
   DropZone,
+  ErrorText,
   Field,
   FloatingScrollButton,
   IconButton,
@@ -689,7 +690,7 @@ export function ChatPage() {
         <MessageArea>
           <MessageScroller ref={messageScrollerRef} onScroll={handleMessageScroll}>
             <Stack>
-              {error ? <Subtle style={{ color: "#ff7a6c" }}>{error}</Subtle> : null}
+              {error ? <ErrorText>{error}</ErrorText> : null}
               {state.messages.map((message) => (
                 <MessageBubble key={message.id} $role={message.role}>
                   <Stack>

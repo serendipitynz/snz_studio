@@ -1,3 +1,4 @@
+import { useTheme } from "@emotion/react";
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -18,6 +19,7 @@ import {
   Card,
   ComposerBox,
   DropZone,
+  ErrorText,
   Field,
   Grid,
   IconButton,
@@ -50,6 +52,7 @@ interface ProjectDetailState {
 export function ProjectDetailPage() {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
+  const theme = useTheme();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<ProjectDetailState | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -454,7 +457,7 @@ export function ProjectDetailPage() {
 
           <PaneBody>
             <Stack>
-              {error ? <Subtle style={{ color: "#dc322f" }}>{error}</Subtle> : null}
+              {error ? <ErrorText>{error}</ErrorText> : null}
 
               <Card as="form" onSubmit={handleCreateChat}>
                 <Stack>
@@ -560,9 +563,9 @@ export function ProjectDetailPage() {
                                   zIndex: 2,
                                   padding: 12,
                                   borderRadius: 14,
-                                  border: "1px solid rgba(101, 123, 131, 0.18)",
-                                  background: "#fffaf0",
-                                  boxShadow: "0 12px 28px rgba(88, 110, 117, 0.18)"
+                                  border: `1px solid ${theme.lineStrong}`,
+                                  background: theme.surfaceCard,
+                                  boxShadow: theme.shadowPopover
                                 }}
                               >
                                 <Stack>
@@ -604,7 +607,7 @@ export function ProjectDetailPage() {
                       variant="ghost"
                       onClick={handleDeleteProject}
                       disabled={busy}
-                      style={{ borderColor: "#dc322f55", color: "#dc322f" }}
+                      style={{ borderColor: theme.dangerBorder, color: theme.danger }}
                     >
                       Delete project
                     </Button>
@@ -697,9 +700,9 @@ export function ProjectDetailPage() {
                               zIndex: 2,
                               padding: 12,
                               borderRadius: 14,
-                              border: "1px solid rgba(101, 123, 131, 0.18)",
-                              background: "#fffaf0",
-                              boxShadow: "0 12px 28px rgba(88, 110, 117, 0.18)"
+                              border: `1px solid ${theme.lineStrong}`,
+                              background: theme.surfaceCard,
+                              boxShadow: theme.shadowPopover
                             }}
                           >
                             <Stack>
@@ -991,9 +994,9 @@ export function ProjectDetailPage() {
                                         zIndex: 2,
                                         padding: 12,
                                         borderRadius: 14,
-                                        border: "1px solid rgba(101, 123, 131, 0.18)",
-                                        background: "#fffaf0",
-                                        boxShadow: "0 12px 28px rgba(88, 110, 117, 0.18)"
+                                        border: `1px solid ${theme.lineStrong}`,
+                                        background: theme.surfaceCard,
+                                        boxShadow: theme.shadowPopover
                                       }}
                                     >
                                       <Stack>

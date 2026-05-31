@@ -1,16 +1,16 @@
-import { Global, css } from "@emotion/react";
+import { Global, css, Theme } from "@emotion/react";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
+import { ThemeController } from "./styles/ThemeController";
 import { GetApiBase } from "./wailsjs/go/main/App";
-import { theme } from "./styles/theme";
 
-const globalStyles = css`
+const globalStyles = (theme: Theme) => css`
   :root {
-    color-scheme: light;
+    color-scheme: ${theme.scheme};
     font-family: ${theme.font};
-    background: ${theme.colors.surface};
+    background: ${theme.bg};
   }
 
   * {
@@ -19,8 +19,8 @@ const globalStyles = css`
 
   body {
     margin: 0;
-    background: ${theme.colors.surface};
-    color: ${theme.colors.ink};
+    background: ${theme.bg};
+    color: ${theme.ink};
   }
 
   button,
@@ -45,10 +45,12 @@ async function bootstrap() {
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <Global styles={globalStyles} />
-      <HashRouter>
-        <App />
-      </HashRouter>
+      <ThemeController>
+        <Global styles={globalStyles} />
+        <HashRouter>
+          <App />
+        </HashRouter>
+      </ThemeController>
     </React.StrictMode>
   );
 }
