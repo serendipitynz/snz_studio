@@ -268,15 +268,21 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 ## 5. 未解決リスク / 要・手元環境
 
 - ~~**WebView での SSE 逐次表示**（Spike #1）~~ → ✅ **解消済み（2026-05-30）**。WKWebView から loopback Go への直 fetch で SSE が逐次描画されることを実機確認（詳細は §3 Phase 1）。Wails events 化の保険は不要。
-- **mac/win の署名・notarization・WebView2**: CI と証明書が要る。早めに最小アプリで通すこと（Spike #3）。**Phase8 で CI マトリクス雛形（`.github/workflows/build.yml`）は作成済みだが、署名/notarization は secrets ゲートで後送り＝証明書（mac Developer ID / win Authenticode）はユーザー提供待ち**。当環境では Actions 未実行のため、実際の push で CI 実走（特に win の NSIS/WebView2、mac universal+dmg）を要確認。
-- **データ移行の GUI 確認（Phase8 積み残し）**: 移行ロジック自体は実データ headless 検証済み（`data/` → temp dest に全行・uploads・config が来る／source 非破壊）。ただし **素の `.app` を `SNZ_MIGRATE_FROM` 付きで初回起動し、`~/Library/Application Support/snz-studio` へ seed → 既存データが UI に出る** end-to-end は手元 GUI 実機での確認が未完了。
-- **統合テスト**には起動中の OpenAI 互換エンドポイントが必要。chat/stream・retrieval・review の正常系 end-to-end はそれ無しでは確認不可。**環境は利用可（2026-05-31 時点でユーザ手元に稼働中）**: LLM=`http://192.168.0.219:1234/v1`(LM Studio, gpt-oss-20b)、embedding=`http://192.168.0.219:7997/v1`(ruri-v3-130m)。Phase 7 で **dev 通信是正（405 解消）と transport/CORS/ビルドは検証済み**だが、**実 WebView 操作での正常系 end-to-end（設定 PUT→connected=true→チャット SSE 逐次表示・semantic retrieval・実 review・画像 `<img>` 表示）は手元 GUI での実クリック確認が必要（未完了）**。§3 Phase 7 末尾の「手元確認待ち」参照。
+- **署名・notarization・CI（2026-05-31 更新）**:
+  - **mac ローカル署名は確立・実証済み**: `scripts/build-mac-signed.sh`（コミット `35a0fa1`）が build → Developer ID 署名（hardened runtime + secure timestamp）→ dmg → `notarytool submit --wait` → `stapler staple` → 検証まで一括実行。**arm64 / darwin/universal（x86_64+arm64）の両方で notarization Accepted・`spctl ... source=Notarized Developer ID` を確認済み**＝配布可能 dmg をローカル生成可能。証明書 = `Developer ID Application: Yoko Otani (9EYB4D9GGQ)`（個人 serenebach アカウント・Team ID `9EYB4D9GGQ`）。notary profile 名 = `snzstudio`（`xcrun notarytool store-credentials` 済み）。⚠ スクリプトは macOS 同梱 bash 3.2 で動くよう空配列展開を `"${arr[@]+...}"` にしてある（蒸し返さない）。
+  - **CI（`.github/workflows/build.yml`）は手動実行のみに変更**（コミット `6224dd5`）: private リポジトリの課金（macOS は分の 10倍消費）を避けるため `push: tags` トリガを外し `workflow_dispatch` 限定に。未署名アーティファクト生成自体は可能だが **Actions 実走は未実施**（特に win の NSIS/WebView2、mac universal+dmg は本番ランナーで要確認）。
+  - **Windows 署名は未対応（ユーザー判断で当面保留）**: 無料の公式手段なし。2023/06 以降 OV/EV はハードウェアトークン/HSM 必須で `.pfx`-in-secrets が不可。CI 親和の最安は **Azure Trusted Signing（〜$10/月・要審査）**、専用 Action で署名する形。当面は **Windows 未署名（SmartScreen 警告をクリック回避）**で運用方針。
+  - **CI 署名の実装（未）**: mac は上記 Developer ID を `.p12`→base64 secret 化すれば build.yml の guarded ステップで CI 署名可能（ローカルで dmg を作れるので必須ではない）。win は証明書/サブスク契約後。
+- **GUI 正常系（Phase 7 積み残し）= ✅ ユーザー確認済み（2026-05-31）**: `wails dev`（実データ `./data`）でアプリ起動・操作。ローカル LM Studio（`127.0.0.1:1234`・モデルロード済み）に対しチャット送信が **mode=stream で正常応答**（dev サーバログに `[chat] completion start ... mode=stream`、runtime エラー/panic なし）。proxy 削除後も絶対 URL 直叩きで疎通。新規チャット POST の 405 は解消済み。**補足**: 既定 LLM endpoint は `127.0.0.1:1234/v1`（Go は `.env` 非読込）。LM Studio 未起動だと `chat.go` の fallback 定型文が返る（仕様）。`window.__API_BASE__` に出る `127.0.0.1:<ephemeral>` はアプリ自身の API ポート（GetApiBase）で LLM endpoint ではない。
+- **データ移行の GUI 確認（Phase8 積み残し・未確認のまま）**: 移行ロジックは実データ headless 検証済み。配布用 `.app`/署名 dmg はビルド済みなので、**`SNZ_MIGRATE_FROM="$PWD/data" "build/bin/snz-studio.app/Contents/MacOS/SNZ Studio"`** で初回起動すれば `~/Library/Application Support/snz-studio` へ seed される（⚠ dest に `app.sqlite` があると no-op＝先に素で起動すると移行されない。リセットは `rm -rf` dest）。**「seed 後 UI に既存データが出る」end-to-end のユーザー目視確認はまだ取れていない**。
+- **embedding/semantic retrieval の正常系**: チャット実応答は確認済み。embedding endpoint（例 `http://192.168.0.219:7997/v1` ruri-v3-130m）を設定した hybrid retrieval / 実 review の正常系 end-to-end は未確認。embedding 未設定なら FTS only で degrade（仕様）。
 
 ---
 
 ## 6. 参考（既存実装の地図）
 
-- API 一覧・全サービスの責務: 計画ファイルと `backend/src/index.ts` / `backend/src/services/*`。
-- DB スキーマ正本: `backend/src/db/schema.ts`（Go 版は `internal/db/schema.go` に移植済み）。
-- 型定義: `backend/src/lib/types.ts`。ユーティリティ: `backend/src/lib/utils.ts`。
+（⚠ Phase 9 で `backend/` は削除済み。下記は Go 実装が正本。旧 TS は git 履歴に残る。Go の各ファイル冒頭コメントに移植元の `backend/src/...` パスが出典として残してある。）
+- API 一覧・全サービスの責務: 計画ファイルと `internal/httpapi/`（22 ルート） / `internal/service/*`。
+- DB スキーマ正本: `internal/db/schema.go`（9 migrations）。
+- 型定義: `internal/model/`。ユーティリティ: `internal/util/`。
 - サンプル文書（検索テスト用の実データ）: `sample-docs/`。
