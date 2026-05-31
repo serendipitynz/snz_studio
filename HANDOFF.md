@@ -315,7 +315,8 @@ Step1-6 を実装し headless 検証は全グリーン（`gofmt`/`go vet`±dev/`
 - **Step6 パッケージング**: `build/darwin/entitlements.plist`（allow-jit + allow-unsigned-executable-memory）/ `scripts/build-mac-signed.sh` に **サイドカー staging+署名**（公式 release DL→不要 exe 削除→各 dylib 署名→llama-server に entitlements 署名→.app 署名、`--deep` 非依存。`LLAMA_RELEASE`/`SIDECAR_ARCH` env）/ `.github/workflows/build.yml` に mac/win staging ステップ＋署名 TODO 更新 / `.gitignore` に `/build/sidecar` / `.env.example` に `EMBEDDING_MODE`・`SNZ_LLAMA_SERVER_BIN`。
 
 #### 残課題（headless 不可・要 GUI/CI/校正）
-1. **配布 GGUF のホスト**: `modelspec.go` の `URL` は placeholder（`REPLACE_OWNER/REPLACE_REVISION`）。q8_0 GGUF（sha `517044b3…`/42MB）を HF 等の固定 revision に上げて URL を確定（SHA256/SizeBytes は確定済み）。GGUF は converter 1行パッチ（`_set_vocab_gpt2`→`_set_vocab_sentencepiece`）で再生成可。
+1. ~~**配布 GGUF のホスト**~~ → ✅ **解決（2026-06-01）= バンドル方式に決定（HF ホスト不要）**: q8_0 GGUF を `.app` の `Contents/Resources` に同梱し、初回起動時に `embed.seedBundledModel` がユーザーデータ配下の `models/` へコピー → `downloadModel` が検証スキップ（`modelspec.go` の `URL` placeholder は未バンドル/dev 用フォールバックとして残置）。GGUF（git 管理外）の再現生成は `scripts/build-ruri-gguf.sh`、同梱は `scripts/build-mac-signed.sh`。**ビルド手順は README「ビルド（配布物）」に集約済み**（HANDOFF より README が正本）。
+   - （旧メモ）q8_0 GGUF（sha `517044b3…`/42MB）。GGUF は converter 1行パッチ（`_set_vocab_gpt2`→`_set_vocab_sentencepiece`）で再生成可。HF ホストする場合は固定 revision に上げて `modelspec.go` の URL を確定（SHA256/SizeBytes は確定済み）。
 2. **retrieval 閾値 0.9 の校正**: ラベル付き negatives を増やして `semanticFallbackFloor` の ruri 値と、必要なら `semanticToUnitRange` の remap を GUI E2E で調整。
 3. **GUI E2E（`wails dev`）**: 初回=即起動→FTS-only→status downloading→ready→自動 RebuildAll 1回→chat の semantic 改善。再起動=再DL/再構築なし。external 切替→再タグ。internal 復帰。DL 失敗→FTS-only 継続。クラッシュ注入→再起動。
 4. **パッケージング実機**: mac universal サイドカー（arm64+x64 lipo）/ win NSIS テンプレートへの sidecar 同梱（現状は loose files）/ CI 実走（未実走）/ サイドカー込み notarize の実 .app 検証（スパイクはサイドカー単体で Accepted 実証済み）。

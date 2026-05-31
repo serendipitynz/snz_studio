@@ -91,14 +91,59 @@ wails dev
 
 ## ビルド（配布物）
 
+ビルドには 2 段階があり、用途で使い分けます。
+
+### 1. 動作確認用（素のビルド）
+
 ```bash
 wails build                              # 現在の OS 向け
 wails build -platform darwin/universal   # macOS universal（.app）
 wails build -platform windows/amd64 -nsis -webview2 download
 ```
 
-成果物は `build/bin/`（macOS は `SNZ Studio.app`、Windows は `.exe`）に出力されます。両 OS のビルドと
-署名/notarization は GitHub Actions（`.github/workflows/build.yml`）で行います。
+成果物は `build/bin/`（macOS は `SNZ Studio.app`、Windows は `.exe`）に出力されます。
+
+> **注意**: `wails build` 単体では内蔵 embedding（llama.cpp サイドカー + モデル GGUF）は同梱されません。
+> この `.app` を起動すると内蔵 embedding は `llama-server binary not found` になります（外部 embedding か
+> FTS のみで動作）。内蔵 embedding を含む配布物は次の署名ビルドで作ります。
+
+### 2. 配布用（macOS・署名 + 公証 + embedding 同梱）
+
+macOS の配布可能 DMG はローカルスクリプトで一括生成します（署名・公証込みの確定手順）。
+
+```bash
+scripts/build-mac-signed.sh
+```
+
+`wails build`（既定 `darwin/universal`）→ llama.cpp サイドカー（`llama-server` + dylib）の staging と署名 →
+モデル GGUF の staging → hardened runtime + secure timestamp で `.app`/`.dmg` 署名 → `notarytool submit --wait`
+→ `stapler staple` までを実行し、`build/bin/SNZ-Studio.dmg` を生成します。
+
+必要なもの:
+
+- 「Developer ID Application」証明書（login keychain にインストール済み）
+- notarytool の保存済みプロファイル（既定名 `snzstudio`。`xcrun notarytool store-credentials` で一度だけ作成）
+- `data/models/ruri-v3-30m-q8_0.gguf`（次節のスクリプトで再生成）
+
+主な env 上書き: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `LLAMA_RELEASE` / `SIDECAR_ARCH` / `MODEL_SRC`。
+
+> Windows の署名は未対応です（当面は未署名配布）。CI（`.github/workflows/build.yml`）は雛形で、
+> `workflow_dispatch` 実行のみ・署名は secrets ゲートで後送りです。
+
+### 内蔵 embedding モデル（GGUF）の再生成
+
+内蔵 embedding は `cl-nagoya/ruri-v3-30m`（ModernBERT-Ja・256 次元・Apache-2.0）を llama.cpp で GGUF 化し
+q8_0 量子化したものを `.app` に同梱し、初回起動時にユーザーデータ配下の `models/` へ展開します。この GGUF
+（`data/models/ruri-v3-30m-q8_0.gguf`・約 42MB）は容量のため git 管理外なので、次のスクリプトで再現生成します。
+
+```bash
+scripts/build-ruri-gguf.sh
+```
+
+llama.cpp `b9437` の source（converter）と release（`llama-quantize`）、HF の固定 revision、pin した Python 依存
+（torch / transformers / sentencepiece / gguf）を使い、HF ダウンロード → converter パッチ（SentencePiece 化）→
+f16 → q8_0 → sha256 検証 → `data/models/` へ設置、までを冪等に実行します（各ステージは出力があれば skip）。
+`internal/embed/modelspec.go` に pin した sha256 と一致しない場合は中断します。
 
 ## データ保存先と移行
 
