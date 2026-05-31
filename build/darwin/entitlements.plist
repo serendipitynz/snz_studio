@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Entitlements for the bundled llama-server embedding sidecar under a hardened
+    runtime. The sidecar runs CPU-only (-ngl 0), but llama.cpp's Metal path JIT-
+    compiles shaders, so these keep notarization-accepted signing compatible if GPU
+    offload is ever enabled. Verified: signing + notarization Accepted, and the
+    signed binary serves 256-dim embeddings under the hardened runtime (2026-05-31).
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

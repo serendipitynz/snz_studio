@@ -73,6 +73,25 @@ jobs:
         if: runner.os == 'macOS'
         run: wails build -platform darwin/universal -clean
 
+      # Stage the bundled embedding sidecar (llama-server) into the .app Resources
+      # before packaging. The official prebuilt binary runs the ruri GGUF unmodified.
+      # NOTE: ships the arm64 sidecar; a universal sidecar needs lipo of both arches'
+      # binary + dylibs (TODO). Signing the sidecar is part of the notarization TODO
+      # below; scripts/build-mac-signed.sh is the verified local recipe.
+      - name: Stage embedding sidecar (macOS)
+        if: runner.os == 'macOS'
+        env:
+          LLAMA_RELEASE: b9437
+        run: |
+          set -euo pipefail
+          RES="build/bin/snz-studio.app/Contents/Resources"
+          curl -fsSL "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/llama-${LLAMA_RELEASE}-bin-macos-arm64.tar.gz" -o /tmp/sc.tar.gz
+          mkdir -p /tmp/sc && tar xzf /tmp/sc.tar.gz -C /tmp/sc
+          SRC="$(dirname "$(find /tmp/sc -name llama-server -type f | head -1)")"
+          # Keep only llama-server among executables (extra unsigned exes fail notarization).
+          for f in "$SRC"/*; do b="$(basename "$f")"; if [[ -f "$f" && "$b" != llama-server && "$b" != *.dylib ]] && file "$f" | grep -q "Mach-O.*executable"; then rm -f "$f"; fi; done
+          cp -R "$SRC"/. "$RES"/
+
       - name: Package .dmg (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -88,14 +107,36 @@ jobs:
         # fetch the WebView2 runtime at install time when it is absent.
         run: wails build -platform windows/amd64 -nsis -webview2 download -clean
 
+      # Stage the Windows embedding sidecar (CPU build): llama-server.exe + ggml/llama
+      # DLLs next to the app exe. TODO: bundling these INTO the NSIS installer needs
+      # build/windows/installer template changes (File directives); until then the
+      # loose files are uploaded as a portable fallback. Authenticode-sign the sidecar
+      # with the app (signing TODO below).
+      - name: Stage embedding sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LLAMA_RELEASE: b9437
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/llama-${LLAMA_RELEASE}-bin-win-cpu-x64.zip" -o /tmp/sc.zip
+          mkdir -p /tmp/sc && unzip -q /tmp/sc.zip -d /tmp/sc
+          SRC="$(dirname "$(find /tmp/sc -name llama-server.exe | head -1)")"
+          cp "$SRC/llama-server.exe" build/bin/
+          find "$SRC" -name '*.dll' -exec cp {} build/bin/ \;
+
       # --- Signing & notarization (TODO: needs user-provided secrets) -----------
       #
       # macOS (Developer ID):
       #   - Import the Developer ID Application cert from a base64 .p12 secret into
       #     a temporary keychain.
-      #   - codesign --deep --options runtime --timestamp the .app, then re-create
-      #     the .dmg and submit it with `xcrun notarytool submit --wait`, then
-      #     `xcrun stapler staple` the .dmg.
+      #   - Sign the staged sidecar FIRST (do not rely on --deep): each
+      #     Contents/Resources/*.dylib with --options runtime --timestamp, then
+      #     Contents/Resources/llama-server additionally with
+      #     --entitlements build/darwin/entitlements.plist; then sign the .app.
+      #     scripts/build-mac-signed.sh is the verified local implementation.
+      #   - Re-create the .dmg and submit it with `xcrun notarytool submit --wait`,
+      #     then `xcrun stapler staple` the .dmg.
       #   Secrets: APPLE_CERT_P12_BASE64, APPLE_CERT_PASSWORD, APPLE_DEVELOPER_ID,
       #            APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
       #

@@ -13,3 +13,7 @@ frontend/dist/*
 # Wails build artifacts and generated bindings.
 /build/bin
 frontend/src/wailsjs
+
+# Per-OS llama-server sidecar binaries staged for dev/packaging (downloaded, large).
+# Downloaded model GGUFs live under the (already-ignored) data dir at data/models.
+/build/sidecar

@@ -28,6 +28,12 @@ APP="build/bin/snz-studio.app"
 DMG="build/bin/SNZ-Studio.dmg"
 ENTITLEMENTS="build/darwin/entitlements.plist"
 WAILS="${WAILS:-$HOME/go/bin/wails}"
+# Bundled embedding sidecar (llama.cpp). The official prebuilt llama-server runs the
+# ruri GGUF unmodified, so no self-build is needed; pin a release that contains the
+# ModernBERT graph (>= b9437). SIDECAR_ARCH defaults to arm64 (Apple Silicon); a
+# universal sidecar would require lipo-ing arm64 + x64 binaries and dylibs (TODO).
+LLAMA_RELEASE="${LLAMA_RELEASE:-b9437}"
+SIDECAR_ARCH="${SIDECAR_ARCH:-arm64}" # arm64 | x64
 
 # Resolve the signing identity (env override, else first Developer ID Application).
 if [[ -z "${DEVELOPER_ID:-}" ]]; then
@@ -58,12 +64,41 @@ echo "    Notary profile:   $NOTARY_PROFILE"
 echo "==> Building app ($PLATFORM)"
 "$WAILS" build -platform "$PLATFORM" -clean
 
-echo "==> Codesigning .app (hardened runtime + secure timestamp)"
 ENT_ARGS=()
 [[ -f "$ENTITLEMENTS" ]] && ENT_ARGS=(--entitlements "$ENTITLEMENTS") && echo "    entitlements: $ENTITLEMENTS"
 # Expand the (possibly empty) array in a way that is safe under `set -u` on
 # macOS's stock bash 3.2, where a bare "${arr[@]}" on an empty array errors.
-codesign --force --deep --options runtime --timestamp \
+
+echo "==> Staging the embedding sidecar (llama-server $LLAMA_RELEASE, macos-$SIDECAR_ARCH)"
+RES="$APP/Contents/Resources"
+STAGE="$(mktemp -d)"
+TARBALL="llama-${LLAMA_RELEASE}-bin-macos-${SIDECAR_ARCH}.tar.gz"
+curl -fsSL "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/${TARBALL}" -o "$STAGE/sidecar.tar.gz"
+tar xzf "$STAGE/sidecar.tar.gz" -C "$STAGE"
+SRCDIR="$(dirname "$(find "$STAGE" -name llama-server -type f | head -1)")"
+# Keep only llama-server among the executables: the official tarball ships ~25 tools,
+# and any unsigned extra Mach-O executable fails notarization (verified). Dylibs stay.
+for f in "$SRCDIR"/*; do
+  base="$(basename "$f")"
+  if [[ -f "$f" && "$base" != "llama-server" && "$base" != *.dylib ]] && file "$f" | grep -q "Mach-O.*executable"; then
+    rm -f "$f"
+  fi
+done
+cp -R "$SRCDIR"/. "$RES"/
+echo "    staged sidecar into $RES"
+
+echo "==> Codesigning the sidecar first (inner-most), then the app (do NOT rely on --deep)"
+# Sign every sidecar dylib with a hardened runtime + secure timestamp, then the
+# llama-server executable with the JIT entitlements. Signing inner code before the
+# outer bundle is the canonical order; the outer .app signing below seals these.
+find "$RES" -type f -name "*.dylib" -print0 | while IFS= read -r -d '' lib; do
+  codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$lib"
+done
+codesign --force --options runtime --timestamp \
+  "${ENT_ARGS[@]+"${ENT_ARGS[@]}"}" --sign "$DEVELOPER_ID" "$RES/llama-server"
+
+echo "==> Codesigning .app (hardened runtime + secure timestamp)"
+codesign --force --options runtime --timestamp \
   "${ENT_ARGS[@]+"${ENT_ARGS[@]}"}" --sign "$DEVELOPER_ID" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
