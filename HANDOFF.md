@@ -286,3 +286,28 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 - DB スキーマ正本: `internal/db/schema.go`（9 migrations）。
 - 型定義: `internal/model/`。ユーティリティ: `internal/util/`。
 - サンプル文書（検索テスト用の実データ）: `sample-docs/`。
+
+---
+
+## 7. 移行後の追加機能（2026-05-31 着手）
+
+承認済み計画: `~/.claude/plans/indexed-toasting-nova.md`（Track A=テーマ切替 / Track B=ruri-v3-30m 内蔵 embedding）。
+
+### Track A — テーマ切替（ダークモード）✅ DONE & GUI 確認済み（2026-05-31, ユーザー目視 OK）
+フロントのみ（Go/DB/API 不変）。**6系統 × light/dark = 12テーマ**（Solarized / Catppuccin / Rosé Pine / Tokyo Night / GitHub / One）+ light/dark/OS追従。確立した規約・勘所（蒸し返さないこと）:
+- **セマンティックトークン方式**: `frontend/src/styles/themes/types.ts` が `ThemeTokens`（~55トークン・コンポーネント直消費）と `ThemeSpec`（compact 入力）+ `buildTokens(spec)`。各パレットは ThemeSpec を渡すだけ。**白オーバーレイ系の面（surfacePane/Card/Elevate/Field/Button/Dropzone/paneHeader/composer/floatBtn/modalScrim）は dark で muddy になるため spec に具体値で持つ**。line/accent/warm/danger の半透明 wash は spec の rgb triplet から固定 alpha で派生（dark は `overlayScale≈1.5` で alpha を底上げ、`min(α*scale,0.95)` でクランプ）。
+- **Solarized Light は現リテラルを1:1移植**＝回帰ゼロ。`#ff7a6c`/`#dc322f` の2種エラー赤は `dangerText` トークンに統一（Solarized は `#dc322f`）。
+- パレット: `frontend/src/styles/themes/{solarized,catppuccin,rosePine,tokyoNight,github,one}.ts`、registry=`themes/index.ts`（`PALETTES`/`THEME_FAMILIES`/`resolveTokens`/`isThemeFamily`）。light テーマ共通の白オーバーレイ面は `themes/presets.ts` の `LIGHT_SURFACES`（Solarized Light を除く）。
+- **Emotion ThemeProvider 化**: `frontend/src/styles/ThemeController.tsx`（context + localStorage `snz.theme.{family,mode}` + `matchMedia('(prefers-color-scheme: dark)')` で auto 追従 + `<ThemeProvider>` ラップ + `useThemeController()`）。`main.tsx` で `<ThemeController>` がツリー最上位、`<Global>` を theme 関数化（`color-scheme` を `theme.scheme` で light/dark 切替）。型は `frontend/src/styles/emotion.d.ts` が `@emotion/react` の `Theme extends ThemeTokens`（tsconfig `include:["src"]` で自動取り込み）。
+- 旧 `frontend/src/styles/theme.ts` は**削除**。`ui.tsx` は全色を `({ theme }) => theme.X` に置換し共通 `ErrorText` を追加。inline style の色は `useTheme()` で参照（MarkdownPreview / ProjectDetailPage の3 popover・delete ボタン / ProjectListPage のドラッグ色）。**注意: ProjectDetailPage の3 popover は同一値だがインデント差で `replace_all` が1件しか当たらない**ため個別置換した。
+- **切替 UI**: `ProjectListPage` の InspectorPane に "Appearance" Card（family Select + mode Select、API 呼び出し無し）。`WorkspaceSidebar` ヘッダに light/dark クイックトグル（Sun/Moon IconButton、チャット画面からも切替可）。
+- **検証**: `pnpm check:client`（tsc）クリーン / `pnpm build:client`（vite, 336 modules）成功 / `go build ./...`（`//go:embed frontend/dist` 解決）OK。`frontend/dist/.gitkeep` は vite の emptyOutDir が消すので commit 前に `git checkout` で復元（実施済み）。**GUI 目視＝ユーザー確認済み（2026-05-31, 問題なし）**。Track A はコミット前（main 上で未コミット・ユーザー判断）。
+
+### Track B — ruri-v3-30m 内蔵 embedding（llama.cpp サイドカー）⏳ 未着手・**別セッションで対応**（スパイク先行）
+**次セッションの開始手順**: (1) この §7 → (2) 計画ファイル `~/.claude/plans/indexed-toasting-nova.md` の §Track B（file-by-file 設計・接合点・検証まで網羅）→ (3) 既存 Go 層（`internal/service/{embeddingclient,embeddingsync,retrieval}.go`, `internal/config/config.go`, `internal/httpapi/{server,handlers}.go`, `app.go`）。
+
+**着手前関門（最優先・ここが通らなければ実装に入らない）**: ModernBERT 対応 llama.cpp（パッチ版・upstream マージ未確認）+ ruri-v3-**30m** GGUF（既製は無く 310m のみ確認＝自前変換要）を mac arm64/x86_64・win amd64 で用意し `llama-server --embedding` が 256次元 embedding を返すことを実機確認（S1）、`sample-docs/` で 1+3 prefix（検索クエリ:/検索文書:）の retrieval 品質確認（S2）。
+
+**通過後の実装順**: config overlay（`internal/config` に runtime-only internal 上書き + `embeddingMode`、`Get()` で internal 時のみ上書き）→ 新規 `internal/embed`（sidecar/downloader/manager）→ app.go 結線（startup で非ブロッキング `EnsureInternalReady`、shutdown で stop）→ prefix 分岐（query=retrieval.go・doc=embeddingsync.go、internal のみ）→ サイドカー ready コールバックで run-once `RebuildAll` → パッケージング（mac は Resources 同梱+先に sidecar 署名・entitlements、win は exe 同梱）。**S1 失敗時のフォールバック**: external-only 出荷 / 310m GGUF 内蔵（768次元）/ ONNX in-process（CGO・pure-Go 方針に反するため再判断時のみ）。
+
+**確認済みの設計の要（蒸し返さない）**: `EmbeddingClient` は毎回 `cfg.Get()` から base URL/model を解決するので、サイドカーへ向けるのは config overlay だけでよく EmbeddingClient/retrieval/sync は無改修。モデル切替は次元不一致で cosine=0 になるため必ず `RebuildAll`。既存ユーザー移行は「永続 embeddingModel が非空なら external、それ以外 internal」。
