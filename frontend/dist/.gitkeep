@@ -1,5 +1,0 @@
-Placeholder so `//go:embed all:frontend/dist` resolves on a clean checkout
-before the SPA is built. The real assets (index.html, assets/*) are produced by
-`pnpm build:client` and are git-ignored. Note: Vite's `emptyOutDir` removes this
-file during a local build; that is expected — git restores it on checkout, and
-once a build exists the directory is non-empty anyway.
