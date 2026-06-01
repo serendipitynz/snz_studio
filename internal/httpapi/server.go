@@ -275,7 +275,11 @@ func withCORS(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Content-Type")
+			// X-SNZ-Studio-Token (required by withAuth) must be allowed here or the
+			// browser blocks every cross-origin request at preflight: the custom
+			// token header makes even GETs non-simple, so the WebView's calls to the
+			// absolute loopback origin all preflight. Content-Type covers JSON bodies.
+			h.Set("Access-Control-Allow-Headers", "Content-Type, X-SNZ-Studio-Token")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

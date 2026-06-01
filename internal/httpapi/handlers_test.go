@@ -663,9 +663,14 @@ func TestReviewStreamError(t *testing.T) {
 func TestCORS(t *testing.T) {
 	h := newTestServer(t).Handler()
 
-	// Preflight is answered without hitting a route.
+	// Preflight is answered without hitting a route. The frontend attaches
+	// X-SNZ-Studio-Token to every request, so the browser preflights with that
+	// header in Access-Control-Request-Headers; the response must allow it or the
+	// real request is blocked client-side before reaching any handler.
 	req := httptest.NewRequest(http.MethodOptions, "/api/projects", nil)
 	req.Header.Set("Origin", "http://127.0.0.1:5173")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "x-snz-studio-token, content-type")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
@@ -673,6 +678,16 @@ func TestCORS(t *testing.T) {
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://127.0.0.1:5173" {
 		t.Fatalf("allow-origin = %q, want reflected origin", got)
+	}
+	allowHeaders := strings.ToLower(rec.Header().Get("Access-Control-Allow-Headers"))
+	if !strings.Contains(allowHeaders, "x-snz-studio-token") {
+		t.Fatalf("allow-headers = %q, want it to include x-snz-studio-token", rec.Header().Get("Access-Control-Allow-Headers"))
+	}
+	if !strings.Contains(allowHeaders, "content-type") {
+		t.Fatalf("allow-headers = %q, want it to include content-type", rec.Header().Get("Access-Control-Allow-Headers"))
+	}
+	if allowMethods := rec.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(allowMethods, "POST") {
+		t.Fatalf("allow-methods = %q, want it to include POST", allowMethods)
 	}
 
 	// A normal request reflects the origin too.
