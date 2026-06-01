@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ChatRecord, Project } from "../api/client";
-import { useThemeController } from "../styles/ThemeController";
+import { SettingsModal } from "./SettingsModal";
 import {
   Divider,
   IconButton,
   RouterLink,
   Row,
+  SidebarButton,
   SidebarLink,
   SidebarPane,
   SidebarSection,
@@ -24,8 +25,8 @@ interface WorkspaceSidebarProps {
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   const navigate = useNavigate();
-  const { variant, setMode } = useThemeController();
   const [creatingChat, setCreatingChat] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   async function handleCreateChat() {
     if (!props.currentProjectId || creatingChat) {
@@ -44,28 +45,18 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 
   return (
     <SidebarPane>
-      <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+      <Row style={{ justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <RouterLink to="/" style={{ fontWeight: 700, letterSpacing: "0.08em" }}>
           SNZ STUDIO
         </RouterLink>
-        <Row style={{ gap: 8, flexWrap: "nowrap", alignItems: "center" }}>
-          <IconButton
-            type="button"
-            aria-label="Toggle dark mode"
-            title="Toggle dark mode"
-            onClick={() => setMode(variant === "dark" ? "light" : "dark")}
-          >
-            {variant === "dark" ? <SunIcon /> : <MoonIcon />}
-          </IconButton>
-          <RouterLink to="/" aria-label="Home">
-            <HomeIcon />
-          </RouterLink>
-        </Row>
+        <RouterLink to="/" aria-label="Home">
+          <HomeIcon />
+        </RouterLink>
       </Row>
 
       <Divider />
 
-      <Stack style={{ minHeight: 0, overflow: "auto" }}>
+      <Stack style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
         <SidebarSection>
           <SidebarSectionLabel>Projects</SidebarSectionLabel>
           {props.projects.map((project) => (
@@ -104,6 +95,15 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
           </SidebarSection>
         ) : null}
       </Stack>
+
+      <Divider />
+
+      <SidebarButton type="button" onClick={() => setIsSettingsOpen(true)} style={{ flexShrink: 0 }}>
+        <GearIcon />
+        <span>設定</span>
+      </SidebarButton>
+
+      {isSettingsOpen ? <SettingsModal onClose={() => setIsSettingsOpen(false)} /> : null}
     </SidebarPane>
   );
 }
@@ -139,28 +139,16 @@ function PlusIcon() {
   );
 }
 
-function MoonIcon() {
+function GearIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ display: "block" }}>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ display: "block", flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
       <path
-        d="M13 9.2A5 5 0 1 1 6.8 3a4 4 0 0 0 6.2 6.2Z"
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
         stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SunIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ display: "block" }}>
-      <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.35" />
-      <path
-        d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1"
-        stroke="currentColor"
-        strokeWidth="1.35"
+        strokeWidth="1.7"
         strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );

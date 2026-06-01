@@ -1,9 +1,7 @@
 import { useTheme } from "@emotion/react";
 import { DragEvent, FormEvent, useEffect, useState } from "react";
-import { api, EmbeddingStatus, Project, WorkspaceConfiguration } from "../api/client";
+import { api, Project } from "../api/client";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
-import { useThemeController, ThemeMode } from "../styles/ThemeController";
-import type { ThemeFamily } from "../styles/themes";
 import {
   Badge,
   Button,
@@ -11,78 +9,27 @@ import {
   ComposerBox,
   ErrorText,
   Field,
-  FieldHeader,
   Grid,
-  IconButton,
   Input,
-  InspectorPane,
   Item,
   List,
   MainPane,
-  ModalCard,
-  ModalOverlay,
   PaneBody,
   PaneHeader,
   RouterLink,
-  Select,
   SectionTitle,
   Stack,
-  StatusDot,
-  Subtle,
   Textarea,
   WorkspaceShell
 } from "../styles/ui";
 
-// embeddingStatusLabel renders the internal sidecar's lifecycle into a short status
-// line, reassuring the user that keyword search keeps working while the model loads.
-function embeddingStatusLabel(status: EmbeddingStatus | null): string {
-  if (!status) {
-    return "Preparing the bundled embedding model… keyword search is active meanwhile.";
-  }
-  switch (status.state) {
-    case "downloading": {
-      const pct = status.total > 0 ? Math.floor((status.downloaded / status.total) * 100) : 0;
-      return `Downloading the embedding model (${pct}%)… keyword search is active meanwhile.`;
-    }
-    case "starting":
-      return "Starting the embedding model… keyword search is active meanwhile.";
-    case "ready":
-      return "Bundled embedding model is ready — semantic search is active.";
-    case "error":
-      return `Embedding model unavailable — keyword search only.${status.error ? ` (${status.error})` : ""}`;
-    default:
-      return "Keyword search only.";
-  }
-}
-
 export function ProjectListPage() {
   const theme = useTheme();
-  const { family, mode, families, setFamily, setMode } = useThemeController();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [configuration, setConfiguration] = useState<WorkspaceConfiguration | null>(null);
-  const [configDraft, setConfigDraft] = useState({
-    llmBaseUrl: "",
-    llmModel: "",
-    llmResponseFormat: "standard" as "standard" | "llm_jp_thinking",
-    reviewBaseUrl: "",
-    reviewModel: "",
-    embeddingBaseUrl: "",
-    embeddingModel: "",
-    embeddingMode: "internal" as "internal" | "external"
-  });
-  const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
   const [title, setTitle] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [savingConfig, setSavingConfig] = useState(false);
-  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-  const [llmModelOptions, setLlmModelOptions] = useState<string[]>([]);
-  const [reviewModelOptions, setReviewModelOptions] = useState<string[]>([]);
-  const [embeddingModelOptions, setEmbeddingModelOptions] = useState<string[]>([]);
-  const [loadingLlmModels, setLoadingLlmModels] = useState(false);
-  const [loadingReviewModels, setLoadingReviewModels] = useState(false);
-  const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false);
   const [error, setError] = useState("");
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
   const [dropTargetProjectId, setDropTargetProjectId] = useState<string | null>(null);
@@ -91,19 +38,8 @@ export function ProjectListPage() {
     setLoading(true);
     setError("");
     try {
-      const [projectsResponse, configurationResponse] = await Promise.all([api.getProjects(), api.getConfiguration()]);
+      const projectsResponse = await api.getProjects();
       setProjects(projectsResponse.projects);
-      setConfiguration(configurationResponse.configuration);
-      setConfigDraft({
-        llmBaseUrl: configurationResponse.configuration.llmBaseUrl,
-        llmModel: configurationResponse.configuration.llmModel,
-        llmResponseFormat: configurationResponse.configuration.llmResponseFormat,
-        reviewBaseUrl: configurationResponse.configuration.reviewBaseUrl,
-        reviewModel: configurationResponse.configuration.reviewModel,
-        embeddingBaseUrl: configurationResponse.configuration.embeddingBaseUrl,
-        embeddingModel: configurationResponse.configuration.embeddingModel,
-        embeddingMode: configurationResponse.configuration.embeddingMode
-      });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to load projects");
     } finally {
@@ -114,85 +50,6 @@ export function ProjectListPage() {
   useEffect(() => {
     void load();
   }, []);
-
-  // Poll the internal embedding sidecar's status while it is downloading/starting so
-  // the UI can show progress and switch the messaging to "ready" once it is live.
-  useEffect(() => {
-    if (configuration?.embeddingMode !== "internal") {
-      setEmbeddingStatus(null);
-      return;
-    }
-    let active = true;
-    let timer = 0;
-    const tick = async () => {
-      try {
-        const status = await api.getEmbeddingStatus();
-        if (!active) return;
-        setEmbeddingStatus(status);
-        if (status.state === "downloading" || status.state === "starting") {
-          timer = window.setTimeout(tick, 2000);
-        }
-      } catch {
-        /* transient; the next user action will refresh */
-      }
-    };
-    void tick();
-    return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [configuration?.embeddingMode]);
-
-  useEffect(() => {
-    if (!isConfigModalOpen || !configDraft.llmBaseUrl.trim()) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setLoadingLlmModels(true);
-      api
-        .listConfigurationModels({ kind: "llm", baseUrl: configDraft.llmBaseUrl })
-        .then((response) => setLlmModelOptions(response.models))
-        .catch(() => setLlmModelOptions([]))
-        .finally(() => setLoadingLlmModels(false));
-    }, 250);
-
-    return () => window.clearTimeout(timeout);
-  }, [configDraft.llmBaseUrl, isConfigModalOpen]);
-
-  useEffect(() => {
-    if (!isConfigModalOpen || !configDraft.reviewBaseUrl.trim()) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setLoadingReviewModels(true);
-      api
-        .listConfigurationModels({ kind: "llm", baseUrl: configDraft.reviewBaseUrl })
-        .then((response) => setReviewModelOptions(response.models))
-        .catch(() => setReviewModelOptions([]))
-        .finally(() => setLoadingReviewModels(false));
-    }, 250);
-
-    return () => window.clearTimeout(timeout);
-  }, [configDraft.reviewBaseUrl, isConfigModalOpen]);
-
-  useEffect(() => {
-    if (!isConfigModalOpen || !configDraft.embeddingBaseUrl.trim()) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setLoadingEmbeddingModels(true);
-      api
-        .listConfigurationModels({ kind: "embedding", baseUrl: configDraft.embeddingBaseUrl })
-        .then((response) => setEmbeddingModelOptions(response.models))
-        .catch(() => setEmbeddingModelOptions([]))
-        .finally(() => setLoadingEmbeddingModels(false));
-    }, 250);
-
-    return () => window.clearTimeout(timeout);
-  }, [configDraft.embeddingBaseUrl, isConfigModalOpen]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -208,32 +65,6 @@ export function ProjectListPage() {
       setError(nextError instanceof Error ? nextError.message : "Failed to create project");
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function handleConfigurationSubmit(event: FormEvent) {
-    event.preventDefault();
-    setSavingConfig(true);
-    setError("");
-
-    try {
-      const response = await api.updateConfiguration(configDraft);
-      setConfiguration(response.configuration);
-      setConfigDraft({
-        llmBaseUrl: response.configuration.llmBaseUrl,
-        llmModel: response.configuration.llmModel,
-        llmResponseFormat: response.configuration.llmResponseFormat,
-        reviewBaseUrl: response.configuration.reviewBaseUrl,
-        reviewModel: response.configuration.reviewModel,
-        embeddingBaseUrl: response.configuration.embeddingBaseUrl,
-        embeddingModel: response.configuration.embeddingModel,
-        embeddingMode: response.configuration.embeddingMode
-      });
-      setIsConfigModalOpen(false);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to save configuration");
-    } finally {
-      setSavingConfig(false);
     }
   }
 
@@ -261,7 +92,7 @@ export function ProjectListPage() {
   }
 
   return (
-    <WorkspaceShell>
+    <WorkspaceShell $columns="280px minmax(0, 1fr)">
       <WorkspaceSidebar projects={projects} />
 
       <MainPane>
@@ -358,231 +189,6 @@ export function ProjectListPage() {
           </Grid>
         </PaneBody>
       </MainPane>
-
-      <InspectorPane>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <SectionTitle>Configuration</SectionTitle>
-          <IconButton type="button" aria-label="Edit configuration" onClick={() => setIsConfigModalOpen(true)}>
-            ✎
-          </IconButton>
-        </div>
-        <Card>
-          <Stack>
-            <Badge tone="accent">App config</Badge>
-            <Field>
-              <FieldHeader>
-                <span>LLM Endpoint</span>
-                <StatusDot $connected={Boolean(configuration?.llmConnected)} />
-              </FieldHeader>
-              <Subtle>{configuration?.llmBaseUrl || "Not configured"}</Subtle>
-            </Field>
-            <Field>
-              <FieldHeader>
-                <span>LLM Model</span>
-                <StatusDot $connected={Boolean(configuration?.llmConnected)} />
-              </FieldHeader>
-              <Subtle>{configuration?.llmModel || "Not configured"}</Subtle>
-            </Field>
-            <Field>
-              <FieldHeader>
-                <span>LLM Response Format</span>
-                <StatusDot $connected={Boolean(configuration?.llmConnected)} />
-              </FieldHeader>
-              <Subtle>{configuration?.llmResponseFormat === "llm_jp_thinking" ? "LLM-jp Thinking" : "Standard"}</Subtle>
-            </Field>
-            <Field>
-              <FieldHeader>
-                <span>Review Endpoint</span>
-                <StatusDot $connected={Boolean(configuration?.reviewConnected)} />
-              </FieldHeader>
-              <Subtle>{configuration?.reviewBaseUrl || "Not configured"}</Subtle>
-            </Field>
-            <Field>
-              <FieldHeader>
-                <span>Review Model</span>
-                <StatusDot $connected={Boolean(configuration?.reviewConnected)} />
-              </FieldHeader>
-              <Subtle>{configuration?.reviewModel || "Not configured"}</Subtle>
-            </Field>
-            <Field>
-              <FieldHeader>
-                <span>Embedding Endpoint</span>
-                <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
-              </FieldHeader>
-              <Subtle>{configuration?.embeddingBaseUrl || "Not configured"}</Subtle>
-            </Field>
-            <Field>
-              <FieldHeader>
-                <span>Embedding Model</span>
-                <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
-              </FieldHeader>
-              <Subtle>{configuration?.embeddingModel || "Not configured"}</Subtle>
-            </Field>
-          </Stack>
-        </Card>
-
-        <Card>
-          <Stack>
-            <Badge tone="accent">Appearance</Badge>
-            <Field>
-              Theme
-              <Select value={family} onChange={(event) => setFamily(event.target.value as ThemeFamily)}>
-                {families.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field>
-              Mode
-              <Select value={mode} onChange={(event) => setMode(event.target.value as ThemeMode)}>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="auto">Auto (follow OS)</option>
-              </Select>
-            </Field>
-          </Stack>
-        </Card>
-      </InspectorPane>
-
-      {isConfigModalOpen ? (
-        <ModalOverlay onClick={() => setIsConfigModalOpen(false)}>
-          <ModalCard onClick={(event) => event.stopPropagation()}>
-            <Stack as="form" onSubmit={handleConfigurationSubmit}>
-              <SectionTitle>Edit Configuration</SectionTitle>
-              <Field>
-                LLM Endpoint
-                <Input
-                  value={configDraft.llmBaseUrl}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, llmBaseUrl: event.target.value }))}
-                  placeholder="http://127.0.0.1:1234/v1"
-                />
-              </Field>
-              <Field>
-                LLM Model
-                <Input
-                  list="llm-model-options"
-                  value={configDraft.llmModel}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, llmModel: event.target.value }))}
-                  placeholder="openai/gpt-oss-20b"
-                />
-                <datalist id="llm-model-options">
-                  {llmModelOptions.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
-                <Subtle>{loadingLlmModels ? "Loading model candidates..." : llmModelOptions.length ? `${llmModelOptions.length} candidates found` : "No model candidates available"}</Subtle>
-              </Field>
-              <Field>
-                LLM Response Format
-                <Select
-                  value={configDraft.llmResponseFormat}
-                  onChange={(event) =>
-                    setConfigDraft((current) => ({
-                      ...current,
-                      llmResponseFormat: event.target.value as "standard" | "llm_jp_thinking"
-                    }))
-                  }
-                >
-                  <option value="standard">Standard</option>
-                  <option value="llm_jp_thinking">LLM-jp Thinking</option>
-                </Select>
-              </Field>
-              <Field>
-                Review Endpoint
-                <Input
-                  value={configDraft.reviewBaseUrl}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, reviewBaseUrl: event.target.value }))}
-                  placeholder="http://127.0.0.1:1234/v1"
-                />
-              </Field>
-              <Field>
-                Review Model
-                <Input
-                  list="review-model-options"
-                  value={configDraft.reviewModel}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, reviewModel: event.target.value }))}
-                  placeholder="review model id"
-                />
-                <datalist id="review-model-options">
-                  {reviewModelOptions.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
-                <Subtle>
-                  {loadingReviewModels
-                    ? "Loading model candidates..."
-                    : reviewModelOptions.length
-                      ? `${reviewModelOptions.length} candidates found`
-                      : "No model candidates available"}
-                </Subtle>
-              </Field>
-              <Field>
-                Embedding Source
-                <Select
-                  value={configDraft.embeddingMode}
-                  onChange={(event) =>
-                    setConfigDraft((current) => ({
-                      ...current,
-                      embeddingMode: event.target.value as "internal" | "external"
-                    }))
-                  }
-                >
-                  <option value="internal">Internal — bundled ruri-v3-30m (recommended)</option>
-                  <option value="external">External — OpenAI-compatible endpoint</option>
-                </Select>
-                <Subtle>
-                  {configDraft.embeddingMode === "internal"
-                    ? embeddingStatusLabel(embeddingStatus)
-                    : "Embeddings are computed by the endpoint configured below."}
-                </Subtle>
-              </Field>
-              {configDraft.embeddingMode === "external" ? (
-                <>
-                  <Field>
-                    Embedding Endpoint
-                    <Input
-                      value={configDraft.embeddingBaseUrl}
-                      onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingBaseUrl: event.target.value }))}
-                      placeholder="http://127.0.0.1:8080/v1"
-                    />
-                  </Field>
-                  <Field>
-                    Embedding Model
-                    <Input
-                      list="embedding-model-options"
-                      value={configDraft.embeddingModel}
-                      onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingModel: event.target.value }))}
-                      placeholder="text-embeddings-inference"
-                    />
-                    <datalist id="embedding-model-options">
-                      {embeddingModelOptions.map((model) => (
-                        <option key={model} value={model} />
-                      ))}
-                    </datalist>
-                    <Subtle>
-                      {loadingEmbeddingModels
-                        ? "Loading model candidates..."
-                        : embeddingModelOptions.length
-                          ? `${embeddingModelOptions.length} candidates found`
-                          : "No model candidates available"}
-                    </Subtle>
-                  </Field>
-                </>
-              ) : null}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                <Button type="button" variant="ghost" onClick={() => setIsConfigModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={savingConfig}>
-                  {savingConfig ? "Saving..." : "Save configuration"}
-                </Button>
-              </div>
-            </Stack>
-          </ModalCard>
-        </ModalOverlay>
-      ) : null}
     </WorkspaceShell>
   );
 }

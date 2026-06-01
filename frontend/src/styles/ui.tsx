@@ -15,10 +15,10 @@ export const Container = styled.div`
   padding: 14px;
 `;
 
-export const WorkspaceShell = styled.div`
+export const WorkspaceShell = styled.div<{ $columns?: string }>`
   height: calc(100vh - 28px);
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 340px;
+  grid-template-columns: ${({ $columns }) => $columns ?? "280px minmax(0, 1fr) 340px"};
   gap: 14px;
 
   @media (max-width: 1180px) {
@@ -209,6 +209,26 @@ export const SidebarLink = styled(Link, {
   border-radius: 14px;
   background: ${({ $active, theme }) => ($active ? theme.accentSoft : "transparent")};
   border: 1px solid ${({ $active, theme }) => ($active ? theme.accentBorder : theme.lineIdle)};
+
+  &:hover {
+    background: ${({ theme }) => theme.lineSoft};
+  }
+`;
+
+export const SidebarButton = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: transparent;
+  border: 1px solid ${({ theme }) => theme.lineIdle};
+  font: inherit;
+  cursor: pointer;
 
   &:hover {
     background: ${({ theme }) => theme.lineSoft};
