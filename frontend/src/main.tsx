@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
+import { LanguageProvider } from "./i18n";
 import { ThemeController } from "./styles/ThemeController";
 import { GetApiBase } from "./wailsjs/go/main/App";
 
@@ -45,12 +46,14 @@ async function bootstrap() {
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <ThemeController>
-        <Global styles={globalStyles} />
-        <HashRouter>
-          <App />
-        </HashRouter>
-      </ThemeController>
+      <LanguageProvider>
+        <ThemeController>
+          <Global styles={globalStyles} />
+          <HashRouter>
+            <App />
+          </HashRouter>
+        </ThemeController>
+      </LanguageProvider>
     </React.StrictMode>
   );
 }
