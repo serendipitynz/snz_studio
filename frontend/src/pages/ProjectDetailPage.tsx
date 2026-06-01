@@ -13,6 +13,7 @@ import {
 } from "../api/client";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
+import { MessageKey, useLanguage } from "../i18n";
 import {
   Badge,
   Button,
@@ -53,6 +54,7 @@ export function ProjectDetailPage() {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
   const theme = useTheme();
+  const { t } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<ProjectDetailState | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -87,7 +89,7 @@ export function ProjectDetailPage() {
       setState(projectResponse);
       setProjects(projectsResponse.projects);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to load project");
+      setError(nextError instanceof Error ? nextError.message : t("project.loadError"));
     } finally {
       setLoading(false);
     }
@@ -130,7 +132,7 @@ export function ProjectDetailPage() {
       const response = await api.createChat(projectId, { title: chatTitle, isTemporary: newChatIsTemporary });
       navigate(`/chats/${response.chat.id}`);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to create chat");
+      setError(nextError instanceof Error ? nextError.message : t("project.createChatError"));
     } finally {
       setBusy(false);
     }
@@ -146,7 +148,7 @@ export function ProjectDetailPage() {
       setMemoryPlan(null);
       await load();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to create memory");
+      setError(nextError instanceof Error ? nextError.message : t("project.createMemoryError"));
     } finally {
       setBusy(false);
     }
@@ -161,7 +163,7 @@ export function ProjectDetailPage() {
       const response = await api.analyzeMemoryOrganization(projectId);
       setMemoryPlan(response.plan);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to analyze memories");
+      setError(nextError instanceof Error ? nextError.message : t("project.analyzeError"));
     } finally {
       setOrganizingMemories(false);
     }
@@ -180,7 +182,7 @@ export function ProjectDetailPage() {
       setState((current) => (current ? { ...current, memories: response.memories } : current));
       setMemoryPlan(null);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to apply memory organization");
+      setError(nextError instanceof Error ? nextError.message : t("project.applyError"));
     } finally {
       setOrganizingMemories(false);
     }
@@ -210,7 +212,7 @@ export function ProjectDetailPage() {
       );
       setMemoryPlan(null);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to update memory");
+      setError(nextError instanceof Error ? nextError.message : t("project.updateMemoryError"));
     } finally {
       setBusy(false);
     }
@@ -233,7 +235,7 @@ export function ProjectDetailPage() {
       setPendingDeleteMemoryId(null);
       setMemoryPlan(null);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to delete memory");
+      setError(nextError instanceof Error ? nextError.message : t("project.deleteMemoryError"));
     } finally {
       setBusy(false);
     }
@@ -244,7 +246,7 @@ export function ProjectDetailPage() {
       return;
     }
 
-    const confirmed = window.confirm(`Delete project "${state.project.title}" and all its chats, documents, memories, and summaries?`);
+    const confirmed = window.confirm(t("project.deleteProjectConfirm", { title: state.project.title }));
     if (!confirmed) {
       return;
     }
@@ -256,7 +258,7 @@ export function ProjectDetailPage() {
       await api.deleteProject(state.project.id);
       navigate("/");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to delete project");
+      setError(nextError instanceof Error ? nextError.message : t("project.deleteProjectError"));
     } finally {
       setBusy(false);
     }
@@ -277,7 +279,7 @@ export function ProjectDetailPage() {
       setProjects((current) => current.map((project) => (project.id === response.project.id ? response.project : project)));
       setIsTitleModalOpen(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to update project title");
+      setError(nextError instanceof Error ? nextError.message : t("project.updateTitleError"));
     } finally {
       setBusy(false);
     }
@@ -298,7 +300,7 @@ export function ProjectDetailPage() {
       setProjects((current) => current.map((project) => (project.id === response.project.id ? response.project : project)));
       setIsSystemPromptModalOpen(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to update system prompt");
+      setError(nextError instanceof Error ? nextError.message : t("project.updateSystemPromptError"));
     } finally {
       setBusy(false);
     }
@@ -324,12 +326,12 @@ export function ProjectDetailPage() {
       for (const file of files) {
         const nextType = detectDocumentType(file);
         if (!nextType) {
-          throw new Error(`Unsupported file type: ${file.name}`);
+          throw new Error(t("project.unsupportedFile", { name: file.name }));
         }
 
         const existing = currentDocuments.find((document) => document.title === file.name);
         if (existing) {
-          const overwrite = window.confirm(`"${file.name}" already exists. Overwrite the existing document?`);
+          const overwrite = window.confirm(t("project.overwritePrompt", { name: file.name }));
           if (!overwrite) {
             continue;
           }
@@ -342,14 +344,14 @@ export function ProjectDetailPage() {
         formData.set("type", nextType);
         formData.set("title", file.name);
         formData.set("file", file);
-        setUploadStatus(`Saving ${file.name} and generating embeddings...`);
+        setUploadStatus(t("project.savingDocument", { name: file.name }));
         const response = await api.createDocument(projectId, formData);
         currentDocuments = [response.document, ...currentDocuments];
       }
 
       await load();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to upload document");
+      setError(nextError instanceof Error ? nextError.message : t("project.uploadError"));
     } finally {
       setBusy(false);
       setUploadStatus("");
@@ -369,7 +371,7 @@ export function ProjectDetailPage() {
       setSelectedDocument((current) => (current?.id === documentId ? null : current));
       await load();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to delete document");
+      setError(nextError instanceof Error ? nextError.message : t("project.deleteDocumentError"));
     } finally {
       setBusy(false);
     }
@@ -393,7 +395,7 @@ export function ProjectDetailPage() {
       );
       setSelectedDocument(response.document);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to update document category");
+      setError(nextError instanceof Error ? nextError.message : t("project.updateCategoryError"));
     } finally {
       setBusy(false);
     }
@@ -408,7 +410,7 @@ export function ProjectDetailPage() {
       setPendingDeleteChatId(null);
       await load();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to delete chat");
+      setError(nextError instanceof Error ? nextError.message : t("project.deleteChatError"));
     } finally {
       setBusy(false);
     }
@@ -432,11 +434,11 @@ export function ProjectDetailPage() {
   }
 
   if (loading) {
-    return <Card>Loading project…</Card>;
+    return <Card>{t("project.loading")}</Card>;
   }
 
   if (!state) {
-    return <Card>{error || "Project not found"}</Card>;
+    return <Card>{error || t("project.notFound")}</Card>;
   }
 
   return (
@@ -450,7 +452,7 @@ export function ProjectDetailPage() {
               <FolderIcon />
               <SectionTitle>{state.project.title}</SectionTitle>
             </Row>
-            <IconButton type="button" aria-label="Edit project title" onClick={() => setIsTitleModalOpen(true)}>
+            <IconButton type="button" aria-label={t("project.editTitle")} onClick={() => setIsTitleModalOpen(true)}>
               <EditIcon />
             </IconButton>
           </PaneHeader>
@@ -461,14 +463,14 @@ export function ProjectDetailPage() {
 
               <Card as="form" onSubmit={handleCreateChat}>
                 <Stack>
-                  <SectionTitle>New Chat</SectionTitle>
+                  <SectionTitle>{t("project.newChat")}</SectionTitle>
                   <ComposerBox>
                     <Field>
-                      Chat title
+                      {t("project.chatTitle")}
                       <Input
                         value={chatTitle}
                         onChange={(event) => setChatTitle(event.target.value)}
-                        placeholder="Architecture review"
+                        placeholder={t("project.chatTitlePlaceholder")}
                       />
                     </Field>
                     <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -477,10 +479,10 @@ export function ProjectDetailPage() {
                         checked={newChatIsTemporary}
                         onChange={(event) => setNewChatIsTemporary(event.target.checked)}
                       />
-                      <span>Temporary chat</span>
+                      <span>{t("project.temporaryChat")}</span>
                     </label>
                     <Button type="submit" disabled={busy}>
-                      Open chat
+                      {t("project.openChat")}
                     </Button>
                   </ComposerBox>
                 </Stack>
@@ -489,8 +491,8 @@ export function ProjectDetailPage() {
               <Card>
                 <Stack>
                   <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                    <SectionTitle>Documents</SectionTitle>
-                    <IconButton type="button" onClick={() => fileInputRef.current?.click()} aria-label="Add document" disabled={busy}>
+                    <SectionTitle>{t("project.documents")}</SectionTitle>
+                    <IconButton type="button" onClick={() => fileInputRef.current?.click()} aria-label={t("project.addDocument")} disabled={busy}>
                       <PlusIcon />
                     </IconButton>
                   </Row>
@@ -516,14 +518,14 @@ export function ProjectDetailPage() {
 
                   <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
                     <Stack>
-                      <Subtle>Drop markdown, text, or image files here, or use the + button to choose files.</Subtle>
-                      <Subtle>When a file name already exists, you will be asked whether to overwrite it.</Subtle>
-                      {uploadStatus ? <Subtle>Embeddings are created synchronously before the document becomes available.</Subtle> : null}
+                      <Subtle>{t("project.dropHint")}</Subtle>
+                      <Subtle>{t("project.overwriteHint")}</Subtle>
+                      {uploadStatus ? <Subtle>{t("project.embedSyncHint")}</Subtle> : null}
                     </Stack>
                   </DropZone>
 
                   <List>
-                    {state.documents.length === 0 ? <Item>No documents yet.</Item> : null}
+                    {state.documents.length === 0 ? <Item>{t("project.noDocuments")}</Item> : null}
                     {state.documents.map((document) => (
                       <Item
                         key={document.id}
@@ -534,16 +536,16 @@ export function ProjectDetailPage() {
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <Row style={{ alignItems: "center" }}>
                               <strong style={{ overflowWrap: "anywhere" }}>{document.title}</strong>
-                              <Badge tone={categoryTone(document.category)}>{document.category}</Badge>
+                              <Badge tone={categoryTone(document.category)}>{t(`category.${document.category}`)}</Badge>
                               <Badge tone={document.type === "image" ? "warm" : "accent"}>{document.type}</Badge>
                             </Row>
-                            <Subtle>{describeDocument(document)}</Subtle>
+                            <Subtle>{describeDocument(t, document)}</Subtle>
                           </div>
 
                           <div style={{ position: "relative" }}>
                             <IconButton
                               type="button"
-                              aria-label="Delete document"
+                              aria-label={t("project.deleteDocument")}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setPendingDeleteDocumentId((current) => (current === document.id ? null : document.id));
@@ -569,21 +571,21 @@ export function ProjectDetailPage() {
                                 }}
                               >
                                 <Stack>
-                                  <Subtle>Delete this document?</Subtle>
+                                  <Subtle>{t("project.deleteDocumentConfirm")}</Subtle>
                                   <Row>
                                     <Button
                                       type="button"
                                       variant="ghost"
                                       onClick={() => setPendingDeleteDocumentId(null)}
                                     >
-                                      Cancel
+                                      {t("common.cancel")}
                                     </Button>
                                     <Button
                                       type="button"
                                       variant="warm"
                                       onClick={() => void handleDeleteDocument(document.id)}
                                     >
-                                      OK
+                                      {t("common.ok")}
                                     </Button>
                                   </Row>
                                 </Stack>
@@ -599,8 +601,8 @@ export function ProjectDetailPage() {
 
               <Card>
                 <Stack>
-                  <Badge tone="muted">Danger zone</Badge>
-                  <Subtle>Delete the entire project and all associated chats, documents, memories, summaries, and uploaded images.</Subtle>
+                  <Badge tone="muted">{t("project.dangerZone")}</Badge>
+                  <Subtle>{t("project.dangerDesc")}</Subtle>
                   <div>
                     <Button
                       type="button"
@@ -609,7 +611,7 @@ export function ProjectDetailPage() {
                       disabled={busy}
                       style={{ borderColor: theme.dangerBorder, color: theme.danger }}
                     >
-                      Delete project
+                      {t("project.deleteProject")}
                     </Button>
                   </div>
                 </Stack>
@@ -619,44 +621,44 @@ export function ProjectDetailPage() {
         </MainPane>
 
         <InspectorPane>
-          <SectionTitle>Project Assets</SectionTitle>
+          <SectionTitle>{t("project.assets")}</SectionTitle>
 
           <Card>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <Badge tone="accent">System prompt</Badge>
-                <IconButton type="button" aria-label="Edit system prompt" onClick={() => setIsSystemPromptModalOpen(true)}>
+                <Badge tone="accent">{t("project.systemPrompt")}</Badge>
+                <IconButton type="button" aria-label={t("project.editSystemPrompt")} onClick={() => setIsSystemPromptModalOpen(true)}>
                   <EditIcon />
                 </IconButton>
               </Row>
-              <Subtle>{state.project.systemPrompt || "No project system prompt configured."}</Subtle>
+              <Subtle>{state.project.systemPrompt || t("project.noSystemPrompt")}</Subtle>
             </Stack>
           </Card>
 
           <Card>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <Badge tone="muted">Memories</Badge>
-                <IconButton type="button" aria-label="Edit memories" onClick={() => setIsMemoryModalOpen(true)}>
+                <Badge tone="muted">{t("project.memories")}</Badge>
+                <IconButton type="button" aria-label={t("project.editMemories")} onClick={() => setIsMemoryModalOpen(true)}>
                   <EditIcon />
                 </IconButton>
               </Row>
               {(["procedural", "semantic", "episodic"] as const).map((kind) => (
                 <Stack key={kind}>
-                  <Subtle>{kind}</Subtle>
+                  <Subtle>{t(`memoryKind.${kind}`)}</Subtle>
                   {groupedMemories[kind].slice(0, 4).map((memory) => (
                     <Item key={memory.id}>
                       <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                         <strong>{memory.title}</strong>
                         <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
                           <Badge tone="muted">{memory.source}</Badge>
-                          {memory.locked ? <Badge tone="warm">locked</Badge> : null}
+                          {memory.locked ? <Badge tone="warm">{t("project.locked")}</Badge> : null}
                         </Row>
                       </Row>
                       <Subtle>{memory.content}</Subtle>
                     </Item>
                   ))}
-                  {groupedMemories[kind].length === 0 ? <Subtle>No {kind} memory.</Subtle> : null}
+                  {groupedMemories[kind].length === 0 ? <Subtle>{t("project.noKindMemory", { kind: t(`memoryKind.${kind}`) })}</Subtle> : null}
                 </Stack>
               ))}
             </Stack>
@@ -664,9 +666,9 @@ export function ProjectDetailPage() {
 
           <Card>
             <Stack>
-              <Badge tone="accent">Chats</Badge>
+              <Badge tone="accent">{t("project.chats")}</Badge>
               <List>
-                {state.chats.length === 0 ? <Subtle>No chats yet.</Subtle> : null}
+                {state.chats.length === 0 ? <Subtle>{t("project.noChats")}</Subtle> : null}
                 {state.chats.slice(0, 8).map((chat) => (
                   <Item key={chat.id} style={{ position: "relative" }}>
                     <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -675,7 +677,9 @@ export function ProjectDetailPage() {
                           {chat.title.trim() ? (
                             <strong>{chat.isTemporary ? `⏱️ ${chat.title}` : chat.title}</strong>
                           ) : (
-                            <Subtle style={{ opacity: 0.78 }}>{chat.isTemporary ? "⏱️ (undefined)" : "(undefined)"}</Subtle>
+                            <Subtle style={{ opacity: 0.78 }}>
+                              {chat.isTemporary ? `⏱️ ${t("sidebar.untitled")}` : t("sidebar.untitled")}
+                            </Subtle>
                           )}
                         </RouterLink>
                         <Subtle>{new Date(chat.updatedAt).toLocaleString()}</Subtle>
@@ -684,7 +688,7 @@ export function ProjectDetailPage() {
                       <div style={{ position: "relative" }}>
                         <IconButton
                           type="button"
-                          aria-label="Delete chat"
+                          aria-label={t("project.deleteChat")}
                           onClick={() => setPendingDeleteChatId((current) => (current === chat.id ? null : chat.id))}
                         >
                           <TrashIcon />
@@ -706,13 +710,13 @@ export function ProjectDetailPage() {
                             }}
                           >
                             <Stack>
-                              <Subtle>Delete this chat?</Subtle>
+                              <Subtle>{t("project.deleteChatConfirm")}</Subtle>
                               <Row>
                                 <Button type="button" variant="ghost" onClick={() => setPendingDeleteChatId(null)}>
-                                  Cancel
+                                  {t("common.cancel")}
                                 </Button>
                                 <Button type="button" variant="warm" onClick={() => void handleDeleteChat(chat.id)}>
-                                  OK
+                                  {t("common.ok")}
                                 </Button>
                               </Row>
                             </Stack>
@@ -737,28 +741,28 @@ export function ProjectDetailPage() {
                 <div>
                   <SectionTitle>{selectedDocument.title}</SectionTitle>
                   <Subtle>
-                    {selectedDocument.type} · {selectedDocument.category}
+                    {selectedDocument.type} · {t(`category.${selectedDocument.category}`)}
                   </Subtle>
                 </div>
                 <Button type="button" variant="ghost" onClick={() => setSelectedDocument(null)}>
-                  Close
+                  {t("common.close")}
                 </Button>
               </Row>
 
-              {selectedDocument.tags.length ? <Subtle>Tags: {selectedDocument.tags.join(", ")}</Subtle> : null}
+              {selectedDocument.tags.length ? <Subtle>{t("project.tags", { tags: selectedDocument.tags.join(", ") })}</Subtle> : null}
               {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
 
               <Card>
                 <Stack>
                   <Field>
-                    Category
+                    {t("project.category")}
                     <Select
                       value={documentCategoryDraft}
                       onChange={(event) => setDocumentCategoryDraft(event.target.value as DocumentCategory)}
                     >
                       {DOCUMENT_CATEGORIES.map((category) => (
                         <option key={category} value={category}>
-                          {category}
+                          {t(`category.${category}`)}
                         </option>
                       ))}
                     </Select>
@@ -769,7 +773,7 @@ export function ProjectDetailPage() {
                       disabled={busy || documentCategoryDraft === selectedDocument.category}
                       onClick={() => void handleUpdateDocumentCategory(selectedDocument.id, documentCategoryDraft)}
                     >
-                      Save category
+                      {t("project.saveCategory")}
                     </Button>
                   </div>
                 </Stack>
@@ -794,7 +798,7 @@ export function ProjectDetailPage() {
 
                 {selectedDocument.type === "image" && selectedDocument.derivedText ? (
                   <div style={{ marginTop: 14 }}>
-                    <Badge tone="warm">Derived text</Badge>
+                    <Badge tone="warm">{t("project.derivedText")}</Badge>
                     <div style={{ marginTop: 10, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{selectedDocument.derivedText}</div>
                   </div>
                 ) : null}
@@ -809,20 +813,24 @@ export function ProjectDetailPage() {
           <ModalCard onClick={(event) => event.stopPropagation()}>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>Edit Project Title</SectionTitle>
+                <SectionTitle>{t("project.editTitleModal")}</SectionTitle>
                 <Button type="button" variant="ghost" onClick={() => setIsTitleModalOpen(false)}>
-                  Close
+                  {t("common.close")}
                 </Button>
               </Row>
               <Card as="form" onSubmit={handleUpdateProjectTitle}>
                 <Stack>
                   <Field>
-                    Title
-                    <Input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} placeholder="Project title" />
+                    {t("project.titleField")}
+                    <Input
+                      value={titleDraft}
+                      onChange={(event) => setTitleDraft(event.target.value)}
+                      placeholder={t("project.titlePlaceholder")}
+                    />
                   </Field>
                   <div>
                     <Button type="submit" disabled={busy || !titleDraft.trim()}>
-                      Save title
+                      {t("project.saveTitle")}
                     </Button>
                   </div>
                 </Stack>
@@ -837,24 +845,24 @@ export function ProjectDetailPage() {
           <ModalCard onClick={(event) => event.stopPropagation()}>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>Edit System Prompt</SectionTitle>
+                <SectionTitle>{t("project.editSystemPromptModal")}</SectionTitle>
                 <Button type="button" variant="ghost" onClick={() => setIsSystemPromptModalOpen(false)}>
-                  Close
+                  {t("common.close")}
                 </Button>
               </Row>
               <Card as="form" onSubmit={handleUpdateProjectSystemPrompt}>
                 <Stack>
                   <Field>
-                    System Prompt
+                    {t("project.systemPromptField")}
                     <Textarea
                       value={systemPromptDraft}
                       onChange={(event) => setSystemPromptDraft(event.target.value)}
-                      placeholder="Project-wide assistant instructions"
+                      placeholder={t("project.systemPromptPlaceholder")}
                     />
                   </Field>
                   <div>
                     <Button type="submit" disabled={busy}>
-                      Save system prompt
+                      {t("project.saveSystemPrompt")}
                     </Button>
                   </div>
                 </Stack>
@@ -869,13 +877,13 @@ export function ProjectDetailPage() {
           <ModalCard onClick={(event) => event.stopPropagation()}>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>Project Memories</SectionTitle>
+                <SectionTitle>{t("project.projectMemories")}</SectionTitle>
                 <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
                   <Button type="button" variant="ghost" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
-                    {organizingMemories ? "Organizing..." : "Organize"}
+                    {organizingMemories ? t("project.organizing") : t("project.organize")}
                   </Button>
                   <Button type="button" variant="ghost" onClick={() => setIsMemoryModalOpen(false)}>
-                    Close
+                    {t("common.close")}
                   </Button>
                 </Row>
               </Row>
@@ -884,18 +892,18 @@ export function ProjectDetailPage() {
                 <Card>
                   <Stack>
                     <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <SectionTitle>Organization Plan</SectionTitle>
+                      <SectionTitle>{t("project.organizationPlan")}</SectionTitle>
                       <Button
                         type="button"
                         onClick={() => void handleApplyMemoryPlan()}
                         disabled={organizingMemories || memoryPlan.changes.length === 0}
                       >
-                        Apply
+                        {t("project.apply")}
                       </Button>
                     </Row>
-                    <Subtle>{memoryPlan.summary || "No summary."}</Subtle>
+                    <Subtle>{memoryPlan.summary || t("project.noSummary")}</Subtle>
                     {memoryPlan.changes.length === 0 ? (
-                      <Subtle>No changes suggested.</Subtle>
+                      <Subtle>{t("project.noChanges")}</Subtle>
                     ) : (
                       <List>
                         {memoryPlan.changes.map((change, index) => (
@@ -919,31 +927,31 @@ export function ProjectDetailPage() {
 
               <Card as="form" onSubmit={handleCreateMemory}>
                 <Stack>
-                  <SectionTitle>Add Memory</SectionTitle>
+                  <SectionTitle>{t("project.addMemory")}</SectionTitle>
                   <ComposerBox>
                     <Field>
-                      Kind
+                      {t("project.kind")}
                       <Select value={memoryKind} onChange={(event) => setMemoryKind(event.target.value as MemoryKind)}>
-                        <option value="semantic">semantic (stable facts)</option>
-                        <option value="procedural">procedural (how to work)</option>
-                        <option value="episodic">episodic (past decisions or events)</option>
+                        <option value="semantic">{t("project.kindSemantic")}</option>
+                        <option value="procedural">{t("project.kindProcedural")}</option>
+                        <option value="episodic">{t("project.kindEpisodic")}</option>
                       </Select>
                     </Field>
                     <Field>
-                      Content
+                      {t("project.content")}
                       <Textarea
                         value={memoryContent}
                         onChange={(event) => setMemoryContent(event.target.value)}
-                        placeholder="Durable fact worth carrying across chats"
+                        placeholder={t("project.contentPlaceholder")}
                       />
                     </Field>
                     <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <input type="checkbox" checked={memoryLocked} onChange={(event) => setMemoryLocked(event.target.checked)} />
-                      <span>Lock this memory so organizer does not rewrite or remove it</span>
+                      <span>{t("project.lockHint")}</span>
                     </label>
                     <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                       <Button type="submit" disabled={busy}>
-                        Save memory
+                        {t("project.saveMemory")}
                       </Button>
                     </Row>
                   </ComposerBox>
@@ -954,8 +962,8 @@ export function ProjectDetailPage() {
                 {(["procedural", "semantic", "episodic"] as const).map((kind) => (
                   <Card key={kind}>
                     <Stack>
-                      <Badge tone={kind === "procedural" ? "accent" : kind === "semantic" ? "warm" : "muted"}>{kind}</Badge>
-                      {groupedMemories[kind].length === 0 ? <Subtle>No {kind} memory yet.</Subtle> : null}
+                      <Badge tone={kind === "procedural" ? "accent" : kind === "semantic" ? "warm" : "muted"}>{t(`memoryKind.${kind}`)}</Badge>
+                      {groupedMemories[kind].length === 0 ? <Subtle>{t("project.noKindMemoryYet", { kind: t(`memoryKind.${kind}`) })}</Subtle> : null}
                       <List>
                         {groupedMemories[kind].map((memory) => (
                           <Item key={memory.id} style={{ position: "relative" }}>
@@ -964,13 +972,13 @@ export function ProjectDetailPage() {
                                 <Row style={{ alignItems: "center" }}>
                                   <strong>{memory.title}</strong>
                                   <Badge tone="muted">{memory.source}</Badge>
-                                  {memory.locked ? <Badge tone="warm">locked</Badge> : null}
+                                  {memory.locked ? <Badge tone="warm">{t("project.locked")}</Badge> : null}
                                 </Row>
                               </div>
                               <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
                                 <IconButton
                                   type="button"
-                                  aria-label={memory.locked ? "Unlock memory" : "Lock memory"}
+                                  aria-label={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
                                   onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
                                 >
                                   {memory.locked ? <UnlockIcon /> : <LockIcon />}
@@ -978,7 +986,7 @@ export function ProjectDetailPage() {
                                 <div style={{ position: "relative" }}>
                                   <IconButton
                                     type="button"
-                                    aria-label="Delete memory"
+                                    aria-label={t("project.deleteMemory")}
                                     onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
                                   >
                                     <TrashIcon />
@@ -1000,13 +1008,13 @@ export function ProjectDetailPage() {
                                       }}
                                     >
                                       <Stack>
-                                        <Subtle>Delete this memory?</Subtle>
+                                        <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
                                         <Row>
                                           <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
-                                            Cancel
+                                            {t("common.cancel")}
                                           </Button>
                                           <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
-                                            OK
+                                            {t("common.ok")}
                                           </Button>
                                         </Row>
                                       </Stack>
@@ -1063,12 +1071,12 @@ function categoryTone(category: DocumentCategory): "accent" | "warm" | "muted" {
   return "accent";
 }
 
-function describeDocument(document: DocumentRecord) {
+function describeDocument(t: (key: MessageKey) => string, document: DocumentRecord) {
   if (document.type === "image") {
-    return document.note || document.derivedText || "Image document";
+    return document.note || document.derivedText || t("project.imageDocument");
   }
 
-  return document.note || document.contentText.slice(0, 140) || "Text document";
+  return document.note || document.contentText.slice(0, 140) || t("project.textDocument");
 }
 
 function PlusIcon() {

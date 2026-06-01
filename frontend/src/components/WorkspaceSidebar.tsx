@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ChatRecord, Project } from "../api/client";
+import { MessageKey, useLanguage } from "../i18n";
 import { SettingsModal } from "./SettingsModal";
 import {
   Divider,
@@ -25,6 +26,7 @@ interface WorkspaceSidebarProps {
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [creatingChat, setCreatingChat] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -49,7 +51,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
         <RouterLink to="/" style={{ fontWeight: 700, letterSpacing: "0.08em" }}>
           SNZ STUDIO
         </RouterLink>
-        <RouterLink to="/" aria-label="Home">
+        <RouterLink to="/" aria-label={t("sidebar.home")}>
           <HomeIcon />
         </RouterLink>
       </Row>
@@ -58,7 +60,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 
       <Stack style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
         <SidebarSection>
-          <SidebarSectionLabel>Projects</SidebarSectionLabel>
+          <SidebarSectionLabel>{t("sidebar.projects")}</SidebarSectionLabel>
           {props.projects.map((project) => (
             <SidebarLink key={project.id} to={`/projects/${project.id}`} $active={project.id === props.currentProjectId}>
               <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
@@ -72,13 +74,13 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
         {props.currentProjectId ? (
           <SidebarSection>
             <Row style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap" }}>
-              <SidebarSectionLabel>Chats</SidebarSectionLabel>
+              <SidebarSectionLabel>{t("sidebar.chats")}</SidebarSectionLabel>
               <IconButton
                 type="button"
-                aria-label="Create chat"
+                aria-label={t("sidebar.createChat")}
                 onClick={() => void handleCreateChat()}
                 disabled={creatingChat}
-                title="Create chat"
+                title={t("sidebar.createChat")}
               >
                 <PlusIcon />
               </IconButton>
@@ -86,11 +88,11 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
             {props.chats?.length ? (
               props.chats.map((chat) => (
                 <SidebarLink key={chat.id} to={`/chats/${chat.id}`} $active={chat.id === props.activeChatId}>
-                  {renderChatTitle(chat)}
+                  {renderChatTitle(t, chat)}
                 </SidebarLink>
               ))
             ) : (
-              <Subtle>No chats yet.</Subtle>
+              <Subtle>{t("sidebar.noChats")}</Subtle>
             )}
           </SidebarSection>
         ) : null}
@@ -100,7 +102,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 
       <SidebarButton type="button" onClick={() => setIsSettingsOpen(true)} style={{ flexShrink: 0 }}>
         <GearIcon />
-        <span>設定</span>
+        <span>{t("sidebar.settings")}</span>
       </SidebarButton>
 
       {isSettingsOpen ? <SettingsModal onClose={() => setIsSettingsOpen(false)} /> : null}
@@ -108,14 +110,15 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   );
 }
 
-function renderChatTitle(chat: ChatRecord) {
+function renderChatTitle(t: (key: MessageKey) => string, chat: ChatRecord) {
   if (chat.title.trim()) {
     return (
       <strong>{chat.isTemporary ? `⏱️ ${chat.title}` : chat.title}</strong>
     );
   }
 
-  return <Subtle style={{ opacity: 0.78 }}>{chat.isTemporary ? "⏱️ (undefined)" : "(undefined)"}</Subtle>;
+  const untitled = t("sidebar.untitled");
+  return <Subtle style={{ opacity: 0.78 }}>{chat.isTemporary ? `⏱️ ${untitled}` : untitled}</Subtle>;
 }
 
 function HomeIcon() {

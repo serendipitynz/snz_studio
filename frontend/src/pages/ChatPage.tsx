@@ -11,6 +11,7 @@ import {
 import type { ReviewReference } from "../api/client";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
+import { useLanguage } from "../i18n";
 import {
   Badge,
   Button,
@@ -96,6 +97,7 @@ const INSPECTOR_STORAGE_KEY = "snz.chat.inspectorCollapsed";
 
 export function ChatPage() {
   const { chatId = "" } = useParams();
+  const { t } = useLanguage();
   const messageScrollerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -146,7 +148,7 @@ export function ChatPage() {
       setProjectDocuments(projectResponse.documents);
       setProjects(projectsResponse.projects);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to load chat");
+      setError(nextError instanceof Error ? nextError.message : t("chat.loadError"));
     } finally {
       setLoading(false);
     }
@@ -245,7 +247,7 @@ export function ChatPage() {
     try {
       await streamMessage(content, optimisticAssistantMessage.id);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to send message");
+      setError(nextError instanceof Error ? nextError.message : t("chat.sendError"));
       void load();
     } finally {
       setSending(false);
@@ -261,11 +263,11 @@ export function ChatPage() {
 
     if (!response.ok) {
       const data = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(data?.error ?? `Request failed with ${response.status}`);
+      throw new Error(data?.error ?? t("chat.requestFailed", { status: response.status }));
     }
 
     if (!response.body) {
-      throw new Error("Stream response did not include a body");
+      throw new Error(t("chat.streamNoBody"));
     }
 
     const reader = response.body.getReader();
@@ -326,7 +328,7 @@ export function ChatPage() {
       }
 
       if (eventName === "error") {
-        const message = "message" in payload ? payload.message ?? "Stream failed" : "Stream failed";
+        const message = "message" in payload ? payload.message ?? t("chat.streamFailed") : t("chat.streamFailed");
         throw new Error(message);
       }
     };
@@ -382,7 +384,7 @@ export function ChatPage() {
       setProjectChats((current) => current.map((chat) => (chat.id === nextChat.id ? nextChat : chat)));
       setIsTitleModalOpen(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to update chat settings");
+      setError(nextError instanceof Error ? nextError.message : t("chat.updateError"));
     } finally {
       setSending(false);
     }
@@ -436,12 +438,12 @@ export function ChatPage() {
       for (const file of files) {
         const nextType = detectDocumentType(file);
         if (!nextType) {
-          throw new Error(`Unsupported file type: ${file.name}`);
+          throw new Error(t("chat.unsupportedFile", { name: file.name }));
         }
 
         const existing = currentDocuments.find((document) => document.title === file.name);
         if (existing) {
-          const overwrite = window.confirm(`"${file.name}" already exists. Overwrite the existing document?`);
+          const overwrite = window.confirm(t("chat.overwritePrompt", { name: file.name }));
           if (!overwrite) {
             continue;
           }
@@ -454,7 +456,7 @@ export function ChatPage() {
         formData.set("type", nextType);
         formData.set("title", file.name);
         formData.set("file", file);
-        setUploadStatus(`Saving ${file.name} and generating embeddings...`);
+        setUploadStatus(t("chat.savingDocument", { name: file.name }));
         const response = await api.createDocument(state.project.id, formData);
         currentDocuments = [response.document, ...currentDocuments];
       }
@@ -462,7 +464,7 @@ export function ChatPage() {
       setProjectDocuments(currentDocuments);
       setIsDocumentModalOpen(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to upload document");
+      setError(nextError instanceof Error ? nextError.message : t("chat.uploadError"));
     } finally {
       setUploadingDocuments(false);
       setUploadStatus("");
@@ -537,7 +539,7 @@ export function ChatPage() {
         setCopiedMessageId((current) => (current === messageId ? null : current));
       }, 1400);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to copy message");
+      setError(nextError instanceof Error ? nextError.message : t("chat.copyMessageError"));
     }
   }
 
@@ -552,7 +554,7 @@ export function ChatPage() {
     try {
       await streamReviewMessage(messageId);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to review message");
+      setError(nextError instanceof Error ? nextError.message : t("chat.reviewError"));
     } finally {
       setReviewingMessageId(null);
       setReviewLoading(false);
@@ -566,11 +568,11 @@ export function ChatPage() {
 
     if (!response.ok) {
       const data = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(data?.error ?? `Request failed with ${response.status}`);
+      throw new Error(data?.error ?? t("chat.requestFailed", { status: response.status }));
     }
 
     if (!response.body) {
-      throw new Error("Review stream did not include a body");
+      throw new Error(t("chat.reviewStreamNoBody"));
     }
 
     const reader = response.body.getReader();
@@ -608,7 +610,7 @@ export function ChatPage() {
       }
 
       if (eventName === "error") {
-        throw new Error(payload.message ?? "Review stream failed");
+        throw new Error(payload.message ?? t("chat.reviewStreamFailed"));
       }
     };
 
@@ -641,16 +643,16 @@ export function ChatPage() {
     try {
       await navigator.clipboard.writeText(reviewContent);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to copy review");
+      setError(nextError instanceof Error ? nextError.message : t("chat.copyReviewError"));
     }
   }
 
   if (loading) {
-    return <Card>Loading chat…</Card>;
+    return <Card>{t("chat.loading")}</Card>;
   }
 
   if (!state) {
-    return <Card>{error || "Chat not found"}</Card>;
+    return <Card>{error || t("chat.notFound")}</Card>;
   }
 
   return (
@@ -669,17 +671,19 @@ export function ChatPage() {
             {state.chat.title.trim() ? (
               <SectionTitle>{state.chat.isTemporary ? `⏱️ ${state.chat.title}` : state.chat.title}</SectionTitle>
             ) : (
-              <Subtle style={{ opacity: 0.78 }}>{state.chat.isTemporary ? "⏱️ (undefined)" : "(undefined)"}</Subtle>
+              <Subtle style={{ opacity: 0.78 }}>
+                {state.chat.isTemporary ? `⏱️ ${t("sidebar.untitled")}` : t("sidebar.untitled")}
+              </Subtle>
             )}
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
           <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-            <IconButton type="button" aria-label="Edit chat title" onClick={() => setIsTitleModalOpen(true)}>
+            <IconButton type="button" aria-label={t("chat.editTitle")} onClick={() => setIsTitleModalOpen(true)}>
               <EditIcon />
             </IconButton>
             <IconButton
               type="button"
-              aria-label={isInspectorCollapsed ? "Show context inspector" : "Hide context inspector"}
+              aria-label={isInspectorCollapsed ? t("chat.showInspector") : t("chat.hideInspector")}
               onClick={() => setIsInspectorCollapsed((current) => !current)}
             >
               {isInspectorCollapsed ? <PanelOpenIcon /> : <PanelCloseIcon />}
@@ -700,7 +704,7 @@ export function ChatPage() {
                       ) : (
                         <Row style={{ alignItems: "center", gap: 10 }}>
                           <SpinnerIcon />
-                          <MetaText>Generating response...</MetaText>
+                          <MetaText>{t("chat.generating")}</MetaText>
                         </Row>
                       )
                     ) : (
@@ -711,7 +715,7 @@ export function ChatPage() {
                         <div style={{ minWidth: 0, flex: 1 }}>
                           {message.references.length ? (
                             <details>
-                              <summary>References used ({message.references.length})</summary>
+                              <summary>{t("chat.referencesUsed", { count: message.references.length })}</summary>
                               <List style={{ marginTop: 10 }}>
                                 {message.references.map((reference) => (
                                   <Item key={reference.id}>
@@ -719,7 +723,7 @@ export function ChatPage() {
                                       <strong>{reference.label}</strong>
                                       <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
                                     </Row>
-                                    <Subtle>{reference.excerpt || "No excerpt stored"}</Subtle>
+                                    <Subtle>{reference.excerpt || t("chat.noExcerpt")}</Subtle>
                                   </Item>
                                 ))}
                               </List>
@@ -744,10 +748,10 @@ export function ChatPage() {
                       {message.role === "assistant" ? (
                         <IconButton
                           type="button"
-                          aria-label="Review message"
+                          aria-label={t("chat.reviewMessage")}
                           onClick={() => void handleReviewMessage(message.id)}
                           disabled={reviewingMessageId === message.id}
-                          title={reviewingMessageId === message.id ? "Reviewing..." : "Review"}
+                          title={reviewingMessageId === message.id ? t("chat.reviewing") : t("chat.review")}
                           style={{
                             width: 24,
                             height: 24,
@@ -762,9 +766,9 @@ export function ChatPage() {
                       ) : null}
                       <IconButton
                         type="button"
-                        aria-label="Copy raw message text"
+                        aria-label={t("chat.copyMessage")}
                         onClick={() => void handleCopyMessage(message.id, message.content)}
-                        title={copiedMessageId === message.id ? "Copied" : "Copy"}
+                        title={copiedMessageId === message.id ? t("chat.copied") : t("chat.copy")}
                         style={{
                           width: 24,
                           height: 24,
@@ -788,7 +792,7 @@ export function ChatPage() {
 
           {showScrollToBottom ? (
             <FloatingScrollButton type="button" onClick={scrollToBottom}>
-              <span>Scroll to latest</span>
+              <span>{t("chat.scrollToLatest")}</span>
               <ScrollDownIcon />
             </FloatingScrollButton>
           ) : null}
@@ -803,7 +807,7 @@ export function ChatPage() {
               onKeyDown={handleComposerKeyDown}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
-              placeholder="Message this project workspace..."
+              placeholder={t("chat.composerPlaceholder")}
               style={{ minHeight: 110, maxHeight: 460, resize: "none" }}
             />
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -815,10 +819,10 @@ export function ChatPage() {
                   style={{ minWidth: 230, maxWidth: 360 }}
                 >
                   {projectDocuments.length === 0 ? (
-                    <option value="">(no document)</option>
+                    <option value="">{t("chat.noDocumentOption")}</option>
                   ) : (
                     <>
-                      <option value="">select to insert:</option>
+                      <option value="">{t("chat.insertDocument")}</option>
                       {projectDocuments.map((document) => (
                         <option key={document.id} value={document.title}>
                           {document.title}
@@ -827,7 +831,7 @@ export function ChatPage() {
                     </>
                   )}
                 </Select>
-                <IconButton type="button" aria-label="Add document" onClick={() => setIsDocumentModalOpen(true)} disabled={uploadingDocuments}>
+                <IconButton type="button" aria-label={t("chat.addDocument")} onClick={() => setIsDocumentModalOpen(true)} disabled={uploadingDocuments}>
                   <PlusIcon />
                 </IconButton>
               </Row>
@@ -835,10 +839,10 @@ export function ChatPage() {
                 {sending ? (
                   <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
                     <SpinnerIcon />
-                    <span>Sending...</span>
+                    <span>{t("chat.sending")}</span>
                   </Row>
                 ) : (
-                  "Send"
+                  t("chat.send")
                 )}
               </Button>
             </Row>
@@ -848,18 +852,18 @@ export function ChatPage() {
 
       {!isInspectorCollapsed ? (
         <InspectorPane>
-          <SectionTitle>Context Inspector</SectionTitle>
+          <SectionTitle>{t("chat.contextInspector")}</SectionTitle>
 
           <Card>
             <Stack>
-              <Badge tone="accent">Chat summary</Badge>
-              <Subtle>{state.summary?.summary || "No summary yet."}</Subtle>
+              <Badge tone="accent">{t("chat.chatSummary")}</Badge>
+              <Subtle>{state.summary?.summary || t("chat.noSummary")}</Subtle>
             </Stack>
           </Card>
 
           <Card>
             <Stack>
-              <Badge tone="warm">Latest references</Badge>
+              <Badge tone="warm">{t("chat.latestReferences")}</Badge>
               {latestAssistantMessage?.references.length ? (
                 <List>
                   {latestAssistantMessage.references.map((reference) => (
@@ -868,20 +872,20 @@ export function ChatPage() {
                         <strong>{reference.label}</strong>
                         <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
                       </Row>
-                      <Subtle>{reference.excerpt || "No excerpt stored"}</Subtle>
+                      <Subtle>{reference.excerpt || t("chat.noExcerpt")}</Subtle>
                     </Item>
                   ))}
                 </List>
               ) : (
-                <Subtle>No assistant references yet.</Subtle>
+                <Subtle>{t("chat.noAssistantReferences")}</Subtle>
               )}
             </Stack>
           </Card>
 
           <Card>
             <Stack>
-              <Badge tone="muted">Project prompt</Badge>
-              <Subtle>{state.project.systemPrompt || "No project system prompt configured."}</Subtle>
+              <Badge tone="muted">{t("chat.projectPrompt")}</Badge>
+              <Subtle>{state.project.systemPrompt || t("chat.noProjectPrompt")}</Subtle>
             </Stack>
           </Card>
         </InspectorPane>
@@ -892,16 +896,20 @@ export function ChatPage() {
           <ModalCard onClick={(event) => event.stopPropagation()}>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>Edit Chat Title</SectionTitle>
+                <SectionTitle>{t("chat.editTitleModal")}</SectionTitle>
                 <Button type="button" variant="ghost" onClick={() => setIsTitleModalOpen(false)}>
-                  Close
+                  {t("common.close")}
                 </Button>
               </Row>
               <Card as="form" onSubmit={handleUpdateChatTitle}>
                 <Stack>
                   <Field>
-                    Title
-                    <Input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} placeholder="Leave blank to auto-generate" />
+                    {t("chat.titleField")}
+                    <Input
+                      value={titleDraft}
+                      onChange={(event) => setTitleDraft(event.target.value)}
+                      placeholder={t("chat.titlePlaceholder")}
+                    />
                   </Field>
                   <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <input
@@ -909,14 +917,12 @@ export function ChatPage() {
                       checked={isTemporaryDraft}
                       onChange={(event) => setIsTemporaryDraft(event.target.checked)}
                     />
-                    <span>Temporary chat</span>
+                    <span>{t("chat.temporaryChat")}</span>
                   </label>
-                  <Subtle>
-                    Temporary chats keep their messages and summaries, but do not create or organize project memories unless you later turn the chat back into a regular one.
-                  </Subtle>
+                  <Subtle>{t("chat.temporaryNote")}</Subtle>
                   <div>
                     <Button type="submit" disabled={sending}>
-                      Save chat settings
+                      {t("chat.saveSettings")}
                     </Button>
                   </div>
                 </Stack>
@@ -931,9 +937,9 @@ export function ChatPage() {
           <ModalCard onClick={(event) => event.stopPropagation()}>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>Add Document</SectionTitle>
+                <SectionTitle>{t("chat.addDocumentModal")}</SectionTitle>
                 <Button type="button" variant="ghost" onClick={() => setIsDocumentModalOpen(false)}>
-                  Close
+                  {t("common.close")}
                 </Button>
               </Row>
 
@@ -952,8 +958,8 @@ export function ChatPage() {
 
               <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
                 <Stack>
-                  <Subtle>Drop markdown, text, or image files here.</Subtle>
-                  <Subtle>If the same file name already exists, you will be asked whether to overwrite it.</Subtle>
+                  <Subtle>{t("chat.dropHint")}</Subtle>
+                  <Subtle>{t("chat.overwriteHint")}</Subtle>
                   {uploadStatus ? (
                     <Row style={{ alignItems: "center", gap: 10 }}>
                       <SpinnerIcon />
@@ -962,7 +968,7 @@ export function ChatPage() {
                   ) : null}
                   <div>
                     <Button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingDocuments}>
-                      {uploadingDocuments ? "Processing..." : "Choose files"}
+                      {uploadingDocuments ? t("chat.processing") : t("chat.chooseFiles")}
                     </Button>
                   </div>
                 </Stack>
@@ -984,7 +990,7 @@ export function ChatPage() {
           <ModalCard onClick={(event) => event.stopPropagation()}>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>Editorial Review</SectionTitle>
+                <SectionTitle>{t("chat.editorialReview")}</SectionTitle>
                 <Button
                   type="button"
                   variant="ghost"
@@ -995,15 +1001,15 @@ export function ChatPage() {
                     setReviewLoading(false);
                   }}
                 >
-                  Close
+                  {t("common.close")}
                 </Button>
               </Row>
               <Card style={{ position: "relative" }}>
                 <IconButton
                   type="button"
-                  aria-label="Copy review text"
+                  aria-label={t("chat.copyReviewText")}
                   onClick={() => void handleCopyReview()}
-                  title="Copy review"
+                  title={t("chat.copyReview")}
                   style={{
                     position: "absolute",
                     top: 14,
@@ -1023,17 +1029,17 @@ export function ChatPage() {
                 ) : reviewLoading ? (
                   <Row style={{ alignItems: "center", gap: 10 }}>
                     <SpinnerIcon />
-                    <MetaText>Reviewing...</MetaText>
+                    <MetaText>{t("chat.reviewing")}</MetaText>
                   </Row>
                 ) : (
-                  <Subtle>No review content.</Subtle>
+                  <Subtle>{t("chat.noReviewContent")}</Subtle>
                 )}
                 <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap", marginTop: 12 }}>
                   <IconButton
                     type="button"
-                    aria-label="Copy review text"
+                    aria-label={t("chat.copyReviewText")}
                     onClick={() => void handleCopyReview()}
-                    title="Copy review"
+                    title={t("chat.copyReview")}
                     style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
                   >
                     <CopyIcon />
@@ -1042,7 +1048,7 @@ export function ChatPage() {
               </Card>
               <Card>
                 <Stack>
-                  <Badge tone="warm">Review references</Badge>
+                  <Badge tone="warm">{t("chat.reviewReferences")}</Badge>
                   {reviewReferences.length ? (
                     <List>
                       {reviewReferences.map((reference) => (
@@ -1051,12 +1057,12 @@ export function ChatPage() {
                             <strong>{reference.label}</strong>
                             <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
                           </Row>
-                          <Subtle>{reference.excerpt || "No excerpt stored"}</Subtle>
+                          <Subtle>{reference.excerpt || t("chat.noExcerpt")}</Subtle>
                         </Item>
                       ))}
                     </List>
                   ) : (
-                    <Subtle>No review references recorded.</Subtle>
+                    <Subtle>{t("chat.noReviewReferences")}</Subtle>
                   )}
                 </Stack>
               </Card>

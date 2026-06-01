@@ -2,6 +2,7 @@ import { useTheme } from "@emotion/react";
 import { DragEvent, FormEvent, useEffect, useState } from "react";
 import { api, Project } from "../api/client";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
+import { useLanguage } from "../i18n";
 import {
   Badge,
   Button,
@@ -25,6 +26,7 @@ import {
 
 export function ProjectListPage() {
   const theme = useTheme();
+  const { t } = useLanguage();
   const [projects, setProjects] = useState<Project[]>([]);
   const [title, setTitle] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -41,7 +43,7 @@ export function ProjectListPage() {
       const projectsResponse = await api.getProjects();
       setProjects(projectsResponse.projects);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to load projects");
+      setError(nextError instanceof Error ? nextError.message : t("dashboard.loadError"));
     } finally {
       setLoading(false);
     }
@@ -62,7 +64,7 @@ export function ProjectListPage() {
       setSystemPrompt("");
       await load();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to create project");
+      setError(nextError instanceof Error ? nextError.message : t("dashboard.createError"));
     } finally {
       setSubmitting(false);
     }
@@ -87,7 +89,7 @@ export function ProjectListPage() {
       setProjects(response.projects);
     } catch (nextError) {
       setProjects(previousProjects);
-      setError(nextError instanceof Error ? nextError.message : "Failed to reorder projects");
+      setError(nextError instanceof Error ? nextError.message : t("dashboard.reorderError"));
     }
   }
 
@@ -97,7 +99,7 @@ export function ProjectListPage() {
 
       <MainPane>
         <PaneHeader>
-          <SectionTitle>Dashboard</SectionTitle>
+          <SectionTitle>{t("dashboard.title")}</SectionTitle>
         </PaneHeader>
 
         <PaneBody>
@@ -105,12 +107,12 @@ export function ProjectListPage() {
             <Card>
               <Stack>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <SectionTitle>Projects</SectionTitle>
-                  <Badge tone="accent">{projects.length} projects</Badge>
+                  <SectionTitle>{t("dashboard.projects")}</SectionTitle>
+                  <Badge tone="accent">{t("dashboard.projectsCount", { count: projects.length })}</Badge>
                 </div>
                 {error ? <ErrorText>{error}</ErrorText> : null}
                 <List>
-                  {!loading && projects.length === 0 ? <Item>No projects yet.</Item> : null}
+                  {!loading && projects.length === 0 ? <Item>{t("dashboard.noProjects")}</Item> : null}
                   {projects.map((project) => (
                     <Item
                       key={project.id}
@@ -166,22 +168,26 @@ export function ProjectListPage() {
 
             <Card as="form" onSubmit={handleSubmit}>
               <Stack>
-                <SectionTitle>Create Project</SectionTitle>
+                <SectionTitle>{t("dashboard.createProject")}</SectionTitle>
                 <ComposerBox>
                   <Field>
-                    Title
-                    <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Local research workspace" />
+                    {t("dashboard.titleField")}
+                    <Input
+                      value={title}
+                      onChange={(event) => setTitle(event.target.value)}
+                      placeholder={t("dashboard.titlePlaceholder")}
+                    />
                   </Field>
                   <Field>
-                    System Prompt
+                    {t("dashboard.systemPrompt")}
                     <Textarea
                       value={systemPrompt}
                       onChange={(event) => setSystemPrompt(event.target.value)}
-                      placeholder="Default assistant behavior for this project"
+                      placeholder={t("dashboard.systemPromptPlaceholder")}
                     />
                   </Field>
                   <Button type="submit" disabled={submitting}>
-                    {submitting ? "Creating..." : "Create project"}
+                    {submitting ? t("dashboard.creating") : t("dashboard.createButton")}
                   </Button>
                 </ComposerBox>
               </Stack>

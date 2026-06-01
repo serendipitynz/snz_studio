@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, EmbeddingStatus, WorkspaceConfiguration } from "../api/client";
+import { Language, MessageKey, useLanguage } from "../i18n";
 import { ThemeMode, useThemeController } from "../styles/ThemeController";
 import type { ThemeFamily } from "../styles/themes";
 import {
@@ -24,43 +25,30 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-// Persisted UI language preference. Wiring the actual i18n switch is a separate
-// task; the modal only captures the preference here for forward compatibility.
-const LANGUAGE_KEY = "snz.language";
-
-type UiLanguage = "ja" | "en";
-
-function readLanguage(): UiLanguage {
-  if (typeof window === "undefined") {
-    return "ja";
-  }
-  const stored = window.localStorage.getItem(LANGUAGE_KEY);
-  return stored === "ja" || stored === "en" ? stored : "ja";
-}
-
 // embeddingStatusLabel renders the internal sidecar's lifecycle into a short status
 // line, reassuring the user that keyword search keeps working while the model loads.
-function embeddingStatusLabel(status: EmbeddingStatus | null): string {
+function embeddingStatusLabel(t: (key: MessageKey, vars?: Record<string, string | number>) => string, status: EmbeddingStatus | null): string {
   if (!status) {
-    return "Preparing the bundled embedding model… keyword search is active meanwhile.";
+    return t("settings.embedPreparing");
   }
   switch (status.state) {
     case "downloading": {
       const pct = status.total > 0 ? Math.floor((status.downloaded / status.total) * 100) : 0;
-      return `Downloading the embedding model (${pct}%)… keyword search is active meanwhile.`;
+      return t("settings.embedDownloading", { pct });
     }
     case "starting":
-      return "Starting the embedding model… keyword search is active meanwhile.";
+      return t("settings.embedStarting");
     case "ready":
-      return "Bundled embedding model is ready — semantic search is active.";
+      return t("settings.embedReady");
     case "error":
-      return `Embedding model unavailable — keyword search only.${status.error ? ` (${status.error})` : ""}`;
+      return t("settings.embedError", { detail: status.error ? ` (${status.error})` : "" });
     default:
-      return "Keyword search only.";
+      return t("settings.embedKeywordOnly");
   }
 }
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
+  const { lang, setLang, t } = useLanguage();
   const { family, mode, families, setFamily, setMode } = useThemeController();
   const [configuration, setConfiguration] = useState<WorkspaceConfiguration | null>(null);
   const [configDraft, setConfigDraft] = useState({
@@ -74,7 +62,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     embeddingMode: "internal" as "internal" | "external"
   });
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
-  const [language, setLanguage] = useState<UiLanguage>(readLanguage);
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
   const [llmModelOptions, setLlmModelOptions] = useState<string[]>([]);
@@ -106,7 +93,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       })
       .catch((nextError) => {
         if (!active) return;
-        setError(nextError instanceof Error ? nextError.message : "Failed to load configuration");
+        setError(nextError instanceof Error ? nextError.message : t("settings.loadError"));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -114,6 +101,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     return () => {
       active = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Poll the internal embedding sidecar's status while it is downloading/starting so
@@ -195,13 +183,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     return () => window.clearTimeout(timeout);
   }, [configDraft.embeddingBaseUrl]);
 
-  function handleLanguageChange(next: UiLanguage) {
-    setLanguage(next);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LANGUAGE_KEY, next);
-    }
-  }
-
   async function handleConfigurationSubmit(event: FormEvent) {
     event.preventDefault();
     setSavingConfig(true);
@@ -221,10 +202,17 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         embeddingMode: response.configuration.embeddingMode
       });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to save configuration");
+      setError(nextError instanceof Error ? nextError.message : t("settings.saveError"));
     } finally {
       setSavingConfig(false);
     }
+  }
+
+  function modelCandidatesLabel(loadingModels: boolean, options: string[]): string {
+    if (loadingModels) {
+      return t("settings.loadingModels");
+    }
+    return options.length ? t("settings.candidatesFound", { count: options.length }) : t("settings.noCandidates");
   }
 
   return (
@@ -232,9 +220,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       <ModalCard onClick={(event) => event.stopPropagation()}>
         <Stack>
           <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <SectionTitle>設定</SectionTitle>
+            <SectionTitle>{t("settings.title")}</SectionTitle>
             <Button type="button" variant="ghost" onClick={onClose}>
-              Close
+              {t("common.close")}
             </Button>
           </Row>
 
@@ -242,9 +230,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
           <Card>
             <Stack>
-              <Badge tone="accent">Appearance</Badge>
+              <Badge tone="accent">{t("settings.appearance")}</Badge>
               <Field>
-                Theme
+                {t("settings.theme")}
                 <Select value={family} onChange={(event) => setFamily(event.target.value as ThemeFamily)}>
                   {families.map((item) => (
                     <option key={item.id} value={item.id}>
@@ -254,11 +242,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 </Select>
               </Field>
               <Field>
-                Mode
+                {t("settings.mode")}
                 <Select value={mode} onChange={(event) => setMode(event.target.value as ThemeMode)}>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                  <option value="auto">Auto (follow OS)</option>
+                  <option value="light">{t("settings.modeLight")}</option>
+                  <option value="dark">{t("settings.modeDark")}</option>
+                  <option value="auto">{t("settings.modeAuto")}</option>
                 </Select>
               </Field>
             </Stack>
@@ -266,25 +254,24 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
           <Card>
             <Stack>
-              <Badge tone="accent">Language</Badge>
+              <Badge tone="accent">{t("settings.language")}</Badge>
               <Field>
-                Language
-                <Select value={language} onChange={(event) => handleLanguageChange(event.target.value as UiLanguage)}>
+                {t("settings.language")}
+                <Select value={lang} onChange={(event) => setLang(event.target.value as Language)}>
                   <option value="ja">日本語</option>
                   <option value="en">English</option>
                 </Select>
               </Field>
-              <Subtle>UI language switching will be applied in a future update.</Subtle>
             </Stack>
           </Card>
 
           <Card as="form" onSubmit={handleConfigurationSubmit}>
             <Stack>
-              <Badge tone="accent">Connection</Badge>
-              {loading ? <Subtle>Loading configuration…</Subtle> : null}
+              <Badge tone="accent">{t("settings.connection")}</Badge>
+              {loading ? <Subtle>{t("settings.loadingConfig")}</Subtle> : null}
               <Field>
                 <FieldHeader>
-                  <span>LLM Endpoint</span>
+                  <span>{t("settings.llmEndpoint")}</span>
                   <StatusDot $connected={Boolean(configuration?.llmConnected)} />
                 </FieldHeader>
                 <Input
@@ -294,7 +281,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 />
               </Field>
               <Field>
-                LLM Model
+                {t("settings.llmModel")}
                 <Input
                   list="settings-llm-model-options"
                   value={configDraft.llmModel}
@@ -306,16 +293,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     <option key={model} value={model} />
                   ))}
                 </datalist>
-                <Subtle>
-                  {loadingLlmModels
-                    ? "Loading model candidates..."
-                    : llmModelOptions.length
-                      ? `${llmModelOptions.length} candidates found`
-                      : "No model candidates available"}
-                </Subtle>
+                <Subtle>{modelCandidatesLabel(loadingLlmModels, llmModelOptions)}</Subtle>
               </Field>
               <Field>
-                LLM Response Format
+                {t("settings.llmResponseFormat")}
                 <Select
                   value={configDraft.llmResponseFormat}
                   onChange={(event) =>
@@ -325,13 +306,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     }))
                   }
                 >
-                  <option value="standard">Standard</option>
-                  <option value="llm_jp_thinking">LLM-jp Thinking</option>
+                  <option value="standard">{t("settings.formatStandard")}</option>
+                  <option value="llm_jp_thinking">{t("settings.formatThinking")}</option>
                 </Select>
               </Field>
               <Field>
                 <FieldHeader>
-                  <span>Review Endpoint</span>
+                  <span>{t("settings.reviewEndpoint")}</span>
                   <StatusDot $connected={Boolean(configuration?.reviewConnected)} />
                 </FieldHeader>
                 <Input
@@ -341,29 +322,23 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 />
               </Field>
               <Field>
-                Review Model
+                {t("settings.reviewModel")}
                 <Input
                   list="settings-review-model-options"
                   value={configDraft.reviewModel}
                   onChange={(event) => setConfigDraft((current) => ({ ...current, reviewModel: event.target.value }))}
-                  placeholder="review model id"
+                  placeholder={t("settings.reviewModelPlaceholder")}
                 />
                 <datalist id="settings-review-model-options">
                   {reviewModelOptions.map((model) => (
                     <option key={model} value={model} />
                   ))}
                 </datalist>
-                <Subtle>
-                  {loadingReviewModels
-                    ? "Loading model candidates..."
-                    : reviewModelOptions.length
-                      ? `${reviewModelOptions.length} candidates found`
-                      : "No model candidates available"}
-                </Subtle>
+                <Subtle>{modelCandidatesLabel(loadingReviewModels, reviewModelOptions)}</Subtle>
               </Field>
               <Field>
                 <FieldHeader>
-                  <span>Embedding Source</span>
+                  <span>{t("settings.embeddingSource")}</span>
                   {configDraft.embeddingMode === "external" ? (
                     <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
                   ) : null}
@@ -377,19 +352,19 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     }))
                   }
                 >
-                  <option value="internal">Internal — bundled ruri-v3-30m (recommended)</option>
-                  <option value="external">External — OpenAI-compatible endpoint</option>
+                  <option value="internal">{t("settings.embeddingInternal")}</option>
+                  <option value="external">{t("settings.embeddingExternal")}</option>
                 </Select>
                 <Subtle>
                   {configDraft.embeddingMode === "internal"
-                    ? embeddingStatusLabel(embeddingStatus)
-                    : "Embeddings are computed by the endpoint configured below."}
+                    ? embeddingStatusLabel(t, embeddingStatus)
+                    : t("settings.embeddingExternalNote")}
                 </Subtle>
               </Field>
               {configDraft.embeddingMode === "external" ? (
                 <>
                   <Field>
-                    Embedding Endpoint
+                    {t("settings.embeddingEndpoint")}
                     <Input
                       value={configDraft.embeddingBaseUrl}
                       onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingBaseUrl: event.target.value }))}
@@ -397,7 +372,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     />
                   </Field>
                   <Field>
-                    Embedding Model
+                    {t("settings.embeddingModel")}
                     <Input
                       list="settings-embedding-model-options"
                       value={configDraft.embeddingModel}
@@ -409,19 +384,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                         <option key={model} value={model} />
                       ))}
                     </datalist>
-                    <Subtle>
-                      {loadingEmbeddingModels
-                        ? "Loading model candidates..."
-                        : embeddingModelOptions.length
-                          ? `${embeddingModelOptions.length} candidates found`
-                          : "No model candidates available"}
-                    </Subtle>
+                    <Subtle>{modelCandidatesLabel(loadingEmbeddingModels, embeddingModelOptions)}</Subtle>
                   </Field>
                 </>
               ) : null}
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
                 <Button type="submit" disabled={savingConfig || loading}>
-                  {savingConfig ? "Saving..." : "Save configuration"}
+                  {savingConfig ? t("settings.saving") : t("settings.save")}
                 </Button>
               </div>
             </Stack>
