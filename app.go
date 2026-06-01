@@ -168,9 +168,11 @@ func (a *App) shutdown(_ context.Context) {
 
 // GetApiBase is bound to the frontend. It always returns the absolute loopback
 // origin (in both dev and prod). The SPA awaits it once at startup and prefixes
-// every API/file request with it. When this binding is unreachable — e.g. the
-// Vite dev server opened directly in a browser, where window.go is absent — the
-// SPA falls back to relative URLs and the Vite proxy handles /api and /files.
+// every API/file request with it. When this binding is unreachable — i.e. the
+// SPA is loaded outside the Wails WebView, where window.go is absent — the SPA
+// falls back to same-origin relative URLs (there is no Vite proxy); the loopback
+// server then rejects unauthenticated calls, which is the intended outcome for
+// that unsupported host.
 func (a *App) GetApiBase() string {
 	return a.apiBase
 }
