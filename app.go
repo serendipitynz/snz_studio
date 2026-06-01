@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"time"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"snzstudio/internal/bootstrap"
 	"snzstudio/internal/config"
@@ -32,6 +36,7 @@ type App struct {
 	server   *http.Server
 	db       *sql.DB
 	apiBase  string
+	apiToken string
 	embedMgr *embed.Manager
 }
 
@@ -51,28 +56,34 @@ func (a *App) startup(ctx context.Context) {
 
 	paths, err := bootstrap.ResolveDataPaths()
 	if err != nil {
-		log.Fatalf("api: resolve data paths: %v", err)
+		a.fatalStartup("Could not locate the data directory", err, "")
+		return
 	}
 	if err := os.MkdirAll(paths.DataDir, 0o755); err != nil {
-		log.Fatalf("api: create data dir %s: %v", paths.DataDir, err)
+		a.fatalStartup("Could not create the data directory", err, paths.DataDir)
+		return
 	}
 	// One-time, opt-in migration of an existing (old Node-backend) data dir into
 	// this one. Driven by SNZ_MIGRATE_FROM; a no-op when unset or when this dir is
 	// already populated. Must run before db.Open so the copied database — not a
 	// freshly created empty one — is what gets opened and indexed.
 	if err := bootstrap.MaybeSeedDataDir(paths); err != nil {
-		log.Fatalf("api: migrate data dir: %v", err)
+		a.fatalStartup("Could not migrate the existing data directory", err, paths.DataDir)
+		return
 	}
 	if err := os.MkdirAll(paths.UploadDir, 0o755); err != nil {
-		log.Fatalf("api: create upload dir %s: %v", paths.UploadDir, err)
+		a.fatalStartup("Could not create the uploads directory", err, paths.DataDir)
+		return
 	}
 	if err := os.MkdirAll(paths.ModelsDir, 0o755); err != nil {
-		log.Fatalf("api: create models dir %s: %v", paths.ModelsDir, err)
+		a.fatalStartup("Could not create the models directory", err, paths.DataDir)
+		return
 	}
 
 	database, err := db.Open(paths.SQLitePath)
 	if err != nil {
-		log.Fatalf("api: open database %s: %v", paths.SQLitePath, err)
+		a.fatalStartup("Could not open the database", err, paths.DataDir)
+		return
 	}
 	a.db = database
 
@@ -80,9 +91,21 @@ func (a *App) startup(ctx context.Context) {
 	a.embedMgr = embed.NewManager(paths.ModelsDir)
 	srv := httpapi.NewServer(database, cfg, paths.UploadDir, a.embedMgr)
 
+	// Per-launch token that gates all /api and /files access (see httpapi.withAuth).
+	// Generated fresh each startup so it never persists or leaks across runs; the
+	// SPA fetches it via the GetApiToken binding and attaches it to every request.
+	token, err := randomToken()
+	if err != nil {
+		a.fatalStartup("Could not generate the API security token", err, paths.DataDir)
+		return
+	}
+	a.apiToken = token
+	srv.SetAuthToken(token)
+
 	ln, err := net.Listen("tcp", bootstrap.ListenAddr())
 	if err != nil {
-		log.Fatalf("api: listen on %s: %v", bootstrap.ListenAddr(), err)
+		a.fatalStartup(fmt.Sprintf("Could not bind the local API server to %s", bootstrap.ListenAddr()), err, paths.DataDir)
+		return
 	}
 
 	// Both dev and prod use the absolute loopback origin so the SPA can reach
@@ -145,9 +168,50 @@ func (a *App) shutdown(_ context.Context) {
 
 // GetApiBase is bound to the frontend. It always returns the absolute loopback
 // origin (in both dev and prod). The SPA awaits it once at startup and prefixes
-// every API/file request with it. When this binding is unreachable — e.g. the
-// Vite dev server opened directly in a browser, where window.go is absent — the
-// SPA falls back to relative URLs and the Vite proxy handles /api and /files.
+// every API/file request with it. When this binding is unreachable — i.e. the
+// SPA is loaded outside the Wails WebView, where window.go is absent — the SPA
+// falls back to same-origin relative URLs (there is no Vite proxy); the loopback
+// server then rejects unauthenticated calls, which is the intended outcome for
+// that unsupported host.
 func (a *App) GetApiBase() string {
 	return a.apiBase
+}
+
+// GetApiToken is bound to the frontend. It returns the per-launch random token
+// the SPA must attach to every API/file request — the X-SNZ-Studio-Token header
+// for /api, or the `t` query param for <img>-loaded /files. Regenerated each
+// startup, so it never persists to disk or leaks across runs.
+func (a *App) GetApiToken() string {
+	return a.apiToken
+}
+
+// randomToken returns a 256-bit cryptographically random token, hex-encoded.
+func randomToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// fatalStartup surfaces an unrecoverable startup error to the user through a
+// native error dialog — naming the failure and the data directory so they can
+// inspect or relocate it — before exiting, instead of aborting the process
+// silently as log.Fatalf did. dataDir may be empty if resolution itself failed.
+// A retry-without-restart flow is a follow-up (tracked in HANDOFF.md); this only
+// removes the silent-crash behaviour. Callers must return after invoking it.
+func (a *App) fatalStartup(title string, cause error, dataDir string) {
+	log.Printf("startup fatal: %s: %v", title, cause)
+	message := fmt.Sprintf("%v", cause)
+	if dataDir != "" {
+		message += "\n\nData directory:\n" + dataDir
+	}
+	if a.ctx != nil {
+		_, _ = wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
+			Type:    wailsruntime.ErrorDialog,
+			Title:   "SNZ Studio — " + title,
+			Message: message,
+		})
+	}
+	os.Exit(1)
 }

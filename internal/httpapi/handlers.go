@@ -611,13 +611,21 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		MimeType:    mimeType,
 	})
 	if err != nil {
+		// The upload was written before the row existed; remove it so a failed
+		// insert leaves no orphaned file. unlinkFile is a no-op when filePath is
+		// nil (non-image documents).
+		s.unlinkFile(filePath)
 		fail(w, err)
 		return
 	}
 
+	// Embedding sync is best-effort here, as it is at startup and on sidecar-ready
+	// (see RunStartupTasks / onEmbeddingReady): the document is already persisted,
+	// so a sync failure must not fail the request — otherwise the client treats a
+	// successful create as an error and may retry, duplicating the document. A
+	// later rebuild backfills the embedding.
 	if err := s.embeddingSync.SyncDocument(document.ID); err != nil {
-		fail(w, err)
-		return
+		log.Printf("create document %s: embedding sync skipped: %v", document.ID, err)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"document": document})
 }

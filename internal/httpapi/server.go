@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 
 	"snzstudio/internal/config"
@@ -55,7 +57,19 @@ type Server struct {
 	// is an infrastructure path resolved by the process bootstrap, not part of
 	// the editable config snapshot.
 	uploadDir string
+
+	// token is the per-launch bearer required on every /api and /files request.
+	// It is installed by the process bootstrap (SetAuthToken) and is empty in
+	// tests, which disables the check — see withAuth.
+	token string
 }
+
+// SetAuthToken installs the per-launch token that gates all API and file access.
+// The bootstrap (app.go) generates a fresh random token each launch and passes
+// it here; the SPA fetches the same token over a Wails binding and attaches it
+// to every request. An empty token (the default, used by tests) disables the
+// check so handler tests need no token plumbing.
+func (s *Server) SetAuthToken(token string) { s.token = token }
 
 // NewServer wires the repository and service graph over a shared DB handle, a
 // config snapshot source, and the upload directory. The dependency order matches
@@ -212,13 +226,45 @@ func (s *Server) Handler() http.Handler {
 	// Static uploaded files (express.static(config.uploadDir)).
 	mux.Handle("GET /files/{name}", s.fileHandler())
 
-	return withCORS(mux)
+	// CORS wraps auth so that preflight (OPTIONS) is answered before the token
+	// check — browsers never send custom headers on preflight, so requiring the
+	// token there would break every cross-origin mutation.
+	return withCORS(s.withAuth(mux))
 }
 
-// withCORS reflects the request Origin and answers preflight requests. The API
-// only ever listens on 127.0.0.1, so reflecting the origin is safe and covers
-// both the dev Vite origin and the production WebView origin (whose exact value
-// is platform-dependent), which a single hard-coded origin would not.
+// withAuth enforces the per-launch token on every request once one is set.
+// Listening on 127.0.0.1 is not itself a trust boundary — any local browser tab
+// can reach loopback and CORS reflects whatever Origin asks — so this token, not
+// the address, is what actually gates access. /api callers send it in the
+// X-SNZ-Studio-Token header (added by the SPA's fetch layer); /files is loaded
+// via <img>, which cannot set headers, so its token rides in a `t` query param.
+// An empty token (tests) skips the check. OPTIONS never reaches here: withCORS
+// short-circuits preflight.
+func (s *Server) withAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var provided string
+		if strings.HasPrefix(r.URL.Path, "/files/") {
+			provided = r.URL.Query().Get("t")
+		} else {
+			provided = r.Header.Get("X-SNZ-Studio-Token")
+		}
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// withCORS reflects the request Origin and answers preflight requests. Origin
+// reflection alone is not an access control (it grants whatever Origin asks);
+// access is gated by withAuth's per-launch token. Reflection is still needed so
+// the WebView/Vite origin — whose exact value is platform-dependent, which a
+// single hard-coded origin could not cover — can read responses.
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {
@@ -229,7 +275,11 @@ func withCORS(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Content-Type")
+			// X-SNZ-Studio-Token (required by withAuth) must be allowed here or the
+			// browser blocks every cross-origin request at preflight: the custom
+			// token header makes even GETs non-simple, so the WebView's calls to the
+			// absolute loopback origin all preflight. Content-Type covers JSON bodies.
+			h.Set("Access-Control-Allow-Headers", "Content-Type, X-SNZ-Studio-Token")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

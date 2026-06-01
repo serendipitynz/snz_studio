@@ -5,7 +5,7 @@ import { HashRouter } from "react-router-dom";
 import App from "./App";
 import { LanguageProvider } from "./i18n";
 import { ThemeController } from "./styles/ThemeController";
-import { GetApiBase } from "./wailsjs/go/main/App";
+import { GetApiBase, GetApiToken } from "./wailsjs/go/main/App";
 
 const globalStyles = (theme: Theme) => css`
   :root {
@@ -32,16 +32,22 @@ const globalStyles = (theme: Theme) => css`
   }
 `;
 
-// Resolve the API origin from the Wails binding before the first render so every
-// request (incl. the SSE streams in ChatPage) targets the loopback Go server
-// directly. HashRouter is required because Wails does not support BrowserRouter.
+// Resolve the API origin and auth token from the Wails bindings before the first
+// render so every request (incl. the SSE streams in ChatPage) targets the
+// loopback Go server directly and carries the token. HashRouter is required
+// because Wails does not support BrowserRouter.
 async function bootstrap() {
   try {
-    window.__API_BASE__ = (await GetApiBase()) ?? "";
+    const [base, token] = await Promise.all([GetApiBase(), GetApiToken()]);
+    window.__API_BASE__ = base ?? "";
+    window.__API_TOKEN__ = token ?? "";
   } catch {
-    // window.go is absent when the SPA is opened directly in a browser against
-    // the Vite dev server; fall back to relative URLs handled by the Vite proxy.
+    // window.go is absent only when the SPA is loaded outside the Wails WebView
+    // (the only supported host). There is no Vite proxy, so fall back to
+    // same-origin relative URLs with no token; the loopback server then rejects
+    // API calls, which is the intended outcome for an unsupported host.
     window.__API_BASE__ = "";
+    window.__API_TOKEN__ = "";
   }
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

@@ -135,11 +135,32 @@ export interface ReviewResponse {
   references: ReviewReference[];
 }
 
+// authHeaders merges the per-launch auth token (set in main.tsx) into any
+// caller-supplied headers. The loopback server rejects /api calls without it, so
+// a stray browser tab on the same machine can't drive the local API.
+export function authHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  const token = window.__API_TOKEN__ ?? "";
+  if (token) {
+    headers.set("X-SNZ-Studio-Token", token);
+  }
+  return headers;
+}
+
+// fileSrc builds an absolute /files URL carrying the auth token as a query param.
+// <img> elements can't send custom headers, so the token rides in the query
+// string for static file reads.
+export function fileSrc(filePath: string): string {
+  const base = `${window.__API_BASE__ ?? ""}${filePath}`;
+  const token = window.__API_TOKEN__ ?? "";
+  return token ? `${base}?t=${encodeURIComponent(token)}` : base;
+}
+
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   // Prefix string paths with the loopback API origin (set in main.tsx). All
   // callers below pass a relative "/api/..." string; Request objects pass through.
   const target = typeof input === "string" ? `${window.__API_BASE__ ?? ""}${input}` : input;
-  const response = await fetch(target, init);
+  const response = await fetch(target, { ...init, headers: authHeaders(init?.headers) });
   if (!response.ok) {
     const data = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Error(data?.error ?? `Request failed with ${response.status}`);

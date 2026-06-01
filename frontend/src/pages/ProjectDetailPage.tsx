@@ -6,6 +6,7 @@ import {
   ChatRecord,
   DocumentCategory,
   DocumentRecord,
+  fileSrc,
   MemoryKind,
   MemoryOrganizationPlan,
   MemoryRecord,
@@ -782,7 +783,7 @@ export function ProjectDetailPage() {
               <Card>
                 {selectedDocument.type === "image" && selectedDocument.filePath ? (
                   <img
-                    src={`${window.__API_BASE__ ?? ""}${selectedDocument.filePath}`}
+                    src={fileSrc(selectedDocument.filePath)}
                     alt={selectedDocument.title}
                     style={{ width: "100%", borderRadius: 16, display: "block" }}
                   />

@@ -337,3 +337,20 @@ Step1-6 を実装し headless 検証は全グリーン（`gofmt`/`go vet`±dev/`
 config overlay（`internal/config`: `EmbeddingMode` + runtime-only internal 上書き、`Get()` で internal 時のみ上書き、移行=永続 embeddingModel が非空→external/それ以外→internal）→ 新規 `internal/embed`（modelspec/downloader/sidecar(+unix/windows)/manager）→ app.go・bootstrap.paths(ModelsDir)・httpapi 結線（NewServer が `*embed.Manager`、ready コールバックで run-once `RebuildAll`、`HasEmbeddingsForModel` ガード、PUT で `embeddingMode`、`GET /api/embedding/status`）→ prefix 分岐（`EmbeddingClient.ActivePrefixScheme()`、query=retrieval.go・doc=embeddingsync.go、internal のみ）→ retrieval 閾値の ruri 調整 → フロント（client.ts・ProjectListPage）→ パッケージング（mac: 上記署名レシピ + entitlements.plist、win: exe+dll 同梱）。
 
 **設計の要（蒸し返さない）**: `EmbeddingClient` は毎回 `cfg.Get()` から base URL/model を解決＝サイドカーへ向けるのは config overlay だけ（ネットワーク経路は無改修）。モデル切替は次元不一致で cosine=0 になるため必ず `RebuildAll`。サイドカー成果物の再現は `/tmp/llamacpp-spike`（converter パッチ済み・揮発）/ `/tmp/ruri-v3-30m-q8_0.gguf` / `/tmp/sidecar-arm64`（notarize 済み）。
+
+---
+
+## 8. コードレビュー対応（2026-06-01）
+
+ローカル API のセキュリティ／堅牢性レビュー（P1〜P3）への対応。**P1・P2(upload)・P3 は実装完了**、P2(startup) は無言終了の廃止までを実装し、再起動不要のリトライ UI のみ次セッションへ残置。検証は `go build ./...` / `go vet ./...`(±dev) / `go test ./...` 全グリーン、`pnpm check:client`(tsc) クリーン。**※ `go build -tags dev` のリンク失敗（`_OBJC_CLASS_$_UTType`）は §3 Phase7 記載の既存・環境事項でこの対応とは無関係**。
+
+- **P1 — ローカル API のトークン認証（完了）**: loopback 専用＋CORS Origin 反射は単独ではアクセス制御にならない（同一マシンの任意ブラウザタブが `127.0.0.1` に到達可能）。**起動毎に 256bit ランダムトークンを生成**し全 `/api`・`/files` で必須化。
+  - backend: `httpapi.Server.token` + `SetAuthToken`（空＝tests では無効化、後方互換）、`withAuth` ミドルウェア（`withCORS(s.withAuth(mux))` の順＝OPTIONS は CORS で短絡し token 不要）。`subtle.ConstantTimeCompare` で比較。
+  - **`/api` はヘッダ `X-SNZ-Studio-Token`、`/files` はクエリ `?t=` **。理由: 画像は `<img src>` で読むためカスタムヘッダを付けられない（`ProjectDetailPage`）。
+  - `app.go`: `randomToken()`（crypto/rand→hex）を startup で生成→`SetAuthToken`、`GetApiToken()` バインド追加（生成バインド `wailsjs/go/main/App.{d.ts,js}` も手書き追記）。
+  - frontend: `api/client.ts` に `authHeaders()`/`fileSrc()` を集約。`request()` 全 API・`ChatPage` の SSE 2本に header、`ProjectDetailPage` の `<img>` に `fileSrc`。`main.tsx` で `GetApiToken()` を `GetApiBase()` と並行取得し `window.__API_TOKEN__` へ。
+- **P2 — 画像アップロードの原子性（完了）**: `handleCreateDocument` で (1) `CreateDocument` 失敗時に保存済みファイルを `unlinkFile`（孤児防止）、(2) `embeddingSync.SyncDocument` 失敗を **500 にせず log のみ＋201 返却**（embedding は startup/ready と同じく best-effort。失敗で 500 にするとクライアントが作成失敗と誤認しリトライ＝重複の恐れ。後続 rebuild がバックフィル）。
+- **P2 — 起動エラー UX（部分対応＝無言終了の廃止のみ完了）**: `app.go` startup の全 `log.Fatalf` を `fatalStartup(title, cause, dataDir)` に置換＝**ネイティブエラーダイアログ（`wailsruntime.MessageDialog`）でエラー内容とデータディレクトリを提示してから終了**。**残置（次セッション）= 再起動不要のリトライ UI**（フロントにエラー面を用意し、startup を「失敗しても起動はする」構造へ。DB corruption/permission/migration 失敗のリカバリ導線）。
+- **P3 — 古い Vite proxy コメント修正（完了）**: 実装（vite proxy は Phase9 で削除済み）と矛盾する記述を `frontend/src/main.tsx`・`frontend/src/global.d.ts`・`internal/bootstrap/env_dev.go`・`app.go`(`GetApiBase` doc) で現状（proxy なし・絶対 URL 直叩き）に修正。
+
+**未コミット**（main 上・ユーザー判断）。コミット時は §7 同様 `frontend/dist/.gitkeep` の復元に注意。
