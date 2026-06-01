@@ -1,6 +1,7 @@
 import { DragEvent, FormEvent, KeyboardEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
+  authHeaders,
   ChatRecord,
   ChatSummary,
   DocumentRecord,
@@ -257,7 +258,7 @@ export function ChatPage() {
   async function streamMessage(content: string, assistantMessageId: string) {
     const response = await fetch(`${window.__API_BASE__ ?? ""}/api/chats/${chatId}/messages/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ content })
     });
 
@@ -563,7 +564,8 @@ export function ChatPage() {
 
   async function streamReviewMessage(messageId: string) {
     const response = await fetch(`${window.__API_BASE__ ?? ""}/api/messages/${messageId}/review/stream`, {
-      method: "POST"
+      method: "POST",
+      headers: authHeaders()
     });
 
     if (!response.ok) {

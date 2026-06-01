@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -34,6 +36,7 @@ type App struct {
 	server   *http.Server
 	db       *sql.DB
 	apiBase  string
+	apiToken string
 	embedMgr *embed.Manager
 }
 
@@ -87,6 +90,17 @@ func (a *App) startup(ctx context.Context) {
 	cfg := config.Load(paths.AppConfigPath)
 	a.embedMgr = embed.NewManager(paths.ModelsDir)
 	srv := httpapi.NewServer(database, cfg, paths.UploadDir, a.embedMgr)
+
+	// Per-launch token that gates all /api and /files access (see httpapi.withAuth).
+	// Generated fresh each startup so it never persists or leaks across runs; the
+	// SPA fetches it via the GetApiToken binding and attaches it to every request.
+	token, err := randomToken()
+	if err != nil {
+		a.fatalStartup("Could not generate the API security token", err, paths.DataDir)
+		return
+	}
+	a.apiToken = token
+	srv.SetAuthToken(token)
 
 	ln, err := net.Listen("tcp", bootstrap.ListenAddr())
 	if err != nil {
@@ -159,6 +173,23 @@ func (a *App) shutdown(_ context.Context) {
 // SPA falls back to relative URLs and the Vite proxy handles /api and /files.
 func (a *App) GetApiBase() string {
 	return a.apiBase
+}
+
+// GetApiToken is bound to the frontend. It returns the per-launch random token
+// the SPA must attach to every API/file request — the X-SNZ-Studio-Token header
+// for /api, or the `t` query param for <img>-loaded /files. Regenerated each
+// startup, so it never persists to disk or leaks across runs.
+func (a *App) GetApiToken() string {
+	return a.apiToken
+}
+
+// randomToken returns a 256-bit cryptographically random token, hex-encoded.
+func randomToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // fatalStartup surfaces an unrecoverable startup error to the user through a
