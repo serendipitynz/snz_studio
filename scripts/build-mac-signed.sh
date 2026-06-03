@@ -117,9 +117,17 @@ codesign --force --options runtime --timestamp \
   "${ENT_ARGS[@]+"${ENT_ARGS[@]}"}" --sign "$DEVELOPER_ID" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
-echo "==> Creating .dmg"
+echo "==> Creating .dmg (with a drag-to-install /Applications target)"
 rm -f "$DMG"
-hdiutil create -volname "SNZ Studio" -srcfolder "$APP" -ov -format UDZO "$DMG"
+# Stage the signed .app alongside a symlink to /Applications so the mounted volume
+# shows the classic drag-to-install layout. ditto preserves the bundle's code
+# signature/metadata; the "Applications" symlink is what Finder renders as the
+# Applications-folder drop target.
+DMG_STAGE="$(mktemp -d)"
+ditto "$APP" "$DMG_STAGE/$(basename "$APP")"
+ln -s /Applications "$DMG_STAGE/Applications"
+hdiutil create -volname "SNZ Studio" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG"
+rm -rf "$DMG_STAGE"
 
 echo "==> Codesigning .dmg"
 codesign --force --timestamp --sign "$DEVELOPER_ID" "$DMG"
