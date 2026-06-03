@@ -7,7 +7,7 @@
 //
 // Phase 1 (scaffold) only stands up the window, the local server, and the
 // GetApiBase binding. The DB/repository/service/HTTP-API layers under
-// internal/ are wired in later phases (see HANDOFF.md).
+// internal/ are wired in later phases (see docs/HANDOFF.md).
 package main
 
 import (
