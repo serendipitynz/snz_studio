@@ -1,0 +1,179 @@
+# 多人数会話エンジン — snz_studio 組み込み設計
+
+ステータス: **DRAFT / 実装前設計**（2026-09-09 起票） / 背景: [multi-agent-chat-notes.md](./multi-agent-chat-notes.md)
+
+> 目的: 役割プロンプトとターン進行ルールを差し替え可能な多人数会話エンジンを snz_studio に組み込み、
+> LAN 上の複数 LM Studio エンドポイントを使った AI 同士の会話（ディベート・即興劇、将来 TRPG）を
+> 既存の project / chat 体験の中で実現する。
+> この文書は確定仕様ではない。§8 の「未決」を潰しながら更新する。
+
+---
+
+## 0. ゴールとスコープ
+
+- 1 つの chat の中で、**接続先の異なる複数のモデルが役割を持って発言し合う**。発言はストリーミング表示され、既存の messages として永続化される。
+- ディベート・即興劇などの用途は**個別機能にしない**。エンジンは 1 つで、用途差はプリセット（§6、= データ）で表現する。
+- **非ゴール（今回やらない）**: TRPG の状態管理（キャラクターシート・ダイス・構造化出力による判定）、進行役モデルによる発言者指名、複数マシンの並列生成、retrieval（documents / memories）との統合。いずれも将来拡張（§7・§8）。
+
+AGENTS.md の Constraints（local-only / single-user / no heavy real-time architecture / no over-engineering）は維持する。LAN 上の LM Studio は「外部インフラ」に当たらない（既存の外部 LLM エンドポイント方式と同じ扱い）。
+
+## 1. 現状の再確認（再利用できる資産）
+
+| 既存資産 | 本設計での使い方 |
+| --- | --- |
+| `CompletionTarget` / `resolveTarget()` [llmclient.go](../internal/service/llmclient.go) | 呼び出しごとに参加者の接続先 base URL とモデル名を上書き。**LLMClient は無改修** |
+| `CreateChatCompletionStream()` + SSE 経路 [llmclient.go](../internal/service/llmclient.go) / [handlers.go](../internal/httpapi/handlers.go) | ターンの発言をストリーミング配信。既存 `/messages/stream` のハンドラパターンを踏襲 |
+| `ListModels` / `EnsureModelLoaded` / `CheckConnection` | 参加者編成時の接続確認と、ターン実行前のモデルロード確認 |
+| `messages` テーブル（`model_name` 列あり） | 発言ログの保存先。列追加のみで流用（§3） |
+| `internal/db` の migration 機構（9 本の実績） | 10 本目としてスキーマ変更を追加 |
+| `summary` サービス | 履歴圧縮への流用候補（§8 未決） |
+
+## 2. 用語とドメインモデル
+
+- **参加者**とは、多人数会話に属する「表示名 + 役割プロンプト + 接続先 base URL + モデル名」の設定の組を指す。
+- **役割プロンプト**は、参加者ごとにモデルへ system メッセージとして渡す、人格・立場・口調・行動規則を指示する文字列。
+- **多人数会話**とは、参加者を 2 つ以上持ち、発言生成をターンエンジンが担う chat を指す。既存の単独 assistant の chat と同じ `chats` テーブルに保存し、種別列 `kind` で区別する。
+- **ターン**は、ターン進行ルールで選ばれた 1 人の参加者が、モデル呼び出し 1 回分の発言を生成し `messages` に保存されること。
+- **ターン進行ルール**（`turn_rule`）は、次に発言する参加者を決める規則。初期実装は 2 種:
+  - `round_robin`: 参加者の登録順（`sort_order`）を循環。直近の参加者発言から次を導くため、サーバー側に進行状態を持たない。
+  - `manual`: リクエストで参加者を指名。
+- **ターンエンジン**（`TurnEngine`）とは、ターン進行ルールに従い参加者のモデル呼び出しと発言保存を繰り返す Go サービスを指す。
+- **場面設定**（`scene_prompt`）とは、多人数会話の全参加者のシステムプロンプトに共通して前置される chat 単位の文字列（論題・シーン・世界観など）を指す。
+- **プリセット**とは、参加者一式・ターン進行ルール・場面設定の雛形をまとめた、多人数会話の新規作成時に適用できるデータを指す。
+
+## 3. スキーマ（migration 10）
+
+```sql
+ALTER TABLE chats ADD COLUMN kind TEXT NOT NULL DEFAULT 'assistant';       -- 'assistant' | 'multi_agent'
+ALTER TABLE chats ADD COLUMN turn_rule TEXT NOT NULL DEFAULT 'round_robin'; -- multi_agent のみ意味を持つ
+ALTER TABLE chats ADD COLUMN scene_prompt TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE participants (
+  id           TEXT PRIMARY KEY,
+  chat_id      TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  display_name TEXT NOT NULL,
+  role_prompt  TEXT NOT NULL,
+  base_url     TEXT NOT NULL,
+  model_name   TEXT NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL,
+  deleted_at   TEXT                    -- NULL = 編成に在籍。非 NULL = 除籍済み（過去の発言の帰属だけ残す）
+);
+
+ALTER TABLE messages ADD COLUMN participant_id TEXT; -- NULL = 従来の user / assistant 発言
+```
+
+- 参加者の発言は `role = 'assistant'` + `participant_id` で保存する。表示名・モデル名は participants を引く（`model_name` 列には従来どおり実際に使ったモデルも記録する）。
+- 人間の介入発言（論題の追加投入・野次など）は従来どおり `role = 'user'`・`participant_id IS NULL`。
+- 既存 chat は `kind = 'assistant'` のまま一切影響を受けない。
+- **参加者の除籍は論理削除**（`deleted_at` を立てる）とし、行は消さない。`messages.participant_id` には
+  意図的に外部キーを張らない（既存 `messages` への `ALTER TABLE` を最小に保つため）が、行が消えないので
+  過去の発言の表示名は常に解決できる。
+  **Why**: 物理削除にすると、(1) 過去の発言の `participant_id` が解決不能になり観戦ビューが表示名を失う、
+  (2) `round_robin` の「直近の参加者発言 → 次」が起点を失って次の発言者が決まらない。
+  いずれもデータが壊れるのではなく既存の履歴の読み方が壊れるので、除籍は在籍フラグで表す。
+- したがって参加者の集合は 2 種類ある。**編成**（`deleted_at IS NULL`、`round_robin` の巡回対象・編成パネルの表示対象）と、
+  **帰属解決用の全行**（表示名・モデル名の解決対象）。repository 層は両者を別メソッドで返す。
+- `participant_id` は同一 chat の participants しか指さない。ただし ID の解決範囲はルートの形で決まるので、
+  検証の意味があるのは chat がルートに現れる操作だけである:
+  - `POST /api/chats/{chatId}/turns/stream` の `manual` 指名: `chatId` と `participants.chat_id` の
+    一致をサービス層で検証し、他 chat の参加者を指名したら 404。ここは比較対象が 2 つあるので本当の検証になる。
+  - `PATCH` / `DELETE /api/participants/{participantId}`: 対象の chat はその参加者自身の `chat_id` で決まり、
+    比較相手が無い。よって「同一 chat か」を問う余地はなく、存在しなければ 404 とするだけでよい。
+    **Why**: これは既存の API 規約に合わせた結果である。既存ルートも、作成は親配下
+    （`POST /api/projects/{projectId}/memories`）、更新・削除は自身のフラットな ID
+    （`DELETE /api/memories/{memoryId}` / `PATCH /api/documents/{documentId}/category`）で統一されている。
+    単一ユーザー・認証なし（AGENTS.md Constraints）なので、ここに越えるべき権限境界も無い。
+
+## 4. ターンエンジン（`internal/service/turnengine.go`）
+
+### 4.1 1 リクエスト = 1 ターン
+
+サーバー側に常駐の進行ジョブを持たない。1 回の API 呼び出しが 1 ターンを実行して SSE で流し、
+連続進行（自動進行）はフロントエンドが次ターンの呼び出しを繰り返すことで実現する。
+**Why**: 常駐ジョブとその状態管理を持たずに済み、AGENTS.md の「No heavy real-time architecture」に収まる。
+自動進行の停止 = フロントが次のターンを呼ばないこと。
+
+**ターンは HTTP リクエストの寿命に縛られない**（既存 SSE 経路の実際の挙動）。
+`CreateChatCompletionStream` は呼び出し元の `context` ではなく `context.Background()` +
+チャンク到着ごとに延びるスライディング期限で動き（[llmclient.go](../internal/service/llmclient.go)）、
+SSE の書き込み失敗も無視される（[handlers.go](../internal/httpapi/handlers.go) の `_ = sse.Event(...)`）。
+つまり進行中のターンは、クライアントが切断してもモデル生成を完走し `messages` に保存される。
+本設計はこれを**仕様として受け入れる**:
+
+- 停止できる粒度はターン境界のみ。「自動進行の停止」は進行中のターンを中断しない。UI もそう表示する。
+- 切断・リロード後の復帰は、`messages` を読み直すこと（完走したターンはそこに入っている）。
+  取りこぼした delta を再送する仕組みは持たない。
+- 生成の中断が必要になったら、`TurnEngine` と `LLMClient` に呼び出し元 `context` を通す変更が前提になる
+  （既存の単独 assistant チャットにも影響する変更なので、本設計の範囲外・§7 将来）。
+
+### 4.2 ターンの処理手順
+
+0. **その chat のターン実行権を取る**（chat 単位の in-process な排他。取れなければ 409 を返して終了）。
+   **Why**: 発言者の決定は「`participant_id` を持つ直近メッセージ」を読んで行い、その結果が `messages` に入るのは
+   ターン完了時（手順 5）。よって重なった 2 リクエストは両方とも同じ直近メッセージを読み、同じ参加者を選んで
+   二重に発言させる。自動進行はフロント側のループなので（§4.1）、「1 ターン進める」の連打や
+   自動進行と手動指名の競合で現実に重なる。単一ユーザー・単一プロセスなので `sync.Mutex` の
+   `TryLock` 相当で足り、DB 側の予約列は要らない。
+1. ターン進行ルールで発言者を決定（`round_robin`: `participant_id` を持つ直近メッセージ → 編成（`deleted_at IS NULL`）の `sort_order` 順の次。直近発言の参加者が除籍済みで巡回位置が定まらないときは編成の先頭から。`manual`: リクエストの `participantId` 必須）。
+2. `EnsureModelLoaded` / `CheckConnection` で参加者の接続先を確認。失敗はターンをエラーで返す（他の参加者へのフォールバックはしない）。
+3. プロンプトを組み立てる（§4.3）。
+4. `CompletionTarget{BaseURL, Model}` を渡して `CreateChatCompletionStream` を実行、delta を SSE 転送。
+5. 完了した発言を `messages` に保存（`participant_id`・`model_name`・既存の生成メトリクス列）。
+
+### 4.3 プロンプト組み立て
+
+OpenAI 互換 API には「多者会話」のロールが無いため、発言者本人の視点へ写像する（先行事例で一般的な手法）:
+
+- `system` = 場面設定 + その参加者の役割プロンプト + 役割リマインド。
+  役割リマインドは毎ターン付与する固定文（「あなたは<表示名>としてのみ発言する」「直前の発言に同意だけで終わらない」等）。
+  **Why**: 小型モデルは履歴が伸びると役割を忘れ、同意で収束する（検討記録 §2）。
+- 履歴の写像: 自分の過去発言 → `assistant`、他参加者と人間の発言 → `user`（内容を「<表示名>: <本文>」に整形）。
+- 履歴は直近 N 発言（設定値、初期値は固定でよい）に制限。要約による圧縮は未決（§8）。
+
+### 4.4 既存 chat フローとの分離
+
+既存の `service/chat.go`（retrieval・memory・summary が絡む単独 assistant 用の文脈組み立て）には手を入れず、
+ターンエンジンは独立したサービスにする。共有するのは LLMClient と repository 層だけ。
+`kind = 'multi_agent'` の chat に対する既存の応答生成ルート（`POST /messages` / `/messages/stream`）は、
+生成を行わずユーザー発言の保存のみ行う（人間の介入発言用）。
+
+## 5. HTTP API
+
+| ルート | 内容 |
+| --- | --- |
+| `POST /api/projects/{projectId}/chats` | 既存を拡張: `kind: "multi_agent"`（+ 任意で `presetId`）を受け付ける |
+| `PATCH /api/chats/{chatId}` | 既存を拡張: `turnRule` / `scenePrompt` の更新を受け付ける |
+| `GET /api/chats/{chatId}/participants` | 参加者一覧 |
+| `POST /api/chats/{chatId}/participants` | 参加者追加 |
+| `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序） |
+| `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
+| `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。当該 chat のターンが実行中なら 409 |
+
+参加者の更新・削除を chat 配下に入れ子にせずフラットな ID にしているのは既存ルートの形に合わせたもので、
+同一 chat 検証の要否もそこから決まる（§3 末尾）。
+接続先ごとのモデル列挙は既存 `POST /api/configuration/models` を流用する。
+
+## 6. フロントエンド
+
+- **編成パネル**: 参加者の CRUD、接続先 base URL 入力 + モデル選択（configuration/models 流用）+ 接続確認表示、ターン進行ルールと場面設定の編集。
+- **観戦ビュー**: ChatPage のストリーミング表示を踏襲し、発言者の表示名・モデル名を発言に付す。進行コントロールは「1 ターン進める」「自動進行の開始 / 停止」（= フロントのループ、§4.1）「（manual 時）次の発言者の指名」。
+- **プリセット**: ディベート用・即興劇用の 2 種を初期同梱し、多人数会話の新規作成時に選択できる。保存形式は未決（§8）。
+
+## 7. 段階分け
+
+| Phase | 内容 | 完了条件 |
+| --- | --- | --- |
+| A | migration 10 + repository + ターンエンジン + API（§3〜§5） | curl だけで多人数会話を作成し、ターンを進めて SSE で発言が流れる |
+| B | 編成パネル + 観戦ビュー（§6） | UI から編成〜自動進行まで操作できる |
+| C | プリセット同梱 + 履歴圧縮の改善 + 役割リマインドのチューニング | プリセット選択で即開始できる。長い会話で役割が崩れない |
+| 将来 | TRPG 対応（chat 単位の JSON 状態の保持と注入・コードによるダイス・構造化出力での判定宣言）、進行役モデルによる発言者指名（`turn_rule` の追加値）、retrieval 統合、生成中断のための呼び出し元 `context` の伝播（§4.1） | — |
+
+## 8. 未決
+
+- 参加者ごとの API キー列の要否（LM Studio では不要。他の OpenAI 互換サービスを見据えるなら追加）。
+- 履歴圧縮への summary サービス流用の方式（chat_summaries をそのまま使うか、多人数会話専用の要約を持つか）。
+- プリセットの保存形式（Go 内ハードコード / 同梱 JSON / ユーザー編集可能なデータ）。
+- 多人数会話への review サービス適用の要否。
+- 人間が参加者の一枠として発言するモード（TRPG のプレイヤー参加）の UI 設計。
+- AGENTS.md「Core product shape」への多人数会話の追記文面（実装着手時に反映する）。
