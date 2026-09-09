@@ -74,9 +74,16 @@ ALTER TABLE messages ADD COLUMN participant_id TEXT; -- NULL = 従来の user / 
   いずれもデータが壊れるのではなく既存の履歴の読み方が壊れるので、除籍は在籍フラグで表す。
 - したがって参加者の集合は 2 種類ある。**編成**（`deleted_at IS NULL`、`round_robin` の巡回対象・編成パネルの表示対象）と、
   **帰属解決用の全行**（表示名・モデル名の解決対象）。repository 層は両者を別メソッドで返す。
-- `participant_id` は同一 chat の participants しか指さない。`manual` の `participantId`、
-  および `PATCH` / `DELETE /api/participants/{participantId}` は、対象が当該 chat の参加者でない場合 404 とする
-  （`participants` を chat 横断で引ける ID 体系なので、検証はサービス層の責務）。
+- `participant_id` は同一 chat の participants しか指さない。ただし ID の解決範囲はルートの形で決まるので、
+  検証の意味があるのは chat がルートに現れる操作だけである:
+  - `POST /api/chats/{chatId}/turns/stream` の `manual` 指名: `chatId` と `participants.chat_id` の
+    一致をサービス層で検証し、他 chat の参加者を指名したら 404。ここは比較対象が 2 つあるので本当の検証になる。
+  - `PATCH` / `DELETE /api/participants/{participantId}`: 対象の chat はその参加者自身の `chat_id` で決まり、
+    比較相手が無い。よって「同一 chat か」を問う余地はなく、存在しなければ 404 とするだけでよい。
+    **Why**: これは既存の API 規約に合わせた結果である。既存ルートも、作成は親配下
+    （`POST /api/projects/{projectId}/memories`）、更新・削除は自身のフラットな ID
+    （`DELETE /api/memories/{memoryId}` / `PATCH /api/documents/{documentId}/category`）で統一されている。
+    単一ユーザー・認証なし（AGENTS.md Constraints）なので、ここに越えるべき権限境界も無い。
 
 ## 4. ターンエンジン（`internal/service/turnengine.go`）
 
@@ -143,6 +150,8 @@ OpenAI 互換 API には「多者会話」のロールが無いため、発言�
 | `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
 | `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。当該 chat のターンが実行中なら 409 |
 
+参加者の更新・削除を chat 配下に入れ子にせずフラットな ID にしているのは既存ルートの形に合わせたもので、
+同一 chat 検証の要否もそこから決まる（§3 末尾）。
 接続先ごとのモデル列挙は既存 `POST /api/configuration/models` を流用する。
 
 ## 6. フロントエンド
