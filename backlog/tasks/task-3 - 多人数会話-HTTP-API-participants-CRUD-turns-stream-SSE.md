@@ -4,6 +4,7 @@ title: '多人数会話: HTTP API (participants CRUD + turns/stream SSE)'
 status: To Do
 assignee: []
 created_date: '2026-09-08 22:28'
+updated_date: '2026-09-09 03:05'
 labels: []
 dependencies:
   - TASK-2
@@ -21,5 +22,7 @@ docs/multi-agent-chat-design.md §5 のルートを追加する。chat 作成の
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 curl だけで多人数会話の作成〜参加者登録〜ターン実行 (SSE で発言が流れる) ができる (Phase A 完了条件)
-- [ ] #2 kind='multi_agent' への POST /messages が生成を行わずユーザー発言として保存される
+- [ ] #2 kind='multi_agent' への POST /messages と POST /messages/stream がいずれも生成を行わずユーザー発言として保存され、kind='assistant' の既存挙動は変わらない (設計 §4.4)
+- [ ] #3 当該 chat のターンが実行中に POST /turns/stream が重なると 409 を返す
+- [ ] #4 他 chat の participantId を指す PATCH / DELETE /api/participants/{id} と manual 指名が 404 になる
 <!-- AC:END -->

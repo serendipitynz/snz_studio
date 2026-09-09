@@ -4,6 +4,7 @@ title: '多人数会話: ターンエンジン service'
 status: To Do
 assignee: []
 created_date: '2026-09-08 22:28'
+updated_date: '2026-09-09 03:05'
 labels: []
 dependencies:
   - TASK-1
@@ -23,4 +24,6 @@ docs/multi-agent-chat-design.md §4 のターンエンジンを internal/service
 - [ ] #1 round_robin で直近発言から次の参加者が決まる (サーバー側に進行状態を持たない)
 - [ ] #2 manual で指名した参加者がターンを実行する
 - [ ] #3 プロンプト写像と発言保存のユニットテストがある
+- [ ] #4 chat 単位のターン実行権 (in-process 排他) により、重なったターン要求が同じ参加者を二重に発言させない。並行要求のテストがある (設計 §4.2 手順 0)
+- [ ] #5 直近発言の参加者が除籍済みでも round_robin が編成の先頭から次の発言者を決められる
 <!-- AC:END -->
