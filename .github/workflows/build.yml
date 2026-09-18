@@ -37,6 +37,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # setup-go reads only the `go` directive from go.mod (it does not parse
+      # `toolchain`), so it installs the floor version. The `toolchain` directive
+      # then selects the pinned build version, downloading it if the runner does
+      # not already have it — that download is what keeps CI on the same Go the
+      # Wails CLI can read, without duplicating the pin here where it could drift.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -58,8 +63,11 @@ jobs:
         shell: bash
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # The CLI embeds the x/tools that parses this project during binding
+      # generation, so its version is coupled to go.mod's `toolchain` pin — bump
+      # both together (see the comment on that directive in go.mod).
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
 
       # NSIS provides makensis, which `wails build -nsis` invokes to produce the
       # Windows installer.
