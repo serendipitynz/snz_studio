@@ -32,10 +32,11 @@ const maxMultipartMemory = 32 << 20
 type Server struct {
 	cfg *config.Config
 
-	projects  *repository.ProjectRepository
-	documents *repository.DocumentRepository
-	memories  *repository.MemoryRepository
-	chats     *repository.ChatRepository
+	projects     *repository.ProjectRepository
+	documents    *repository.DocumentRepository
+	memories     *repository.MemoryRepository
+	chats        *repository.ChatRepository
+	participants *repository.ParticipantRepository
 
 	llm           *service.LLMClient
 	embedding     *service.EmbeddingClient
@@ -47,6 +48,7 @@ type Server struct {
 	memoryOrg     *service.MemoryOrganizerService
 	chatService   *service.ChatService
 	reviewService *service.ReviewService
+	turnEngine    *service.TurnEngine
 
 	// embedManager owns the bundled embedding sidecar (download + llama-server). It
 	// is nil in tests that don't exercise internal embeddings; all uses are
@@ -80,6 +82,7 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 	documents := repository.NewDocumentRepository(db)
 	memories := repository.NewMemoryRepository(db)
 	chats := repository.NewChatRepository(db)
+	participants := repository.NewParticipantRepository(db)
 
 	embedding := service.NewEmbeddingClient(cfg)
 	llm := service.NewLLMClient(cfg)
@@ -92,6 +95,7 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 	chatService := service.NewChatService(chats, contextService, llm, summary, memoryService, embeddingSync, cfg)
 	reviewService := service.NewReviewService(chats, contextService, llm, cfg)
 	memoryOrg := service.NewMemoryOrganizerService(memories, chats, llm, embeddingSync)
+	turnEngine := service.NewTurnEngine(chats, participants, llm, cfg)
 
 	srv := &Server{
 		cfg:           cfg,
@@ -99,6 +103,7 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 		documents:     documents,
 		memories:      memories,
 		chats:         chats,
+		participants:  participants,
 		llm:           llm,
 		embedding:     embedding,
 		embeddingSync: embeddingSync,
@@ -109,6 +114,7 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 		memoryOrg:     memoryOrg,
 		chatService:   chatService,
 		reviewService: reviewService,
+		turnEngine:    turnEngine,
 		embedManager:  embedManager,
 		uploadDir:     uploadDir,
 	}
@@ -213,11 +219,20 @@ func (s *Server) Handler() http.Handler {
 
 	// Chats
 	mux.HandleFunc("GET /api/chats/{chatId}", s.handleGetChat)
-	mux.HandleFunc("PATCH /api/chats/{chatId}", s.handleUpdateChatTitle)
+	mux.HandleFunc("PATCH /api/chats/{chatId}", s.handleUpdateChat)
 	mux.HandleFunc("PATCH /api/chats/{chatId}/temporary", s.handleSetChatTemporary)
 	mux.HandleFunc("DELETE /api/chats/{chatId}", s.handleDeleteChat)
 	mux.HandleFunc("POST /api/chats/{chatId}/messages", s.handleSendMessage)
 	mux.HandleFunc("POST /api/chats/{chatId}/messages/stream", s.handleSendMessageStream)
+
+	// Multi-agent chats (docs/multi-agent-chat-design.md §5). Participant updates
+	// and removals hang off a flat participant id rather than nesting under the
+	// chat, matching how memories and documents are already routed.
+	mux.HandleFunc("GET /api/chats/{chatId}/participants", s.handleListParticipants)
+	mux.HandleFunc("POST /api/chats/{chatId}/participants", s.handleCreateParticipant)
+	mux.HandleFunc("PATCH /api/participants/{participantId}", s.handleUpdateParticipant)
+	mux.HandleFunc("DELETE /api/participants/{participantId}", s.handleRemoveParticipant)
+	mux.HandleFunc("POST /api/chats/{chatId}/turns/stream", s.handleRunTurnStream)
 
 	// Messages / review
 	mux.HandleFunc("POST /api/messages/{messageId}/review", s.handleReviewMessage)
@@ -390,6 +405,35 @@ func stringifyJSONValue(v any) string {
 	default:
 		return ""
 	}
+}
+
+// bodyStringPtr returns a pointer to the coerced string only when the key is
+// present, which is what separates "set this field to an empty string" from
+// "leave this field alone" in the PATCH routes. A JSON null counts as absent:
+// nothing sends one to mean "blank this".
+func bodyStringPtr(m map[string]any, key string) *string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return nil
+	}
+	s := stringifyJSONValue(v)
+	return &s
+}
+
+// bodyIntPtr reads an optional integer field, returning (nil, true) when absent
+// and (nil, false) when present but not a number — the caller answers 400 for
+// the latter rather than silently leaving the field unchanged.
+func bodyIntPtr(m map[string]any, key string) (*int, bool) {
+	v, present := m[key]
+	if !present || v == nil {
+		return nil, true
+	}
+	f, isNumber := v.(float64)
+	if !isNumber {
+		return nil, false
+	}
+	n := int(f)
+	return &n, true
 }
 
 // bodyBool returns (value, true) only when the field is present and a JSON
