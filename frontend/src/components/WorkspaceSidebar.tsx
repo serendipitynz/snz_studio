@@ -111,14 +111,15 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 }
 
 function renderChatTitle(t: (key: MessageKey) => string, chat: ChatRecord) {
+  // The two markers are independent facts about the chat, so both can show.
+  const marker = `${chat.kind === "multi_agent" ? "👥" : ""}${chat.isTemporary ? "⏱️" : ""}`;
+  const prefix = marker ? `${marker} ` : "";
+
   if (chat.title.trim()) {
-    return (
-      <strong>{chat.isTemporary ? `⏱️ ${chat.title}` : chat.title}</strong>
-    );
+    return <strong>{`${prefix}${chat.title}`}</strong>;
   }
 
-  const untitled = t("sidebar.untitled");
-  return <Subtle style={{ opacity: 0.78 }}>{chat.isTemporary ? `⏱️ ${untitled}` : untitled}</Subtle>;
+  return <Subtle style={{ opacity: 0.78 }}>{`${prefix}${t("sidebar.untitled")}`}</Subtle>;
 }
 
 function HomeIcon() {
