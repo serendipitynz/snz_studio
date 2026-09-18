@@ -71,32 +71,43 @@ SQLite には最低限以下を持たせています。
 
 ## 必要なツール
 
-- Go 1.26.3 以上（ビルドに使う版は go.mod の `toolchain go1.27.1` で固定しています。
-  手元の Go がこれと違っても、`go` コマンドが指定版を自動で取得して使うため、環境変数を
-  付ける必要はありません）
+- Go 1.26.3 以上（手元に無い版は `go` コマンドが自動で取得するため、事前に特定の版を
+  入れておく必要はありません）
 - Node 22 / pnpm（フロントのビルドに使用。`wails` が自動で実行します）
 - [Wails CLI v2](https://wails.io/)（`go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0`）
 
-> **Wails CLI と `toolchain` は対で上げてください。** バインド生成に使う x/tools は CLI
-> バイナリに埋め込まれていて go.mod からは差し替えられないため、CLI が読めるより新しい Go で
+> **Go のバージョンについて。** バインド生成に使う x/tools は Wails CLI バイナリに
+> 埋め込まれていて go.mod からは差し替えられないため、CLI が読めるより新しい Go で
 > ビルドすると `internal error: package "math" without types was imported from ...` で
-> バインド生成が落ちます。go.mod の `toolchain` はこれを防ぐための固定です。CLI が古いまま
-> （例: v2.12.0）だと同じ失敗が起きるので、`wails build` が出す
-> `go.mod is using Wails 'x' but the CLI is 'y'` の警告は無視せず CLI を入れ直してください。
+> バインド生成が落ちます。そこで **`wails` は直接ではなく下記の pnpm スクリプト経由で
+> 起動してください** — スクリプトが `GOTOOLCHAIN` に使用する版を厳密指定するので、手元に
+> どの Go が入っていても結果が変わりません。
+>
+> go.mod の `toolchain` ディレクティブは**下限**（これ未満ではビルドしない）であって
+> 上限ではありません。手元の Go がそれより新しければそちらが使われるため、素の
+> `wails dev` は固定になりません。上限を効かせられるのは `GOTOOLCHAIN` の厳密指定だけで、
+> pnpm スクリプトがやっているのはそれです。
+>
+> 使用する Go を上げるときは、それを読める Wails CLI とセットで上げてください
+> （`package.json` の `GOTOOLCHAIN` / go.mod の `toolchain` と `require` /
+> `.github/workflows/build.yml` の `go install`）。CLI だけ古いままだと同じ失敗が起きるので、
+> `wails build` が出す `go.mod is using Wails 'x' but the CLI is 'y'` の警告は無視しないでください。
 
-## 開発（wails dev）
+## 開発（pnpm dev）
 
 リポジトリ直下で次を実行します。Go API（`127.0.0.1:8787`）とフロント（Vite）が起動し、OS ネイティブ
 WebView 上に SPA が表示されます。
 
 ```bash
-wails dev
+pnpm dev
 ```
 
+- 中身は `GOTOOLCHAIN=<固定版> wails dev` です。素の `wails dev` でも起動はしますが、その場合は
+  手元の Go がそのまま使われるため、上の「必要なツール」の注意が当てはまります。
 - 開発時のデータは `./data`（cwd 相対）に作成されます。`.env`（任意・`cp .env.example .env`）で
   `LLM_BASE_URL` などの既定値を上書きできますが、通常は UI の `Configuration` から設定します。
 - ブラウザ直開き（`localhost:5173`）での開発は廃止しました（API への非 GET が届かないため）。開発は
-  `wails dev` を使ってください。
+  `pnpm dev` を使ってください。
 
 ## ビルド（配布物）
 
@@ -105,10 +116,12 @@ wails dev
 ### 1. 動作確認用（素のビルド）
 
 ```bash
-wails build                              # 現在の OS 向け
-wails build -platform darwin/universal   # macOS universal（.app）
-wails build -platform windows/amd64 -nsis -webview2 download
+pnpm build:app                                          # 現在の OS 向け
+pnpm build:app -platform darwin/universal               # macOS universal（.app）
+pnpm build:app -platform windows/amd64 -nsis -webview2 download
 ```
+
+`build:app` は `GOTOOLCHAIN=<固定版> wails build` で、追加の引数はそのまま `wails build` に渡ります。
 
 成果物は `build/bin/`（macOS は `SNZ Studio.app`、Windows は `.exe`）に出力されます。
 

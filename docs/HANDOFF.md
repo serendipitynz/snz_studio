@@ -31,7 +31,7 @@ app.go                                ✅ Phase6 startup で bootstrap.ResolveDa
 wails.json                            ✅ Phase1 monorepo（frontend:* は pnpm -C .. / serverUrl=auto / wailsjsdir=frontend/src）。Phase8: author email=takuya.otani@serenebach.net
 build/{appicon.png,darwin/Info.plist} ✅ Phase8 CFBundleIdentifier=net.serenebach.snz-studio（Info.plist + Info.dev.plist。既定 com.wails.{{.Name}} から置換）
 .github/workflows/build.yml           ✅ Phase8 CI 雛形（mac universal+dmg / win NSIS+webview2、署名は secrets ゲートで後送り。Actions 未実行）
-go.mod / go.sum                       module snzstudio (go 1.26 / toolchain go1.27.1 固定) + wails v2.16.0
+go.mod / go.sum                       module snzstudio (go 1.26 / toolchain go1.27.1 = 下限) + wails v2.16.0
 internal/bootstrap/                   ✅ Phase8 プロセス起動時インフラ（旧ルート .go を集約。パッケージ bootstrap）
   ├ paths.go                           ResolveDataPaths/Paths: DATA_DIR/SQLITE_PATH/UPLOAD_DIR env override、既定 dev=cwd/data・prod=os.UserConfigDir()/snz-studio
   ├ env_dev.go (//go:build dev)        IsDev=true, ListenAddr=127.0.0.1:8787（wails dev が dev タグ付与）
@@ -103,7 +103,7 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 ~/go/bin/wails version                                     # v2.16.0 インストール済み（go.mod の toolchain と対で上げる）
 ```
 
-ツールチェーン: Go 1.27.1（go.mod の `toolchain` で固定） / Wails v2.16.0(`~/go/bin/wails`) / Node 22 / pnpm 10.30.3 / clang あり。
+ツールチェーン: Go 1.27.1（`pnpm dev` / `pnpm build:app` と CI の job env が GOTOOLCHAIN で厳密指定。go.mod の `toolchain` は下限であって上限ではない） / Wails v2.16.0(`~/go/bin/wails`) / Node 22 / pnpm 10.30.3 / clang あり。
 依存（確定）: `modernc.org/sqlite`, `golang.org/x/text`（NFKC）, （後で `github.com/google/uuid` を直接利用予定）。
 
 ---

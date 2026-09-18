@@ -23,6 +23,15 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    # Pin the exact Go used to build. go.mod's `toolchain` directive is only a
+    # floor — a runner whose Go is newer would be used as-is and could produce
+    # export data the Wails CLI's embedded x/tools cannot read. Only an exact
+    # GOTOOLCHAIN caps it. This is set here rather than through the package.json
+    # `dev` / `build:app` scripts that pin it locally, because their inline
+    # `VAR=value` prefix is POSIX shell syntax and the Windows job would not run it.
+    # Keep this value in step with go.mod's `toolchain` and package.json's GOTOOLCHAIN.
+    env:
+      GOTOOLCHAIN: go1.27.1
     strategy:
       fail-fast: false
       matrix:
@@ -37,11 +46,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # setup-go reads only the `go` directive from go.mod (it does not parse
-      # `toolchain`), so it installs the floor version. The `toolchain` directive
-      # then selects the pinned build version, downloading it if the runner does
-      # not already have it — that download is what keeps CI on the same Go the
-      # Wails CLI can read, without duplicating the pin here where it could drift.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
