@@ -365,11 +365,20 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 	}
 	title := bodyString(m, "title")
 	isTemporary, _ := bodyBool(m, "isTemporary")
+	kind := bodyString(m, "kind")
+	if kind == "" {
+		kind = model.ChatKindAssistant
+	}
+	if kind != model.ChatKindAssistant && kind != model.ChatKindMultiAgent {
+		writeError(w, http.StatusBadRequest, "kind must be \"assistant\" or \"multi_agent\"")
+		return
+	}
 
 	chat, err := s.chats.CreateChat(repository.CreateChatInput{
 		ProjectID:   project.ID,
 		Title:       title,
 		IsTemporary: isTemporary,
+		Kind:        kind,
 	})
 	if err != nil {
 		fail(w, err)
@@ -706,13 +715,21 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleUpdateChatTitle(w http.ResponseWriter, r *http.Request) {
+// handleUpdateChat applies the fields the body actually carries: the title, and
+// for a multi-agent chat the turn rule and scene prompt (design §5). Each field
+// is keyed on its presence rather than on its value, so a body sent to change
+// the scene prompt alone does not blank the title.
+func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 	m, ok := decodeBody(w, r)
 	if !ok {
 		return
 	}
-	title := bodyString(m, "title")
-	chat, err := s.chats.UpdateChatTitle(r.PathValue("chatId"), title)
+	chatID := r.PathValue("chatId")
+	title := bodyStringPtr(m, "title")
+	turnRule := bodyStringPtr(m, "turnRule")
+	scenePrompt := bodyStringPtr(m, "scenePrompt")
+
+	chat, err := s.chats.GetChat(chatID)
 	if err != nil {
 		fail(w, err)
 		return
@@ -720,6 +737,41 @@ func (s *Server) handleUpdateChatTitle(w http.ResponseWriter, r *http.Request) {
 	if chat == nil {
 		writeError(w, http.StatusNotFound, "chat not found")
 		return
+	}
+
+	if turnRule != nil || scenePrompt != nil {
+		// kind is fixed at creation, so a single-assistant chat can never reach a
+		// state where these two fields mean anything; accepting them would store
+		// settings that nothing reads.
+		if chat.Kind != model.ChatKindMultiAgent {
+			writeError(w, http.StatusBadRequest, "turnRule and scenePrompt apply to multi-agent chats only")
+			return
+		}
+		if turnRule != nil && *turnRule != model.TurnRuleRoundRobin && *turnRule != model.TurnRuleManual {
+			writeError(w, http.StatusBadRequest, "turnRule must be \"round_robin\" or \"manual\"")
+			return
+		}
+		chat, err = s.chats.UpdateMultiAgentSettings(chatID, turnRule, scenePrompt)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if chat == nil {
+			writeError(w, http.StatusNotFound, "chat not found")
+			return
+		}
+	}
+
+	if title != nil {
+		chat, err = s.chats.UpdateChatTitle(chatID, *title)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if chat == nil {
+			writeError(w, http.StatusNotFound, "chat not found")
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"chat": chat})
 }
@@ -771,11 +823,6 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	chatID := r.PathValue("chatId")
 
-	assistantMessage, err := s.chatService.SendMessage(chatID, content)
-	if err != nil {
-		fail(w, err)
-		return
-	}
 	chat, err := s.chats.GetChat(chatID)
 	if err != nil {
 		fail(w, err)
@@ -784,6 +831,34 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if chat == nil {
 		writeError(w, http.StatusNotFound, "chat not found")
 		return
+	}
+
+	// In a multi-agent chat this route is the human's intervention, not a turn:
+	// the message is stored and nothing is generated, because who speaks next is
+	// the turn engine's decision (design §4.4).
+	var assistantMessage *model.Message
+	if chat.Kind == model.ChatKindMultiAgent {
+		stored, storeErr := s.storeHumanMessage(chatID, content)
+		if storeErr != nil {
+			fail(w, storeErr)
+			return
+		}
+		assistantMessage = stored
+	} else {
+		assistantMessage, err = s.chatService.SendMessage(chatID, content)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		chat, err = s.chats.GetChat(chatID)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if chat == nil {
+			writeError(w, http.StatusNotFound, "chat not found")
+			return
+		}
 	}
 	summary, err := s.chats.GetSummary(chatID)
 	if err != nil {
@@ -815,21 +890,44 @@ func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request)
 	}
 	chatID := r.PathValue("chatId")
 
+	// The chat is read before the stream opens so that a missing chat is still a
+	// 404 rather than an SSE error frame on a 200 response.
+	chat, err := s.chats.GetChat(chatID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if chat == nil {
+		writeError(w, http.StatusNotFound, "chat not found")
+		return
+	}
+	isMultiAgent := chat.Kind == model.ChatKindMultiAgent
+
 	sse, err := NewSSEWriter(w)
 	if err != nil {
 		fail(w, err)
 		return
 	}
 
-	_, streamErr := s.chatService.SendMessageStream(chatID, content, func(chunk string) {
-		_ = sse.Event("delta", map[string]string{"content": chunk})
-	})
-	if streamErr != nil {
-		_ = sse.Event("error", map[string]string{"message": streamErr.Error()})
-		return
+	if isMultiAgent {
+		// Same store-only intervention as the non-streaming route (§4.4). The
+		// response still ends in a done frame — with no delta before it — so the
+		// frontend consumes both chat kinds through one parser.
+		if _, storeErr := s.storeHumanMessage(chatID, content); storeErr != nil {
+			_ = sse.Event("error", map[string]string{"message": storeErr.Error()})
+			return
+		}
+	} else {
+		_, streamErr := s.chatService.SendMessageStream(chatID, content, func(chunk string) {
+			_ = sse.Event("delta", map[string]string{"content": chunk})
+		})
+		if streamErr != nil {
+			_ = sse.Event("error", map[string]string{"message": streamErr.Error()})
+			return
+		}
 	}
 
-	chat, err := s.chats.GetChat(chatID)
+	chat, err = s.chats.GetChat(chatID)
 	if err != nil {
 		_ = sse.Event("error", map[string]string{"message": err.Error()})
 		return
