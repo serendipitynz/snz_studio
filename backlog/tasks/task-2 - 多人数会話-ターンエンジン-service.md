@@ -1,10 +1,10 @@
 ---
 id: TASK-2
 title: '多人数会話: ターンエンジン service'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-08 22:28'
-updated_date: '2026-09-18 06:56'
+updated_date: '2026-09-18 10:49'
 labels: []
 dependencies:
   - TASK-1
