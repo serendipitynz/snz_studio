@@ -142,7 +142,11 @@ export function MultiAgentChatPage() {
   }, [participants]);
 
   const manualRule = state?.chat.turnRule === "manual";
-  const turnBlocked = roster.length === 0 || (manualRule && !nomineeId);
+  // A multi-agent chat is one with two or more participants (design §2), and the
+  // controls hold that line rather than assuming it: on a roster of one,
+  // round_robin re-selects the same speaker every turn — (0 + 1) % 1 — so
+  // auto-advance would be one model answering itself until someone stops it.
+  const turnBlocked = roster.length < 2 || (manualRule && !nomineeId);
 
   const currentTurnInput = (): TurnInput => ({
     roster,
@@ -431,7 +435,11 @@ export function MultiAgentChatPage() {
                 {stopPending ? <MetaText>{t("multiAgent.stopPending")}</MetaText> : null}
                 <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoBoundaryNote")}</MetaText>
                 {manualRule ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoManualNote")}</MetaText> : null}
-                {roster.length === 0 ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.rosterEmpty")}</MetaText> : null}
+                {roster.length < 2 ? (
+                  <MetaText style={{ opacity: 0.68 }}>
+                    {t("multiAgent.needTwoParticipants", { count: roster.length })}
+                  </MetaText>
+                ) : null}
                 {manualRule && !nomineeId ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.nomineeRequired")}</MetaText> : null}
                 <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.reloadHint")}</MetaText>
               </Stack>
