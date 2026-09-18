@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"snzstudio/internal/db"
+	"snzstudio/internal/model"
 	"snzstudio/internal/search"
 )
 
@@ -591,5 +592,219 @@ func TestChatRepository(t *testing.T) {
 	}
 	if nilc, err := chats.DeleteChat(chat.ID); err != nil || nilc != nil {
 		t.Errorf("DeleteChat(again) = %v, %v", nilc, err)
+	}
+}
+
+func TestParticipantRepository(t *testing.T) {
+	d := newTestDB(t)
+	projects := NewProjectRepository(d)
+	chats := NewChatRepository(d)
+	participants := NewParticipantRepository(d)
+
+	proj, err := projects.CreateProject(CreateProjectInput{Title: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := chats.CreateChat(CreateChatInput{
+		ProjectID: proj.ID, Title: "Debate", Kind: model.ChatKindMultiAgent, ScenePrompt: "論題: AI",
+	})
+	if err != nil {
+		t.Fatalf("CreateChat: %v", err)
+	}
+	if chat.Kind != model.ChatKindMultiAgent || chat.TurnRule != model.TurnRuleRoundRobin || chat.ScenePrompt != "論題: AI" {
+		t.Errorf("create multi-agent chat = %+v", chat)
+	}
+	// A chat created without the multi-agent fields stays the single-assistant kind.
+	plain, err := chats.CreateChat(CreateChatInput{ProjectID: proj.ID, Title: "Plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Kind != model.ChatKindAssistant || plain.TurnRule != model.TurnRuleRoundRobin {
+		t.Errorf("default chat kind/turn rule = %q/%q", plain.Kind, plain.TurnRule)
+	}
+
+	pro, err := participants.CreateParticipant(CreateParticipantInput{
+		ChatID: chat.ID, DisplayName: " 賛成派 ", RolePrompt: " you argue for ", BaseURL: " http://localhost:1234/v1 ", ModelName: " model-a ",
+	})
+	if err != nil {
+		t.Fatalf("CreateParticipant: %v", err)
+	}
+	if pro.DisplayName != "賛成派" || pro.RolePrompt != "you argue for" || pro.BaseURL != "http://localhost:1234/v1" || pro.ModelName != "model-a" {
+		t.Errorf("create trims fields: %+v", pro)
+	}
+	if pro.SortOrder != 0 || pro.DeletedAt != nil {
+		t.Errorf("first participant = sort %d, deletedAt %v", pro.SortOrder, pro.DeletedAt)
+	}
+	con, err := participants.CreateParticipant(CreateParticipantInput{
+		ChatID: chat.ID, DisplayName: "反対派", RolePrompt: "you argue against", BaseURL: "http://localhost:1235/v1", ModelName: "model-b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if con.SortOrder != 1 {
+		t.Errorf("second participant sort_order = %d, want 1", con.SortOrder)
+	}
+
+	roster, err := participants.ListRoster(chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roster) != 2 || roster[0].ID != pro.ID || roster[1].ID != con.ID {
+		t.Errorf("roster order = %+v", roster)
+	}
+
+	// A participant of another chat must be distinguishable by chat_id alone, so
+	// that the service layer can reject one named under the wrong chat.
+	other, err := participants.CreateParticipant(CreateParticipantInput{
+		ChatID: plain.ID, DisplayName: "余所者", RolePrompt: "r", BaseURL: "http://localhost:1236/v1", ModelName: "model-c",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched, err := participants.GetParticipant(other.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("GetParticipant = %v, %v", fetched, err)
+	}
+	if fetched.ChatID != plain.ID {
+		t.Errorf("GetParticipant chat_id = %q, want %q", fetched.ChatID, plain.ID)
+	}
+	if inRoster, err := participants.ListRoster(chat.ID); err != nil {
+		t.Fatal(err)
+	} else if len(inRoster) != 2 {
+		t.Errorf("another chat's participant leaked into the roster: %+v", inRoster)
+	}
+
+	// Partial update: the named fields change (trimmed), the rest is kept.
+	name := "  賛成派 (改)  "
+	order := 5
+	updated, err := participants.UpdateParticipant(UpdateParticipantInput{
+		ParticipantID: pro.ID, DisplayName: &name, SortOrder: &order,
+	})
+	if err != nil || updated == nil {
+		t.Fatalf("UpdateParticipant = %v, %v", updated, err)
+	}
+	if updated.DisplayName != "賛成派 (改)" || updated.SortOrder != 5 {
+		t.Errorf("update applied wrongly: %+v", updated)
+	}
+	if updated.RolePrompt != pro.RolePrompt || updated.ModelName != pro.ModelName || updated.ChatID != chat.ID {
+		t.Errorf("update clobbered untouched fields: %+v", updated)
+	}
+	// sort_order now decides the cycle order.
+	if roster, err := participants.ListRoster(chat.ID); err != nil {
+		t.Fatal(err)
+	} else if roster[0].ID != con.ID {
+		t.Errorf("roster not reordered by sort_order: %+v", roster)
+	}
+
+	// A participant's turn is stored with its participant_id.
+	turn, err := chats.AddMessage(AddMessageInput{
+		ChatID: chat.ID, Role: "assistant", Content: "賛成です", ModelName: &pro.ModelName, ParticipantID: &pro.ID,
+	})
+	if err != nil {
+		t.Fatalf("AddMessage(participant turn): %v", err)
+	}
+	if turn.ParticipantID == nil || *turn.ParticipantID != pro.ID {
+		t.Errorf("participant_id not stored: %+v", turn.ParticipantID)
+	}
+	human, err := chats.AddMessage(AddMessageInput{ChatID: chat.ID, Role: "user", Content: "野次"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if human.ParticipantID != nil {
+		t.Errorf("human message should have a nil participant_id, got %v", *human.ParticipantID)
+	}
+
+	// Removal from the roster is logical: the row and its past turn survive.
+	removed, err := participants.RemoveParticipant(pro.ID)
+	if err != nil || removed == nil {
+		t.Fatalf("RemoveParticipant = %v, %v", removed, err)
+	}
+	if removed.DeletedAt == nil {
+		t.Fatal("RemoveParticipant left deleted_at NULL")
+	}
+	roster, err = participants.ListRoster(chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roster) != 1 || roster[0].ID != con.ID {
+		t.Errorf("removed participant still on the roster: %+v", roster)
+	}
+	all, err := participants.ListAll(chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("ListAll = %d rows, want both participants", len(all))
+	}
+	// The past turn still resolves to a display name and model name, and the
+	// roster still offers a starting point for the next round_robin turn.
+	byID := map[string]model.Participant{}
+	for _, p := range all {
+		byID[p.ID] = p
+	}
+	speaker, ok := byID[*turn.ParticipantID]
+	if !ok || speaker.DisplayName != "賛成派 (改)" || speaker.ModelName != "model-a" {
+		t.Errorf("removed speaker unresolvable from ListAll: %+v", speaker)
+	}
+	if len(roster) == 0 {
+		t.Error("round_robin has no roster left to advance from")
+	}
+	// Removing twice keeps the original timestamp (idempotent).
+	again, err := participants.RemoveParticipant(pro.ID)
+	if err != nil || again == nil {
+		t.Fatalf("RemoveParticipant(again) = %v, %v", again, err)
+	}
+	if *again.DeletedAt != *removed.DeletedAt {
+		t.Errorf("deleted_at rewritten on repeat: %q -> %q", *removed.DeletedAt, *again.DeletedAt)
+	}
+	// A removed participant is still reachable by id, with its chat_id.
+	got, err := participants.GetParticipant(pro.ID)
+	if err != nil || got == nil || got.ChatID != chat.ID || got.DeletedAt == nil {
+		t.Errorf("GetParticipant(removed) = %+v, %v", got, err)
+	}
+	// ...and still updatable, so the service layer decides the policy, not this layer.
+	newModel := "model-a2"
+	if upd, err := participants.UpdateParticipant(UpdateParticipantInput{ParticipantID: pro.ID, ModelName: &newModel}); err != nil || upd == nil || upd.ModelName != "model-a2" {
+		t.Errorf("UpdateParticipant(removed) = %+v, %v", upd, err)
+	}
+
+	// Missing ids report absence rather than an error.
+	if missing, err := participants.GetParticipant("nope"); err != nil || missing != nil {
+		t.Errorf("GetParticipant(missing) = %v, %v", missing, err)
+	}
+	if upd, err := participants.UpdateParticipant(UpdateParticipantInput{ParticipantID: "nope", ModelName: &newModel}); err != nil || upd != nil {
+		t.Errorf("UpdateParticipant(missing) = %v, %v", upd, err)
+	}
+	if rm, err := participants.RemoveParticipant("nope"); err != nil || rm != nil {
+		t.Errorf("RemoveParticipant(missing) = %v, %v", rm, err)
+	}
+
+	// Turn rule and scene prompt update independently.
+	manual := model.TurnRuleManual
+	settings, err := chats.UpdateMultiAgentSettings(chat.ID, &manual, nil)
+	if err != nil || settings == nil {
+		t.Fatalf("UpdateMultiAgentSettings = %v, %v", settings, err)
+	}
+	if settings.TurnRule != model.TurnRuleManual || settings.ScenePrompt != "論題: AI" {
+		t.Errorf("turn rule update clobbered the scene prompt: %+v", settings)
+	}
+	scene := "論題: 猫"
+	settings, err = chats.UpdateMultiAgentSettings(chat.ID, nil, &scene)
+	if err != nil || settings == nil {
+		t.Fatalf("UpdateMultiAgentSettings(scene) = %v, %v", settings, err)
+	}
+	if settings.TurnRule != model.TurnRuleManual || settings.ScenePrompt != scene {
+		t.Errorf("scene prompt update = %+v", settings)
+	}
+	if nilc, err := chats.UpdateMultiAgentSettings("nope", &manual, nil); err != nil || nilc != nil {
+		t.Errorf("UpdateMultiAgentSettings(missing) = %v, %v", nilc, err)
+	}
+
+	// Deleting the chat takes its participants with it.
+	if _, err := chats.DeleteChat(chat.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := participants.ListAll(chat.ID); err != nil || len(rows) != 0 {
+		t.Errorf("participants not cascaded: %d rows, %v", len(rows), err)
 	}
 }

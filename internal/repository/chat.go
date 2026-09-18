@@ -20,8 +20,8 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 }
 
 const (
-	chatColumns    = `id, project_id, title, is_temporary, created_at, updated_at`
-	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name`
+	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, created_at, updated_at`
+	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id`
 	summaryColumns = `chat_id, summary, updated_at`
 	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
 )
@@ -31,7 +31,7 @@ func scanChat(s scanner) (model.Chat, error) {
 		c           model.Chat
 		isTemporary int64
 	)
-	if err := s.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := s.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return c, err
 	}
 	c.IsTemporary = isTemporary != 0
@@ -40,19 +40,21 @@ func scanChat(s scanner) (model.Chat, error) {
 
 func scanMessage(s scanner) (model.Message, error) {
 	var (
-		m         model.Message
-		respMs    sql.NullInt64
-		outTok    sql.NullInt64
-		tps       sql.NullFloat64
-		modelName sql.NullString
+		m             model.Message
+		respMs        sql.NullInt64
+		outTok        sql.NullInt64
+		tps           sql.NullFloat64
+		modelName     sql.NullString
+		participantID sql.NullString
 	)
-	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName); err != nil {
+	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName, &participantID); err != nil {
 		return m, err
 	}
 	m.ResponseMs = int64Ptr(respMs)
 	m.OutputTokens = int64Ptr(outTok)
 	m.TokensPerSecond = float64Ptr(tps)
 	m.ModelName = strPtr(modelName)
+	m.ParticipantID = strPtr(participantID)
 	return m, nil
 }
 
@@ -98,28 +100,44 @@ func (r *ChatRepository) GetChat(chatID string) (*model.Chat, error) {
 	return &c, nil
 }
 
-// CreateChatInput carries the fields for CreateChat.
+// CreateChatInput carries the fields for CreateChat. Kind, TurnRule and
+// ScenePrompt are optional: an empty Kind/TurnRule falls back to the column
+// defaults, so existing callers keep creating single-assistant chats.
 type CreateChatInput struct {
 	ProjectID   string
 	Title       string
 	IsTemporary bool
+	Kind        string
+	TurnRule    string
+	ScenePrompt string
 }
 
 // CreateChat inserts a chat and seeds an empty summary row. Mirrors createChat.
 func (r *ChatRepository) CreateChat(input CreateChatInput) (model.Chat, error) {
 	now := util.NowISO()
+	kind := input.Kind
+	if kind == "" {
+		kind = model.ChatKindAssistant
+	}
+	turnRule := input.TurnRule
+	if turnRule == "" {
+		turnRule = model.TurnRuleRoundRobin
+	}
 	c := model.Chat{
 		ID:          util.NewID("chat"),
 		ProjectID:   input.ProjectID,
 		Title:       strings.TrimSpace(input.Title),
 		IsTemporary: input.IsTemporary,
+		Kind:        kind,
+		TurnRule:    turnRule,
+		ScenePrompt: input.ScenePrompt,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 	if _, err := r.db.Exec(`
-		INSERT INTO chats (id, project_id, title, is_temporary, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		c.ID, c.ProjectID, c.Title, boolToInt(c.IsTemporary), c.CreatedAt, c.UpdatedAt); err != nil {
+		INSERT INTO chats (id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.ProjectID, c.Title, boolToInt(c.IsTemporary), c.Kind, c.TurnRule, c.ScenePrompt, c.CreatedAt, c.UpdatedAt); err != nil {
 		return model.Chat{}, err
 	}
 	if err := r.UpsertSummary(c.ID, ""); err != nil {
@@ -162,6 +180,29 @@ func (r *ChatRepository) SetTemporary(chatID string, isTemporary bool) (*model.C
 	return r.GetChat(chatID)
 }
 
+// UpdateMultiAgentSettings updates a multi-agent chat's turn rule and/or scene
+// prompt, leaving a nil argument untouched, and returns (nil, nil) if the chat
+// does not exist. The update is partial because PATCH /api/chats/{chatId}
+// accepts either field on its own (design §5).
+func (r *ChatRepository) UpdateMultiAgentSettings(chatID string, turnRule, scenePrompt *string) (*model.Chat, error) {
+	res, err := r.db.Exec(`
+		UPDATE chats
+		SET turn_rule = COALESCE(?, turn_rule), scene_prompt = COALESCE(?, scene_prompt), updated_at = ?
+		WHERE id = ?`,
+		ptrArg(turnRule), ptrArg(scenePrompt), util.NowISO(), chatID)
+	if err != nil {
+		return nil, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	return r.GetChat(chatID)
+}
+
 // DeleteChat removes a chat (messages/summary/references cascade), returning the
 // deleted record (or nil if it did not exist).
 func (r *ChatRepository) DeleteChat(chatID string) (*model.Chat, error) {
@@ -178,7 +219,8 @@ func (r *ChatRepository) DeleteChat(chatID string) (*model.Chat, error) {
 	return chat, nil
 }
 
-// AddMessageInput carries the fields for AddMessage.
+// AddMessageInput carries the fields for AddMessage. ParticipantID is set only
+// for a multi-agent participant's turn.
 type AddMessageInput struct {
 	ChatID          string
 	Role            string
@@ -187,6 +229,7 @@ type AddMessageInput struct {
 	OutputTokens    *int64
 	TokensPerSecond *float64
 	ModelName       *string
+	ParticipantID   *string
 }
 
 // AddMessage inserts a message and bumps the chat's updated_at. Mirrors addMessage.
@@ -202,6 +245,7 @@ func (r *ChatRepository) AddMessage(input AddMessageInput) (model.Message, error
 		OutputTokens:    input.OutputTokens,
 		TokensPerSecond: input.TokensPerSecond,
 		ModelName:       input.ModelName,
+		ParticipantID:   input.ParticipantID,
 	}
 
 	tx, err := r.db.Begin()
@@ -210,10 +254,10 @@ func (r *ChatRepository) AddMessage(input AddMessageInput) (model.Message, error
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`
-		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatID, m.Role, m.Content, m.CreatedAt,
-		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName)); err != nil {
+		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID)); err != nil {
 		return model.Message{}, err
 	}
 	if _, err := tx.Exec("UPDATE chats SET updated_at = ? WHERE id = ?", util.NowISO(), m.ChatID); err != nil {

@@ -11,7 +11,10 @@
 // feed a transaction is fully drained and closed before Begin.
 package repository
 
-import "database/sql"
+import (
+	"database/sql"
+	"strings"
+)
 
 // dbtx is satisfied by both *sql.DB and *sql.Tx, letting helper queries run
 // either standalone or inside a transaction.
@@ -42,6 +45,16 @@ func ptrArg[T any](p *T) any {
 		return nil
 	}
 	return *p
+}
+
+// trimmedPtrArg binds an optional string the way the create paths store one:
+// with surrounding whitespace removed, so a partial update cannot introduce a
+// form the same field could not have been created with.
+func trimmedPtrArg(p *string) any {
+	if p == nil {
+		return nil
+	}
+	return strings.TrimSpace(*p)
 }
 
 func strPtr(n sql.NullString) *string {
