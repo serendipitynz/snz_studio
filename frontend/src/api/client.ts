@@ -58,13 +58,34 @@ export interface MemoryOrganizationPlan {
   changes: MemoryOrganizationChange[];
 }
 
+export type ChatKind = "assistant" | "multi_agent";
+export type TurnRule = "round_robin" | "manual";
+
 export interface ChatRecord {
   id: string;
   projectId: string;
   title: string;
   isTemporary: boolean;
+  kind: ChatKind;
+  turnRule: TurnRule;
+  scenePrompt: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// Participant mirrors the Go model.Participant. deletedAt non-null means the
+// participant is off the roster; the row survives so an older message still
+// resolves to a speaker name (docs/multi-agent-chat-design.md §3).
+export interface Participant {
+  id: string;
+  chatId: string;
+  displayName: string;
+  rolePrompt: string;
+  baseUrl: string;
+  modelName: string;
+  sortOrder: number;
+  createdAt: string;
+  deletedAt: string | null;
 }
 
 export interface ChatSummary {
@@ -102,6 +123,7 @@ export interface MessageRecord {
   outputTokens: number | null;
   tokensPerSecond: number | null;
   modelName: string | null;
+  participantId: string | null;
   references: AssistantReference[];
 }
 
@@ -225,7 +247,7 @@ export const api = {
     request<{ project: Project; documents: DocumentRecord[]; memories: MemoryRecord[]; chats: ChatRecord[] }>(
       `/api/projects/${projectId}`
     ),
-  createChat: (projectId: string, input: { title: string; isTemporary?: boolean }) =>
+  createChat: (projectId: string, input: { title: string; isTemporary?: boolean; kind?: ChatKind }) =>
     request<{ chat: ChatRecord }>(`/api/projects/${projectId}/chats`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -299,5 +321,34 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content })
+    }),
+  updateChatMultiAgentSettings: (chatId: string, input: { turnRule?: TurnRule; scenePrompt?: string }) =>
+    request<{ chat: ChatRecord }>(`/api/chats/${chatId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }),
+  // The list carries removed participants too, so the spectator view can name the
+  // speaker of an older message; callers that want the roster filter on deletedAt.
+  listParticipants: (chatId: string) =>
+    request<{ participants: Participant[] }>(`/api/chats/${chatId}/participants`),
+  createParticipant: (chatId: string, input: { displayName: string; rolePrompt?: string; baseUrl?: string; modelName?: string }) =>
+    request<{ participant: Participant }>(`/api/chats/${chatId}/participants`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }),
+  updateParticipant: (
+    participantId: string,
+    input: { displayName?: string; rolePrompt?: string; baseUrl?: string; modelName?: string; sortOrder?: number }
+  ) =>
+    request<{ participant: Participant }>(`/api/participants/${participantId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }),
+  removeParticipant: (participantId: string) =>
+    request<{ ok: boolean; participant: Participant }>(`/api/participants/${participantId}`, {
+      method: "DELETE"
     })
 };

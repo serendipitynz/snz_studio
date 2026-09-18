@@ -3,6 +3,7 @@ import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "reac
 import { useNavigate, useParams } from "react-router-dom";
 import {
   api,
+  ChatKind,
   ChatRecord,
   DocumentCategory,
   DocumentRecord,
@@ -63,6 +64,7 @@ export function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [chatTitle, setChatTitle] = useState("");
   const [newChatIsTemporary, setNewChatIsTemporary] = useState(false);
+  const [newChatKind, setNewChatKind] = useState<ChatKind>("assistant");
   const [memoryKind, setMemoryKind] = useState<MemoryKind>("semantic");
   const [memoryContent, setMemoryContent] = useState("");
   const [memoryLocked, setMemoryLocked] = useState(true);
@@ -130,7 +132,11 @@ export function ProjectDetailPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      const response = await api.createChat(projectId, { title: chatTitle, isTemporary: newChatIsTemporary });
+      const response = await api.createChat(projectId, {
+        title: chatTitle,
+        isTemporary: newChatIsTemporary,
+        kind: newChatKind
+      });
       navigate(`/chats/${response.chat.id}`);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : t("project.createChatError"));
@@ -473,6 +479,13 @@ export function ProjectDetailPage() {
                         onChange={(event) => setChatTitle(event.target.value)}
                         placeholder={t("project.chatTitlePlaceholder")}
                       />
+                    </Field>
+                    <Field>
+                      {t("multiAgent.chatType")}
+                      <Select value={newChatKind} onChange={(event) => setNewChatKind(event.target.value as ChatKind)}>
+                        <option value="assistant">{t("multiAgent.kindAssistant")}</option>
+                        <option value="multi_agent">{t("multiAgent.kindMultiAgent")}</option>
+                      </Select>
                     </Field>
                     <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <input

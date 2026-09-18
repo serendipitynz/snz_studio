@@ -1,0 +1,507 @@
+import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import { api, ChatRecord, ChatSummary, MessageRecord, Participant, Project, TurnRule } from "../api/client";
+import { streamSSE } from "../api/sse";
+import { predictNextSpeaker } from "../api/turnOrder";
+import { MarkdownPreview } from "../components/MarkdownPreview";
+import { ParticipantPanel } from "../components/ParticipantPanel";
+import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
+import { useLanguage } from "../i18n";
+import {
+  Badge,
+  Button,
+  Card,
+  Composer,
+  ComposerBox,
+  ErrorText,
+  FloatingScrollButton,
+  IconButton,
+  InspectorPane,
+  MainPane,
+  MessageArea,
+  MessageBubble,
+  MessageScroller,
+  MetaText,
+  PaneHeader,
+  Row,
+  SectionTitle,
+  Select,
+  Stack,
+  Subtle,
+  Textarea,
+  WorkspaceShell
+} from "../styles/ui";
+
+interface MultiAgentState {
+  project: Project;
+  chat: ChatRecord;
+  summary: ChatSummary | null;
+  messages: MessageRecord[];
+}
+
+// A turn's completion arrives as a `done` frame carrying the freshly read chat,
+// transcript and roster, which is what lets one turn's result replace the whole
+// view without a second round trip.
+// What one turn needs to run: the roster to cycle, the transcript the cycle is
+// derived from, the rule, and the nomination the manual rule requires.
+interface TurnInput {
+  roster: Participant[];
+  messages: MessageRecord[];
+  turnRule: TurnRule;
+  nomineeId: string;
+}
+
+interface TurnDonePayload {
+  chat?: ChatRecord;
+  message?: MessageRecord;
+  messages?: MessageRecord[];
+  participants?: Participant[];
+}
+
+// MultiAgentChatPage is the spectator view and progression control of
+// docs/multi-agent-chat-design.md §6. Auto-advance is this loop calling the
+// one-turn route repeatedly (§4.1): there is no server-side progression job, so
+// stopping means not making the next call, and the turn already in flight runs to
+// completion on the server whatever this window does.
+export function MultiAgentChatPage() {
+  const { chatId = "" } = useParams();
+  const { t } = useLanguage();
+  const messageScrollerRef = useRef<HTMLDivElement | null>(null);
+  const [state, setState] = useState<MultiAgentState | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectChats, setProjectChats] = useState<ChatRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [turnError, setTurnError] = useState("");
+  const [runningSpeaker, setRunningSpeaker] = useState<Participant | null>(null);
+  const [streamedContent, setStreamedContent] = useState("");
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [nomineeId, setNomineeId] = useState("");
+  const [draft, setDraft] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  // The loop reads its stop flag from a ref rather than from state: the flag is
+  // set while an awaited turn is in flight, and the loop's closure would keep
+  // reading the value state had when the iteration started.
+  const autoRunningRef = useRef(false);
+  const turnInFlightRef = useRef(false);
+
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const chatResponse = await api.getChatDetail(chatId);
+      const [participantsResponse, projectResponse, projectsResponse] = await Promise.all([
+        api.listParticipants(chatId),
+        api.getProjectDetail(chatResponse.project.id),
+        api.getProjects()
+      ]);
+
+      setState(chatResponse);
+      setParticipants(participantsResponse.participants);
+      setProjectChats(projectResponse.chats);
+      setProjects(projectsResponse.projects);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : t("multiAgent.loadError"));
+    }
+  }, [chatId, t]);
+
+  useEffect(() => {
+    setLoading(true);
+    void load().finally(() => setLoading(false));
+  }, [load]);
+
+  // Leaving the page stops the loop. The turn in flight still finishes and is
+  // stored server-side, which is the same guarantee a disconnect gets (§4.1).
+  useEffect(() => {
+    return () => {
+      autoRunningRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const node = messageScrollerRef.current;
+    if (!node || loading) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      node.scrollTop = node.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, state?.messages.length, streamedContent]);
+
+  const roster = useMemo(
+    () => participants.filter((participant) => participant.deletedAt === null),
+    [participants]
+  );
+
+  const speakerById = useMemo(() => {
+    return new Map(participants.map((participant) => [participant.id, participant]));
+  }, [participants]);
+
+  const manualRule = state?.chat.turnRule === "manual";
+  // A multi-agent chat is one with two or more participants (design §2), and the
+  // controls hold that line rather than assuming it: on a roster of one,
+  // round_robin re-selects the same speaker every turn — (0 + 1) % 1 — so
+  // auto-advance would be one model answering itself until someone stops it.
+  const turnBlocked = roster.length < 2 || (manualRule && !nomineeId);
+
+  const currentTurnInput = (): TurnInput => ({
+    roster,
+    messages: state?.messages ?? [],
+    turnRule: state?.chat.turnRule ?? "round_robin",
+    nomineeId
+  });
+
+  // runTurn takes what the turn needs and hands back what the next turn needs,
+  // instead of reading either from the component's scope. The auto-advance loop
+  // awaits every turn inside one closure, so a turn reading the scope would see
+  // the values of the render the loop started in — the deltas would all be
+  // labelled with the first turn's speaker. Threading the `done` frame's own
+  // chat, transcript and roster through also keeps the loop on what the server
+  // actually stored rather than on whether React has re-rendered yet.
+  async function runTurn(input: TurnInput): Promise<TurnInput | null> {
+    if (turnInFlightRef.current) {
+      return null;
+    }
+
+    turnInFlightRef.current = true;
+    setTurnError("");
+    setStreamedContent("");
+    setRunningSpeaker(predictNextSpeaker(input.roster, input.messages, input.turnRule, input.nomineeId));
+
+    let next: TurnInput | null = null;
+    try {
+      await streamSSE(
+        `/api/chats/${chatId}/turns/stream`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input.turnRule === "manual" ? { participantId: input.nomineeId } : {})
+        },
+        (event, payload) => {
+          if (event === "delta") {
+            const delta = typeof payload.content === "string" ? payload.content : "";
+            if (delta) {
+              setStreamedContent((current) => `${current}${delta}`);
+            }
+            return;
+          }
+
+          if (event === "done") {
+            const done = payload as TurnDonePayload;
+            const nextParticipants = done.participants ?? [];
+            next = {
+              roster: done.participants
+                ? nextParticipants.filter((participant) => participant.deletedAt === null)
+                : input.roster,
+              messages: done.messages ?? input.messages,
+              turnRule: done.chat?.turnRule ?? input.turnRule,
+              nomineeId: input.nomineeId
+            };
+            setState((current) =>
+              current
+                ? { ...current, chat: done.chat ?? current.chat, messages: done.messages ?? current.messages }
+                : current
+            );
+            if (done.participants) {
+              setParticipants(done.participants);
+            }
+          }
+        }
+      );
+      return next;
+    } catch (nextError) {
+      setTurnError(nextError instanceof Error ? nextError.message : t("multiAgent.turnError"));
+      // The turn may well have finished on the server after the stream broke, so
+      // the transcript is re-read rather than left showing the pre-turn state
+      // (§4.1).
+      await load();
+      return null;
+    } finally {
+      turnInFlightRef.current = false;
+      setRunningSpeaker(null);
+      setStreamedContent("");
+    }
+  }
+
+  async function handleAdvanceTurn() {
+    await runTurn(currentTurnInput());
+  }
+
+  async function handleToggleAutoRun() {
+    if (autoRunningRef.current) {
+      // Only the flag is cleared: the turn in flight is not cancelled, so the loop
+      // stops at the next turn boundary (§4.1).
+      autoRunningRef.current = false;
+      setAutoRunning(false);
+      return;
+    }
+
+    autoRunningRef.current = true;
+    setAutoRunning(true);
+    try {
+      let input = currentTurnInput();
+      while (autoRunningRef.current) {
+        const next = await runTurn(input);
+        if (!next) {
+          break;
+        }
+        input = next;
+      }
+    } finally {
+      autoRunningRef.current = false;
+      setAutoRunning(false);
+    }
+  }
+
+  async function handleIntervene(event: FormEvent) {
+    event.preventDefault();
+    const content = draft.trim();
+    if (!content) {
+      return;
+    }
+
+    setPosting(true);
+    setTurnError("");
+    try {
+      const response = await api.sendMessage(chatId, content);
+      setState((current) => (current ? { ...current, chat: response.chat, messages: response.messages } : current));
+      setDraft("");
+    } catch (nextError) {
+      setTurnError(nextError instanceof Error ? nextError.message : t("multiAgent.interveneError"));
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  function handleMessageScroll(event: UIEvent<HTMLDivElement>) {
+    const node = event.currentTarget;
+    setShowScrollToBottom(node.scrollHeight - node.scrollTop - node.clientHeight > 24);
+  }
+
+  function scrollToBottom() {
+    messageScrollerRef.current?.scrollTo({ top: messageScrollerRef.current.scrollHeight, behavior: "smooth" });
+  }
+
+  function speakerLabel(message: MessageRecord): string {
+    if (message.role === "user") {
+      return t("multiAgent.speakerHuman");
+    }
+    if (!message.participantId) {
+      return t("multiAgent.speakerAssistant");
+    }
+
+    const participant = speakerById.get(message.participantId);
+    if (!participant) {
+      return t("multiAgent.speakerAssistant");
+    }
+    return participant.deletedAt
+      ? t("multiAgent.speakerRemoved", { name: participant.displayName })
+      : participant.displayName;
+  }
+
+  if (loading) {
+    return <Card>{t("multiAgent.loading")}</Card>;
+  }
+
+  if (!state) {
+    return <Card>{error || t("multiAgent.notFound")}</Card>;
+  }
+
+  const stopPending = !autoRunning && runningSpeaker !== null;
+
+  return (
+    <WorkspaceShell>
+      <WorkspaceSidebar
+        projects={projects}
+        currentProjectId={state.project.id}
+        chats={projectChats}
+        activeChatId={state.chat.id}
+      />
+
+      <MainPane>
+        <PaneHeader>
+          <Row style={{ alignItems: "center" }}>
+            <SectionTitle>{state.chat.title.trim() || t("sidebar.untitled")}</SectionTitle>
+            <Badge tone="warm">{t("multiAgent.badge")}</Badge>
+            <Badge tone="accent">{state.project.title}</Badge>
+          </Row>
+          <IconButton
+            type="button"
+            aria-label={t("multiAgent.reload")}
+            title={t("multiAgent.reload")}
+            onClick={() => void load()}
+          >
+            <ReloadIcon />
+          </IconButton>
+        </PaneHeader>
+
+        <MessageArea>
+          <MessageScroller ref={messageScrollerRef} onScroll={handleMessageScroll}>
+            <Stack>
+              {error ? <ErrorText>{error}</ErrorText> : null}
+              {turnError ? <ErrorText>{turnError}</ErrorText> : null}
+              {state.messages.length === 0 && !runningSpeaker ? <Subtle>{t("multiAgent.spectatorEmpty")}</Subtle> : null}
+
+              {state.messages.map((message) => (
+                <MessageBubble key={message.id} $role={message.role}>
+                  <Stack>
+                    <Row style={{ justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                      <strong style={{ overflowWrap: "anywhere" }}>{speakerLabel(message)}</strong>
+                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.68 }}>{message.modelName ?? ""}</MetaText>
+                    </Row>
+                    {message.role === "assistant" ? (
+                      <MarkdownPreview source={message.content} />
+                    ) : (
+                      <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{message.content}</div>
+                    )}
+                    <MetaText style={{ textAlign: "right", opacity: 0.68 }}>
+                      {new Date(message.createdAt).toLocaleTimeString()}
+                    </MetaText>
+                  </Stack>
+                </MessageBubble>
+              ))}
+
+              {runningSpeaker || streamedContent ? (
+                <MessageBubble $role="assistant">
+                  <Stack>
+                    <Row style={{ justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                      <strong style={{ overflowWrap: "anywhere" }}>
+                        {runningSpeaker?.displayName ?? t("multiAgent.runningTurnUnknown")}
+                      </strong>
+                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.68 }}>
+                        {runningSpeaker?.modelName ?? ""}
+                      </MetaText>
+                    </Row>
+                    {streamedContent ? (
+                      <MarkdownPreview source={streamedContent} />
+                    ) : (
+                      <Row style={{ alignItems: "center", gap: 10 }}>
+                        <SpinnerIcon />
+                        <MetaText>{t("multiAgent.speaking")}</MetaText>
+                      </Row>
+                    )}
+                  </Stack>
+                </MessageBubble>
+              ) : null}
+            </Stack>
+          </MessageScroller>
+
+          {showScrollToBottom ? (
+            <FloatingScrollButton type="button" onClick={scrollToBottom}>
+              <span>{t("chat.scrollToLatest")}</span>
+            </FloatingScrollButton>
+          ) : null}
+        </MessageArea>
+
+        <Composer onSubmit={handleIntervene}>
+          <ComposerBox>
+            <Stack>
+              <Row style={{ alignItems: "center" }}>
+                <Button type="button" onClick={() => void handleAdvanceTurn()} disabled={autoRunning || runningSpeaker !== null || turnBlocked}>
+                  {t("multiAgent.advanceTurn")}
+                </Button>
+                <Button
+                  type="button"
+                  variant={autoRunning ? "warm" : "solid"}
+                  onClick={() => void handleToggleAutoRun()}
+                  disabled={manualRule || (!autoRunning && (runningSpeaker !== null || turnBlocked))}
+                >
+                  {autoRunning ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
+                </Button>
+                {manualRule ? (
+                  <Select value={nomineeId} onChange={(event) => setNomineeId(event.target.value)} style={{ minWidth: 200 }}>
+                    <option value="">{t("multiAgent.nominee")}</option>
+                    {roster.map((participant) => (
+                      <option key={participant.id} value={participant.id}>
+                        {participant.displayName}
+                      </option>
+                    ))}
+                  </Select>
+                ) : null}
+              </Row>
+
+              <Stack style={{ gap: 4 }}>
+                {runningSpeaker ? (
+                  <Row style={{ alignItems: "center", gap: 8 }}>
+                    <SpinnerIcon />
+                    <MetaText>{t("multiAgent.runningTurn", { name: runningSpeaker.displayName })}</MetaText>
+                  </Row>
+                ) : null}
+                {autoRunning ? <MetaText>{t("multiAgent.autoRunning")}</MetaText> : null}
+                {stopPending ? <MetaText>{t("multiAgent.stopPending")}</MetaText> : null}
+                <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoBoundaryNote")}</MetaText>
+                {manualRule ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoManualNote")}</MetaText> : null}
+                {roster.length < 2 ? (
+                  <MetaText style={{ opacity: 0.68 }}>
+                    {t("multiAgent.needTwoParticipants", { count: roster.length })}
+                  </MetaText>
+                ) : null}
+                {manualRule && !nomineeId ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.nomineeRequired")}</MetaText> : null}
+                <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.reloadHint")}</MetaText>
+              </Stack>
+
+              <Textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder={t("multiAgent.intervenePlaceholder")}
+                style={{ minHeight: 72, resize: "none" }}
+              />
+              <Row style={{ justifyContent: "flex-end" }}>
+                <Button type="submit" disabled={posting || !draft.trim()}>
+                  {t("multiAgent.intervene")}
+                </Button>
+              </Row>
+            </Stack>
+          </ComposerBox>
+        </Composer>
+      </MainPane>
+
+      <InspectorPane>
+        <ParticipantPanel
+          chat={state.chat}
+          participants={participants}
+          onChatChange={(chat) => setState((current) => (current ? { ...current, chat } : current))}
+          onParticipantsChange={setParticipants}
+          disabled={autoRunning || runningSpeaker !== null}
+        />
+      </InspectorPane>
+    </WorkspaceShell>
+  );
+}
+
+function ReloadIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M13 8a5 5 0 1 1-1.6-3.66M13 3v2.5h-2.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
+      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <animateTransform
+          attributeName="transform"
+          attributeType="XML"
+          type="rotate"
+          from="0 8 8"
+          to="360 8 8"
+          dur="0.8s"
+          repeatCount="indefinite"
+        />
+      </path>
+    </svg>
+  );
+}
