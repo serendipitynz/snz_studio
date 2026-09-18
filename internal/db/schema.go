@@ -284,6 +284,30 @@ var migrations = []migration{
 			ALTER TABLE messages ADD COLUMN model_name TEXT;
 		`,
 	},
+	{
+		id: "010_multi_agent_chat",
+		sql: `
+			ALTER TABLE chats ADD COLUMN kind TEXT NOT NULL DEFAULT 'assistant';
+			ALTER TABLE chats ADD COLUMN turn_rule TEXT NOT NULL DEFAULT 'round_robin';
+			ALTER TABLE chats ADD COLUMN scene_prompt TEXT NOT NULL DEFAULT '';
+
+			CREATE TABLE participants (
+				id TEXT PRIMARY KEY,
+				chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+				display_name TEXT NOT NULL,
+				role_prompt TEXT NOT NULL,
+				base_url TEXT NOT NULL,
+				model_name TEXT NOT NULL,
+				sort_order INTEGER NOT NULL DEFAULT 0,
+				created_at TEXT NOT NULL,
+				deleted_at TEXT
+			);
+
+			CREATE INDEX idx_participants_chat_id ON participants(chat_id, sort_order);
+
+			ALTER TABLE messages ADD COLUMN participant_id TEXT;
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in

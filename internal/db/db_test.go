@@ -33,7 +33,7 @@ func TestMigrationsCreateExpectedTables(t *testing.T) {
 		"schema_migrations", "projects", "documents", "document_chunks",
 		"document_chunks_fts", "chats", "messages", "chat_summaries",
 		"memories", "memories_fts", "assistant_message_references",
-		"document_chunk_embeddings", "memory_embeddings",
+		"document_chunk_embeddings", "memory_embeddings", "participants",
 	}
 	for _, name := range want {
 		var got string
@@ -136,5 +136,102 @@ func TestFts5Bm25(t *testing.T) {
 	`, search.ToFtsQuery("大阪")).Scan(&dummy)
 	if err != sql.ErrNoRows {
 		t.Errorf("expected sql.ErrNoRows for 大阪, got %v (chunk=%q)", err, dummy)
+	}
+}
+
+// openUnmigratedTemp opens a database without applying migrations, so a test can
+// build a pre-migration state and migrate it afterwards. It repeats Open's DSN
+// deliberately: Open always migrates, and the point here is not to.
+func openUnmigratedTemp(t *testing.T) *sql.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "old.sqlite")
+	database, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	database.SetMaxOpenConns(1)
+	t.Cleanup(func() { database.Close() })
+	return database
+}
+
+// applyThrough applies the migrations up to and including lastID, reproducing
+// the schema of a database created by an earlier version of the app.
+func applyThrough(t *testing.T, d *sql.DB, lastID string) {
+	t.Helper()
+	if _, err := d.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			id TEXT PRIMARY KEY,
+			applied_at TEXT NOT NULL
+		);
+	`); err != nil {
+		t.Fatalf("schema_migrations: %v", err)
+	}
+	for _, m := range migrations {
+		if err := runMigration(d, m); err != nil {
+			t.Fatalf("migration %s: %v", m.id, err)
+		}
+		if m.id == lastID {
+			return
+		}
+	}
+	t.Fatalf("migration %q not found", lastID)
+}
+
+// TestMultiAgentMigrationOnExistingDB is the upgrade path: a database from
+// before the multi-agent work, holding a chat and its messages, must take
+// migration 010 and come out with the existing rows untouched and defaulted to
+// the single-assistant shape.
+func TestMultiAgentMigrationOnExistingDB(t *testing.T) {
+	d := openUnmigratedTemp(t)
+	applyThrough(t, d, "009_message_model_name")
+
+	mustExec(t, d, `INSERT INTO projects (id, title, created_at, updated_at)
+		VALUES ('p1', 'proj', '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO chats (id, project_id, title, is_temporary, created_at, updated_at)
+		VALUES ('c1', 'p1', 'old chat', 0, '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO messages (id, chat_id, role, content, created_at)
+		VALUES ('m1', 'c1', 'user', 'hello', '2026-01-01')`)
+
+	if err := ApplyMigrations(d); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+
+	var (
+		title       string
+		kind        string
+		turnRule    string
+		scenePrompt string
+	)
+	if err := d.QueryRow("SELECT title, kind, turn_rule, scene_prompt FROM chats WHERE id = 'c1'").
+		Scan(&title, &kind, &turnRule, &scenePrompt); err != nil {
+		t.Fatalf("read migrated chat: %v", err)
+	}
+	if title != "old chat" || kind != "assistant" || turnRule != "round_robin" || scenePrompt != "" {
+		t.Errorf("migrated chat = (%q, %q, %q, %q), want the row unchanged and defaulted to assistant",
+			title, kind, turnRule, scenePrompt)
+	}
+
+	var (
+		content       string
+		participantID sql.NullString
+	)
+	if err := d.QueryRow("SELECT content, participant_id FROM messages WHERE id = 'm1'").
+		Scan(&content, &participantID); err != nil {
+		t.Fatalf("read migrated message: %v", err)
+	}
+	if content != "hello" || participantID.Valid {
+		t.Errorf("migrated message = (%q, %v), want the row unchanged with a NULL participant_id", content, participantID)
+	}
+
+	// participants must cascade with its chat, like the other chat-owned tables.
+	mustExec(t, d, `INSERT INTO participants (id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, created_at)
+		VALUES ('pt1', 'c1', 'A', 'r', 'http://localhost:1234/v1', 'm', 0, '2026-01-01')`)
+	mustExec(t, d, "DELETE FROM chats WHERE id = 'c1'")
+	var remaining int
+	if err := d.QueryRow("SELECT COUNT(*) FROM participants").Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Errorf("participants not cascaded on chat delete: %d rows left", remaining)
 	}
 }
