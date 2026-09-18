@@ -31,7 +31,7 @@ app.go                                ✅ Phase6 startup で bootstrap.ResolveDa
 wails.json                            ✅ Phase1 monorepo（frontend:* は pnpm -C .. / serverUrl=auto / wailsjsdir=frontend/src）。Phase8: author email=takuya.otani@serenebach.net
 build/{appicon.png,darwin/Info.plist} ✅ Phase8 CFBundleIdentifier=net.serenebach.snz-studio（Info.plist + Info.dev.plist。既定 com.wails.{{.Name}} から置換）
 .github/workflows/build.yml           ✅ Phase8 CI 雛形（mac universal+dmg / win NSIS+webview2、署名は secrets ゲートで後送り。Actions 未実行）
-go.mod / go.sum                       module snzstudio (go 1.26) + wails v2.12.0
+go.mod / go.sum                       module snzstudio (go 1.26 / toolchain go1.27.1 固定) + wails v2.16.0
 internal/bootstrap/                   ✅ Phase8 プロセス起動時インフラ（旧ルート .go を集約。パッケージ bootstrap）
   ├ paths.go                           ResolveDataPaths/Paths: DATA_DIR/SQLITE_PATH/UPLOAD_DIR env override、既定 dev=cwd/data・prod=os.UserConfigDir()/snz-studio
   ├ env_dev.go (//go:build dev)        IsDev=true, ListenAddr=127.0.0.1:8787（wails dev が dev タグ付与）
@@ -100,10 +100,10 @@ go test ./...                                              # 全テスト
 go vet ./... && go build ./...
 node tools/segmenter-parity/gen_model.mjs                  # tiny-segmenter 更新時に model.go 再生成
 pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（要 backend が読める状態）
-~/go/bin/wails version                                     # v2.12.0 インストール済み
+~/go/bin/wails version                                     # v2.16.0 インストール済み（go.mod の toolchain と対で上げる）
 ```
 
-ツールチェーン: Go 1.26.3 / Wails v2.12.0(`~/go/bin/wails`) / Node 22 / pnpm 10.30.3 / clang あり。
+ツールチェーン: Go 1.27.1（go.mod の `toolchain` で固定） / Wails v2.16.0(`~/go/bin/wails`) / Node 22 / pnpm 10.30.3 / clang あり。
 依存（確定）: `modernc.org/sqlite`, `golang.org/x/text`（NFKC）, （後で `github.com/google/uuid` を直接利用予定）。
 
 ---
@@ -234,7 +234,7 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 - **起動時 FTS 再構築は Phase6 の `RunStartupTasks` が既に同期実行**（移行後は自動で走る）。embedding rebuild は非同期。Phase8 で追加実装は不要。
 - **bundle id = `net.serenebach.snz-studio`（ユーザー確定）**: `build/darwin/Info.plist` と `Info.dev.plist` の `CFBundleIdentifier` を既定 `com.wails.{{.Name}}` から置換。`wails.json` の author email も `takuya.otani@serenebach.net` に更新。`wails build`（prod・darwin/arm64）で生成 `.app` の `CFBundleIdentifier`＝`net.serenebach.snz-studio`、self-sign Identifier も一致を確認（`TeamIdentifier=not set`＝Developer ID 署名は後送り）。
 - **ローカル wails build 疎通確認済み**: `wails build`（prod）で "Compiling application: Done." → `.app` 生成・self-sign 成功。**Phase7 の UTType リンク懸念は prod build でも再現せず**（wails CLI がフレームワークを付与）。
-- **CI = `.github/workflows/build.yml`（雛形・未実行）**: `macos-latest`(darwin/universal→`.app`+`hdiutil` で dmg) / `windows-latest`(windows/amd64・`-nsis -webview2 download`・NSIS は choco 導入) のマトリクス。setup-go(go.mod) + pnpm + node22、`go install wails@v2.12.0`、GOPATH/bin を PATH へ。**トリガは tag `v*` と workflow_dispatch**。**署名/notarization は secrets ゲートで後送り**（YAML 内に手順・必要 secrets 名をコメント明記: mac=APPLE_CERT_P12_BASE64/…/APPLE_TEAM_ID, win=WINDOWS_CERT_PFX_BASE64/…）。当環境では Actions 実行不可のため **YAML 構文検証のみ（actionlint 未導入）＝CI 実走は次セッション/実際の push で要確認**。
+- **CI = `.github/workflows/build.yml`（雛形・未実行）**: `macos-latest`(darwin/universal→`.app`+`hdiutil` で dmg) / `windows-latest`(windows/amd64・`-nsis -webview2 download`・NSIS は choco 導入) のマトリクス。setup-go(go.mod) + pnpm + node22、`go install wails@v2.16.0`、GOPATH/bin を PATH へ。**トリガは tag `v*` と workflow_dispatch**。**署名/notarization は secrets ゲートで後送り**（YAML 内に手順・必要 secrets 名をコメント明記: mac=APPLE_CERT_P12_BASE64/…/APPLE_TEAM_ID, win=WINDOWS_CERT_PFX_BASE64/…）。当環境では Actions 実行不可のため **YAML 構文検証のみ（actionlint 未導入）＝CI 実走は次セッション/実際の push で要確認**。
 - **ルート整理（root に Go を置かない方針）**: ルート直下の `.go` は **`main.go` と `app.go` の 2 つだけ**に集約。起動時インフラ（旧 `paths.go`/`migrate.go`/`env_dev.go`/`env_prod.go`）は **`internal/bootstrap`（package bootstrap）へ移動**し、`ResolveDataPaths`/`Paths`/`MaybeSeedDataDir`/`IsDev`/`ListenAddr` を export して app.go から呼ぶ。**Wails のハード制約（蒸し返さない）**: (1) `wails build` は `wails.json` のあるルートで**パッケージ引数なしの `go build`** を実行する（wails v2.12.0 `pkg/commands/build/base.go:286-293`, `cmd.Dir=projectData.Path`）＝**main パッケージはルート必須**、(2) `//go:embed all:frontend/dist` は embed パスが相対かつ `..` 禁止のため**ルートの .go にしか書けない**。よって main.go はルートから動かせない。`App`（バインド対象）も main パッケージに残すことで生成バインドは `wailsjs/go/main/App` のまま＝**フロント無改修**（`main.tsx` の import 変更不要）。`wails build` 後にバインド名前空間・bundle id・リンク成功を再確認済み。ユーザーデータディレクトリ（`~/Library/Application Support/snz-studio`）に DB/uploads/app-config が seed され、既存のチャット/文書/記憶が表示されること、および §5 の LM Studio 正常系。`open` は env を渡しにくいので確認時はバイナリ直叩き例: `SNZ_MIGRATE_FROM="$PWD/data" "build/bin/snz-studio.app/Contents/MacOS/SNZ Studio"`。
 
 ### Phase 9 — クリーンアップ ✅ DONE & TESTED（2026-05-31）

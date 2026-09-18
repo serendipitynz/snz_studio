@@ -71,9 +71,18 @@ SQLite には最低限以下を持たせています。
 
 ## 必要なツール
 
-- Go 1.26+
+- Go 1.26.3 以上（ビルドに使う版は go.mod の `toolchain go1.27.1` で固定しています。
+  手元の Go がこれと違っても、`go` コマンドが指定版を自動で取得して使うため、環境変数を
+  付ける必要はありません）
 - Node 22 / pnpm（フロントのビルドに使用。`wails` が自動で実行します）
-- [Wails CLI v2](https://wails.io/)（`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`）
+- [Wails CLI v2](https://wails.io/)（`go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0`）
+
+> **Wails CLI と `toolchain` は対で上げてください。** バインド生成に使う x/tools は CLI
+> バイナリに埋め込まれていて go.mod からは差し替えられないため、CLI が読めるより新しい Go で
+> ビルドすると `internal error: package "math" without types was imported from ...` で
+> バインド生成が落ちます。go.mod の `toolchain` はこれを防ぐための固定です。CLI が古いまま
+> （例: v2.12.0）だと同じ失敗が起きるので、`wails build` が出す
+> `go.mod is using Wails 'x' but the CLI is 'y'` の警告は無視せず CLI を入れ直してください。
 
 ## 開発（wails dev）
 
