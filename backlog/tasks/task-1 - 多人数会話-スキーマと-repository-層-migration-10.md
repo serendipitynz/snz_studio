@@ -1,10 +1,10 @@
 ---
 id: TASK-1
 title: '多人数会話: スキーマと repository 層 (migration 10)'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-08 22:28'
-updated_date: '2026-09-18 05:59'
+updated_date: '2026-09-18 06:30'
 labels: []
 dependencies: []
 references:
