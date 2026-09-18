@@ -1,10 +1,10 @@
 ---
 id: TASK-7
 title: '開発環境: Go ツールチェーンのバージョン差で wails dev が失敗する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-18 21:33'
-updated_date: '2026-09-18 23:14'
+updated_date: '2026-09-18 23:32'
 labels: []
 milestone: m-0
 dependencies: []
@@ -30,7 +30,7 @@ go.mod に toolchain ディレクティブが無いため、Go は "1.26.3 以�
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 wails dev が、開発者の手元の Go ツールチェーンのバージョンに関わらず起動する (環境変数を毎回手で付けなくてよい)
-- [ ] #2 CI の build ワークフローが引き続き通る
+- [x] #2 CI の build ワークフローについては、CI と同等の手順 (Wails CLI @v2.16.0 のインストール → フルビルド) をローカルで再現して緑であることを確認した。ワークフロー自体の実走確認は TASK-8 に委ねる
 - [x] #3 採った対処と、採らなかった候補を落とした理由が記録されている
 - [x] #4 README の開発手順が、必要な Go / Wails のバージョン要件と整合している
 <!-- AC:END -->
@@ -196,4 +196,12 @@ round 1 の修正 (package.json の `GOTOOLCHAIN=go1.27.1 wails ...`) に対し�
 **未検証**: Windows 実機での `pnpm dev` / ビルドは手元に Windows が無いため実行していない。
 Node の spawn に env を渡す方式がシェル非依存であることに基づく設計上の根拠のみ。実際に
 踏むとすれば CI の windows-latest ジョブで、そちらも未実走 (AC#2 と同じ理由)。
+
+## クローズ時 (2026-09-19, PR #7 マージ後)
+
+AC#2 は当初「CI の build ワークフローが引き続き通る」だったが、ワークフローは
+private repo の課金分を避けるため workflow_dispatch 限定で実走していない。ユーザー判断で
+AC#2 を「ローカルでの同等手順再現を根拠とし、実走確認は別タスクに委ねる」に改変して
+チェックし、実走確認は TASK-8 として切り出した。TASK-8 では Windows ジョブが
+scripts/wails.mjs を通ること (手元に Windows が無く未検証) も併せて確認する。
 <!-- SECTION:NOTES:END -->
