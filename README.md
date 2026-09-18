@@ -80,18 +80,19 @@ SQLite には最低限以下を持たせています。
 > 埋め込まれていて go.mod からは差し替えられないため、CLI が読めるより新しい Go で
 > ビルドすると `internal error: package "math" without types was imported from ...` で
 > バインド生成が落ちます。そこで **`wails` は直接ではなく下記の pnpm スクリプト経由で
-> 起動してください** — スクリプトが `GOTOOLCHAIN` に使用する版を厳密指定するので、手元に
-> どの Go が入っていても結果が変わりません。
+> 起動してください** — スクリプト（`scripts/wails.mjs`）が `GOTOOLCHAIN` に使用する版を
+> 厳密指定するので、手元にどの Go が入っていても結果が変わりません。
 >
 > go.mod の `toolchain` ディレクティブは**下限**（これ未満ではビルドしない）であって
 > 上限ではありません。手元の Go がそれより新しければそちらが使われるため、素の
 > `wails dev` は固定になりません。上限を効かせられるのは `GOTOOLCHAIN` の厳密指定だけで、
 > pnpm スクリプトがやっているのはそれです。
 >
-> 使用する Go を上げるときは、それを読める Wails CLI とセットで上げてください
-> （`package.json` の `GOTOOLCHAIN` / go.mod の `toolchain` と `require` /
-> `.github/workflows/build.yml` の `go install`）。CLI だけ古いままだと同じ失敗が起きるので、
-> `wails build` が出す `go.mod is using Wails 'x' but the CLI is 'y'` の警告は無視しないでください。
+> 使用する Go のバージョンは go.mod の `toolchain` が唯一の出所で、`scripts/wails.mjs` と
+> CI はそこを読みます。上げるときは、それを読める Wails CLI とセットで上げてください
+> （go.mod の `toolchain` と `require` / `.github/workflows/build.yml` の `go install`）。
+> CLI だけ古いままだと同じ失敗が起きるので、`wails build` が出す
+> `go.mod is using Wails 'x' but the CLI is 'y'` の警告は無視しないでください。
 
 ## 開発（pnpm dev）
 
@@ -102,8 +103,9 @@ WebView 上に SPA が表示されます。
 pnpm dev
 ```
 
-- 中身は `GOTOOLCHAIN=<固定版> wails dev` です。素の `wails dev` でも起動はしますが、その場合は
-  手元の Go がそのまま使われるため、上の「必要なツール」の注意が当てはまります。
+- 中身は `scripts/wails.mjs dev`（go.mod の `toolchain` を `GOTOOLCHAIN` に指定して `wails dev`）
+  です。素の `wails dev` でも起動はしますが、その場合は手元の Go がそのまま使われるため、
+  上の「必要なツール」の注意が当てはまります。
 - 開発時のデータは `./data`（cwd 相対）に作成されます。`.env`（任意・`cp .env.example .env`）で
   `LLM_BASE_URL` などの既定値を上書きできますが、通常は UI の `Configuration` から設定します。
 - ブラウザ直開き（`localhost:5173`）での開発は廃止しました（API への非 GET が届かないため）。開発は
@@ -121,7 +123,8 @@ pnpm build:app -platform darwin/universal               # macOS universal（.app
 pnpm build:app -platform windows/amd64 -nsis -webview2 download
 ```
 
-`build:app` は `GOTOOLCHAIN=<固定版> wails build` で、追加の引数はそのまま `wails build` に渡ります。
+`build:app` は `scripts/wails.mjs build` で、追加の引数はそのまま `wails build` に渡ります。
+ランチャは Node で書いてあるので、Windows でも同じコマンドが使えます。
 
 成果物は `build/bin/`（macOS は `SNZ Studio.app`、Windows は `.exe`）に出力されます。
 

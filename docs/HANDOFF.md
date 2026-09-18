@@ -103,7 +103,7 @@ pnpm exec tsx tools/segmenter-parity/gen_golden.ts         # golden 再生成（
 ~/go/bin/wails version                                     # v2.16.0 インストール済み（go.mod の toolchain と対で上げる）
 ```
 
-ツールチェーン: Go 1.27.1（`pnpm dev` / `pnpm build:app` と CI の job env が GOTOOLCHAIN で厳密指定。go.mod の `toolchain` は下限であって上限ではない） / Wails v2.16.0(`~/go/bin/wails`) / Node 22 / pnpm 10.30.3 / clang あり。
+ツールチェーン: Go 1.27.1（go.mod の `toolchain` が唯一の出所。`scripts/wails.mjs` がそれを読んで GOTOOLCHAIN に厳密指定し、`pnpm dev` / `pnpm build:app` と CI のビルドがそれを通る。ディレクティブ自体は下限であって上限ではない） / Wails v2.16.0(`~/go/bin/wails`) / Node 22 / pnpm 10.30.3 / clang あり。
 依存（確定）: `modernc.org/sqlite`, `golang.org/x/text`（NFKC）, （後で `github.com/google/uuid` を直接利用予定）。
 
 ---

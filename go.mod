@@ -9,13 +9,14 @@ go 1.26.3
 //
 // このディレクティブが効かせられるのは下限だけで、上限ではない: 手元の Go が
 // これより新しければ GOTOOLCHAIN=auto はそちらを使う (実測確認済み)。上限を
-// 効かせるのは package.json の dev / build:app が指定する GOTOOLCHAIN の厳密値で、
-// 開発とビルドはそちらを通す前提。ここに同じ値を置いておくのは、素の go コマンド
-// (go test / go build / CI の setup-go が入れる floor 版) をこの版まで引き上げ、
-// CLI が読めない古い Go でのビルドを防ぐため。
+// 効かせるのは GOTOOLCHAIN の厳密指定だけで、それを行うのが scripts/wails.mjs
+// (pnpm dev / build:app と CI のビルドが通るランチャ)。この行はその pin の
+// 唯一の出所でもある — ランチャがここを読むので、下限と上限は定義上ずれない。
+// 下限としての役割は、素の go コマンド (go test / go build / CI の setup-go が
+// 入れる floor 版) をこの版まで引き上げ、CLI が読めない古い Go を弾くこと。
 //
-// 対の制約: この値は package.json の GOTOOLCHAIN、下の wails の require、
-// .github/workflows/build.yml の go install と揃えて上げること。
+// 対の制約: この値は下の wails の require と
+// .github/workflows/build.yml の go install (CLI 版) と揃えて上げること。
 toolchain go1.27.1
 
 require (
