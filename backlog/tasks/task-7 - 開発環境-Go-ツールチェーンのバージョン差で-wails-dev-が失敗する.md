@@ -4,7 +4,7 @@ title: '開発環境: Go ツールチェーンのバージョン差で wails dev
 status: In Review
 assignee: []
 created_date: '2026-09-18 21:33'
-updated_date: '2026-09-18 21:55'
+updated_date: '2026-09-18 23:06'
 labels: []
 milestone: m-0
 dependencies: []
@@ -127,4 +127,42 @@ wails CLI バイナリ側に埋め込まれている**ことが分かった。�
   今回の変更とは無関係。
 - 副作用として手元の `~/go/bin/wails` を v2.12.0 → v2.16.0 に入れ替えた
   ((b) は CLI 側の x/tools を要求するため。README にも同じ手順を記載)。
+
+## レビュー round 1 — [P1] を受けた訂正 (重要)
+
+Codex から「`toolchain` は GOTOOLCHAIN=auto 下では最小要件であって厳密な pin ではない。
+Go 1.28 を入れた開発者は 1.28 が使われて同じ失敗を再現しうる」という [P1] が入り、
+検証の結果**指摘が正しく、当初の AC#1 チェックは誤りだった**。使い捨てモジュールでの実測:
+
+| 設定 (ローカル Go = go1.27.1) | 実際にビルドした Go |
+| --- | --- |
+| go.mod `toolchain go1.26.3` (ローカルより古い) | **go1.27.1** — 切り替わらない |
+| 環境変数 `GOTOOLCHAIN=go1.26.3` (厳密) | go1.26.3 — 固定される |
+
+`toolchain` ディレクティブが効かせられるのは下限だけで、上限は `GOTOOLCHAIN` の厳密指定に
+しかない。したがって当初の実装では、実際に効いていたのは (b) Wails 昇格のほうだけで、
+(a) は「go1.27.1 以上」を保証していたにすぎない。README に書いた
+「手元の Go がこれと違っても指定版が使われる」も事実として誤りだった。
+
+**CI は影響を受けない**。setup-go が `go` 行の 1.26.3 を入れ、`toolchain` はそこから
+1.27.1 へ引き上げる方向に働くため決定的に動く。欠陥はローカル開発者のケースに限定される。
+
+### 採った対処 (ユーザー判断: pnpm script で GOTOOLCHAIN を固定)
+
+- `package.json` に `dev` = `GOTOOLCHAIN=go1.27.1 wails dev` と
+  `build:app` = `GOTOOLCHAIN=go1.27.1 wails build` を追加。追加引数はそのまま
+  `wails build` に渡る (`pnpm build:app -platform darwin/universal` を実測確認)。
+- CI は job レベルの `env: GOTOOLCHAIN: go1.27.1` で同じ値を効かせた。pnpm script を
+  CI からも呼ぶ案は採らなかった: `VAR=value` のインライン前置は POSIX シェル構文で、
+  windows-latest ジョブで動かないため。ワークフローの `env:` はクロスプラットフォーム。
+- README / go.mod コメント / HANDOFF.md を実挙動に合わせて書き直した。`toolchain` は
+  下限であって上限ではないこと、上限を効かせるのは GOTOOLCHAIN だけであることを明記。
+  go.mod に `toolchain` を残す理由も書き直した (素の `go test` / `go build` や CI の
+  setup-go が入れる floor 版をこの版まで引き上げ、CLI が読めない古い Go を弾くため)。
+- pin は go.mod / package.json / build.yml の 3 箇所に散るため、相互参照コメントで対応づけた。
+
+### 検証
+
+- pnpm script 経由の上限固定を実証: 一時的に `GOTOOLCHAIN=go1.26.3 go version` を走らせる
+  スクリプトを置くと、ローカルが go1.27.1 でも `go1.26.3` を出力した。
 <!-- SECTION:NOTES:END -->
