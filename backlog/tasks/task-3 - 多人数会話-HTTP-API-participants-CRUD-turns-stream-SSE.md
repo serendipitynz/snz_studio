@@ -1,10 +1,10 @@
 ---
 id: TASK-3
 title: '多人数会話: HTTP API (participants CRUD + turns/stream SSE)'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-08 22:28'
-updated_date: '2026-09-18 10:58'
+updated_date: '2026-09-18 11:15'
 labels: []
 dependencies:
   - TASK-2
@@ -74,4 +74,11 @@ docs/multi-agent-chat-design.md §5 のルートを追加する。chat 作成の
 
 - 409 の curl 実測はブロックするエンドポイントが要るためテスト側のみで確認 (curl では未実施)。
 - `internal/search/model.go` が gofmt 未整形 (本タスクの変更範囲外。既存のまま放置した)。
+
+## レビュー対応 (PR #5, Codex CLI 2 ラウンド)
+
+- **[P2]** `PATCH /api/participants/{id}` に空白のみの `displayName` を渡すと空文字で保存されていた (`repository.trimmedPtrArg` が bind 時に trim するため)。発言者ラベルが空になり、system プロンプトが「あなたは「」としてのみ発言する」になる。作成時は既に弾いていたので更新も同じ基準に揃え、trim 後が空なら 400。
+- **[P3]** `sortOrder` の小数が黙って切り捨てられていた (1.9 → 1) ため、要求と違う巡回位置に入る。`bodyIntPtr` で整数以外と int32 範囲外を 400 にした (メッセージは `sortOrder must be an integer`)。
+
+いずれも b279698 で修正、回帰テストを `TestMultiAgentParticipantsCRUD` に追加。再レビューはクリーンで bot (simpleboxes) の APPROVE が記録済み。マージコミット 8d0e7e7。
 <!-- SECTION:NOTES:END -->
