@@ -264,7 +264,15 @@ func TestMultiAgentParticipantsCRUD(t *testing.T) {
 	}
 
 	wantError(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"sortOrder": "second"}),
-		http.StatusBadRequest, "sortOrder must be a number")
+		http.StatusBadRequest, "sortOrder must be an integer")
+	// A fractional order is refused rather than truncated: 1.9 stored as 1 would
+	// put the participant somewhere other than where the caller asked.
+	wantError(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"sortOrder": 1.9}),
+		http.StatusBadRequest, "sortOrder must be an integer")
+	// Creation refuses a blank name, so the update must too — the repository
+	// trims what it stores, and an empty name leaves the speaker unlabelled.
+	wantError(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"displayName": "   "}),
+		http.StatusBadRequest, "displayName must not be empty")
 	// An absent field is left alone, so renaming does not blank the role prompt.
 	wantStatus(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"displayName": "Alice II"}), http.StatusOK)
 	roster = list()
@@ -272,12 +280,20 @@ func TestMultiAgentParticipantsCRUD(t *testing.T) {
 		t.Fatalf("after rename = %+v, want the role prompt untouched", roster[0])
 	}
 
+	// An accepted integer moves the participant in the cycle, which is what the
+	// rejections above are protecting.
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"sortOrder": 3}), http.StatusOK)
+	roster = list()
+	if roster[1].ID != alice || roster[1].SortOrder != 3 {
+		t.Fatalf("after reorder = %+v, want Alice last with sortOrder 3", roster)
+	}
+
 	wantStatus(t, doJSON(t, h, "DELETE", "/api/participants/"+alice, nil), http.StatusOK)
 	roster = list()
 	if len(roster) != 2 {
 		t.Fatalf("%d participants listed after removal, want 2 — the row survives for name resolution", len(roster))
 	}
-	removed := roster[0]
+	removed := roster[1]
 	if removed.ID != alice || removed.DeletedAt == nil {
 		t.Fatalf("removed participant = %+v, want alice with deletedAt set", removed)
 	}

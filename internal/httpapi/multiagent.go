@@ -76,13 +76,21 @@ func (s *Server) handleUpdateParticipant(w http.ResponseWriter, r *http.Request)
 	}
 	sortOrder, ok := bodyIntPtr(m, "sortOrder")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "sortOrder must be a number")
+		writeError(w, http.StatusBadRequest, "sortOrder must be an integer")
+		return
+	}
+	// The repository trims what it stores, so a whitespace-only name would be
+	// persisted as an empty one — a speaker the transcript cannot label and a
+	// prompt that tells the model to speak as nobody. Creation already refuses it.
+	displayName := bodyStringPtr(m, "displayName")
+	if displayName != nil && strings.TrimSpace(*displayName) == "" {
+		writeError(w, http.StatusBadRequest, "displayName must not be empty")
 		return
 	}
 
 	participant, err := s.participants.UpdateParticipant(repository.UpdateParticipantInput{
 		ParticipantID: r.PathValue("participantId"),
-		DisplayName:   bodyStringPtr(m, "displayName"),
+		DisplayName:   displayName,
 		RolePrompt:    bodyStringPtr(m, "rolePrompt"),
 		BaseURL:       bodyStringPtr(m, "baseUrl"),
 		ModelName:     bodyStringPtr(m, "modelName"),

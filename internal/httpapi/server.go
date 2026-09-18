@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -421,15 +422,17 @@ func bodyStringPtr(m map[string]any, key string) *string {
 }
 
 // bodyIntPtr reads an optional integer field, returning (nil, true) when absent
-// and (nil, false) when present but not a number — the caller answers 400 for
-// the latter rather than silently leaving the field unchanged.
+// and (nil, false) when present but not an exact integer — the caller answers
+// 400 for the latter rather than silently leaving the field unchanged. A
+// fractional value is rejected rather than truncated: 1.9 truncated to 1 would
+// quietly put a participant somewhere other than where the caller asked.
 func bodyIntPtr(m map[string]any, key string) (*int, bool) {
 	v, present := m[key]
 	if !present || v == nil {
 		return nil, true
 	}
 	f, isNumber := v.(float64)
-	if !isNumber {
+	if !isNumber || f != math.Trunc(f) || f < math.MinInt32 || f > math.MaxInt32 {
 		return nil, false
 	}
 	n := int(f)
