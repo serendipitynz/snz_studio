@@ -4,7 +4,7 @@ title: '開発環境: Go ツールチェーンのバージョン差で wails dev
 status: In Review
 assignee: []
 created_date: '2026-09-18 21:33'
-updated_date: '2026-09-18 23:06'
+updated_date: '2026-09-18 23:14'
 labels: []
 milestone: m-0
 dependencies: []
@@ -165,4 +165,35 @@ Go 1.28 を入れた開発者は 1.28 が使われて同じ失敗を再現しう
 
 - pnpm script 経由の上限固定を実証: 一時的に `GOTOOLCHAIN=go1.26.3 go version` を走らせる
   スクリプトを置くと、ローカルが go1.27.1 でも `go1.26.3` を出力した。
+
+## レビュー round 2 — [P1] を受けた再修正
+
+round 1 の修正 (package.json の `GOTOOLCHAIN=go1.27.1 wails ...`) に対し、Codex から
+「POSIX のインライン env 代入は Windows の cmd.exe でコマンドとして解釈され、Wails が
+起動する前に失敗する。README が載せている Windows の開発/ビルド経路が両方壊れる」
+という [P1]。これも妥当で、README の Windows ビルド行を前回の修正自身が壊していた。
+
+対処: `scripts/wails.mjs` (Node ランチャ) を追加し、package.json と CI の両方をこれ経由にした。
+
+- Node の spawn に env を渡すのでシェルを介さず、両 OS で同じ挙動になる。Node は既に
+  必須なので新規依存は増えない (cross-env なら増えていた)。
+- pin は go.mod の `toolchain` 行を読む。round 1 で pin が go.mod / package.json /
+  build.yml の 3 箇所に散っていたのを、これで go.mod 1 箇所に戻した。下限と上限が
+  定義上ずれない。CI も job env をやめて同じランチャを呼ぶ。
+
+検証 (いずれも実測):
+- ランチャの GOTOOLCHAIN が子プロセスに届くこと: go.mod の toolchain を一時的に
+  `go1.99.0` にすると wails の内側の go が `downloading go1.99.0` →
+  `toolchain not available` で落ちる。
+- 失敗時の終了コードが 1 で伝播する (CI がビルド失敗を検知できる)。
+- 引数のフォワード: `node scripts/wails.mjs build -platform windows/amd64` が
+  Platform(s) = windows/amd64 で起動する。
+- `toolchain` 行が無い場合はランチャが明示エラーで止まる。
+- `pnpm dev` が end-to-end で起動 (バインド生成 → api: listening on 127.0.0.1:8787、
+  認証なし GET は 401)。
+- go build / go vet / go test / check:client 緑。
+
+**未検証**: Windows 実機での `pnpm dev` / ビルドは手元に Windows が無いため実行していない。
+Node の spawn に env を渡す方式がシェル非依存であることに基づく設計上の根拠のみ。実際に
+踏むとすれば CI の windows-latest ジョブで、そちらも未実走 (AC#2 と同じ理由)。
 <!-- SECTION:NOTES:END -->
