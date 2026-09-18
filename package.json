@@ -4,6 +4,8 @@
   "type": "module",
   "packageManager": "pnpm@10.30.3",
   "scripts": {
+    "dev": "node scripts/wails.mjs dev",
+    "build:app": "node scripts/wails.mjs build",
     "dev:client": "vite --config frontend/vite.config.ts",
     "build:client": "vite build --config frontend/vite.config.ts",
     "check:client": "tsc -p frontend/tsconfig.json --noEmit"

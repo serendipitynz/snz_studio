@@ -58,8 +58,11 @@ jobs:
         shell: bash
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # The CLI embeds the x/tools that parses this project during binding
+      # generation, so its version is coupled to go.mod's `toolchain` pin — bump
+      # both together (see the comment on that directive in go.mod).
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
 
       # NSIS provides makensis, which `wails build -nsis` invokes to produce the
       # Windows installer.
@@ -69,9 +72,13 @@ jobs:
 
       # `wails build` runs the frontend install/build itself (see wails.json
       # frontend:install / frontend:build), so no separate pnpm install is needed.
+      # scripts/wails.mjs is the same launcher the local `pnpm build:app` uses: it
+      # pins GOTOOLCHAIN to go.mod's `toolchain` value, which the directive alone
+      # cannot do (it is a floor, so a newer Go on the runner would be used as-is
+      # and could emit export data the CLI's embedded x/tools cannot read).
       - name: Build (macOS)
         if: runner.os == 'macOS'
-        run: wails build -platform darwin/universal -clean
+        run: node scripts/wails.mjs build -platform darwin/universal -clean
 
       # Stage the bundled embedding sidecar (llama-server) into the .app Resources
       # before packaging. The official prebuilt binary runs the ruri GGUF unmodified.
@@ -105,7 +112,7 @@ jobs:
         if: runner.os == 'Windows'
         # -webview2 download ships the Evergreen bootstrapper so the installer can
         # fetch the WebView2 runtime at install time when it is absent.
-        run: wails build -platform windows/amd64 -nsis -webview2 download -clean
+        run: node scripts/wails.mjs build -platform windows/amd64 -nsis -webview2 download -clean
 
       # Stage the Windows embedding sidecar (CPU build): llama-server.exe + ggml/llama
       # DLLs next to the app exe. TODO: bundling these INTO the NSIS installer needs
