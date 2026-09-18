@@ -36,18 +36,36 @@ type DocumentRecord struct {
 	UpdatedAt   string   `json:"updatedAt"`
 }
 
-// Chat mirrors the Chat interface.
+// Chat kinds and turn rules. The columns carry no CHECK constraint (the
+// migration only documents the allowed values), so these are the single
+// definition the Go layers validate and compare against.
+const (
+	ChatKindAssistant  = "assistant"
+	ChatKindMultiAgent = "multi_agent"
+
+	TurnRuleRoundRobin = "round_robin"
+	TurnRuleManual     = "manual"
+)
+
+// Chat mirrors the Chat interface. Kind is "assistant" (the single-assistant
+// chat) or "multi_agent"; TurnRule and ScenePrompt only carry meaning for the
+// latter (see docs/multi-agent-chat-design.md §3).
 type Chat struct {
 	ID          string `json:"id"`
 	ProjectID   string `json:"projectId"`
 	Title       string `json:"title"`
 	IsTemporary bool   `json:"isTemporary"`
+	Kind        string `json:"kind"`
+	TurnRule    string `json:"turnRule"`
+	ScenePrompt string `json:"scenePrompt"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
 }
 
 // Message mirrors the Message interface. The metric fields are nil until the
-// assistant turn is finalised.
+// assistant turn is finalised. ParticipantID is nil for the conventional user /
+// assistant messages and set for a multi-agent participant's turn; the speaker's
+// display name is resolved through Participant, which is never hard-deleted.
 type Message struct {
 	ID              string   `json:"id"`
 	ChatID          string   `json:"chatId"`
@@ -58,6 +76,24 @@ type Message struct {
 	OutputTokens    *int64   `json:"outputTokens"`
 	TokensPerSecond *float64 `json:"tokensPerSecond"`
 	ModelName       *string  `json:"modelName"`
+	ParticipantID   *string  `json:"participantId"`
+}
+
+// Participant is one speaker of a multi-agent chat: a display name, a role
+// prompt, and the endpoint (BaseURL + ModelName) its turns are generated
+// against. DeletedAt nil means the participant is on the roster; non-nil means
+// it was removed from the roster and the row survives only so past messages
+// keep resolving to a name (docs/multi-agent-chat-design.md §3).
+type Participant struct {
+	ID          string  `json:"id"`
+	ChatID      string  `json:"chatId"`
+	DisplayName string  `json:"displayName"`
+	RolePrompt  string  `json:"rolePrompt"`
+	BaseURL     string  `json:"baseUrl"`
+	ModelName   string  `json:"modelName"`
+	SortOrder   int     `json:"sortOrder"`
+	CreatedAt   string  `json:"createdAt"`
+	DeletedAt   *string `json:"deletedAt"`
 }
 
 // ChatSummary mirrors the ChatSummary interface.
