@@ -21,6 +21,22 @@ Each chat belongs to a project.
 Each project can have multiple documents and memories.
 Chats should be able to use project documents and memories as context.
 
+A chat is one of two kinds:
+
+- single assistant: the user and one assistant model
+- multi-agent conversation: two or more participants speaking in turn
+
+A multi-agent conversation is not a separate product area beside projects / documents / chats /
+memories; it is a kind of chat. It is made of:
+
+- participants: display name + role prompt + endpoint + model, kept in roster order
+- a turn rule that decides who speaks next (cycle the roster, or nominate each speaker)
+- a scene shared by every participant (topic, setting, world)
+- presets that fill participants / turn rule / scene in one step
+
+One request runs one turn; the user watches, advances turns, and can speak into the conversation
+at any point.
+
 ## Required UX
 The UX should feel like a lightweight local version of ChatGPT Projects:
 - each project has shared context
@@ -29,6 +45,7 @@ The UX should feel like a lightweight local version of ChatGPT Projects:
 - previous chat history should be compressed via summaries
 - persistent memories should be stored separately from raw messages
 - the UI should show what references were used for an answer
+- a multi-agent conversation should be watchable turn by turn, with its roster and scene editable while it runs
 
 ## Constraints
 - Single user only
