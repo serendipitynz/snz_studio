@@ -1,10 +1,10 @@
 ---
 id: TASK-6
 title: '多人数会話: プロダクト文書への反映'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-08 22:28'
-updated_date: '2026-09-19 03:37'
+updated_date: '2026-09-19 09:58'
 labels: []
 milestone: m-0
 dependencies:
