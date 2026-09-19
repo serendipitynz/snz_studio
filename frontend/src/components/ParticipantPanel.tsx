@@ -207,7 +207,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
             <ParticipantEditor
               key={participant.id}
               participant={participant}
-              probe={probes[participant.baseUrl.trim()]}
+              probes={probes}
               disabled={props.disabled}
               canMoveUp={index > 0}
               canMoveDown={index < roster.length - 1}
@@ -296,7 +296,9 @@ function ScenePromptField(props: { value: string; disabled: boolean; onSave: (va
 
 interface ParticipantEditorProps {
   participant: Participant;
-  probe?: EndpointProbe;
+  // Keyed by endpoint rather than by participant, so a check made for one
+  // participant already answers for every other pointed at the same server.
+  probes: Record<string, EndpointProbe>;
   disabled: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -331,7 +333,10 @@ function ParticipantEditor(props: ParticipantEditorProps) {
     }
   }
 
-  const probe = props.probe;
+  // The draft endpoint, not props.participant.baseUrl: the check runs against
+  // what is typed in, so an endpoint entered but not yet saved would otherwise
+  // never find its own result.
+  const probe = props.probes[baseUrl.trim()];
 
   return (
     <Card>
