@@ -28,9 +28,12 @@ var (
 )
 
 // turnHistoryLimit caps how many past messages are mapped into a turn's prompt
-// (design §4.3). Compressing older history through the summary service is still
-// undecided (§8), so the cap is a constant rather than a setting.
-const turnHistoryLimit = 20
+// (design §4.3). Older history is dropped rather than summarised (§8): a summary
+// call per turn would double the latency of a turn on a local model, and the
+// drift seen on small models is role drift, which the per-turn reminder
+// addresses, rather than forgotten facts. 30 keeps a whole 20-question game and
+// several rounds of a four-speaker roster in view at ~200 characters a turn.
+const turnHistoryLimit = 30
 
 // Speaker labels for messages that carry no participant_id: the human's own
 // interventions and any assistant message left over from before the chat became
@@ -304,11 +307,15 @@ func buildTurnSystemPrompt(chat *model.Chat, speaker *model.Participant, partici
 	if names := rosterNames(participants); names != "" {
 		parts = append(parts, fmt.Sprintf("この会話の参加者: %s", names))
 	}
+	// Each line answers a failure seen with small models: they echo the
+	// "name: body" shape the history is mapped into, write the other speakers'
+	// lines as well as their own, settle into agreeing, and stop honouring the
+	// scene's length rule once the history grows.
 	parts = append(parts, strings.Join([]string{
-		fmt.Sprintf("あなたは「%s」としてのみ発言する。他の参加者の発言を代筆しない。", speaker.DisplayName),
+		fmt.Sprintf("あなたは「%s」としてのみ発言する。他の参加者の発言や動作を代筆しない。1 回の発言に複数人分の会話を入れない。", speaker.DisplayName),
 		"発言の先頭に自分の名前や記号を付けない。本文だけを書く。",
-		"直前の発言に同意するだけで終わらせず、自分の立場から具体的に述べる。",
-		"1 回の発言は簡潔にまとめる。",
+		"直前の発言のどこに反応しているかが分かるように述べる。同意するだけで終わらせず、自分の立場から具体的に述べる。",
+		"発言の長さは場面設定の指定に従う。指定がなければ簡潔にまとめる。",
 	}, "\n"))
 	return strings.Join(parts, "\n\n")
 }

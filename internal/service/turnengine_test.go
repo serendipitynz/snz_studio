@@ -222,7 +222,14 @@ func TestTurnEnginePromptMapping(t *testing.T) {
 	if system.Role != "system" {
 		t.Fatalf("first prompt message role = %q, want system", system.Role)
 	}
-	for _, fragment := range []string{"論題: 地方移住の是非", alice.RolePrompt, "あなたは「Alice」としてのみ発言する", "Alice, Bob"} {
+	for _, fragment := range []string{
+		"論題: 地方移住の是非",
+		alice.RolePrompt,
+		"あなたは「Alice」としてのみ発言する",
+		"Alice, Bob",
+		"直前の発言のどこに反応しているか",
+		"発言の長さは場面設定の指定に従う",
+	} {
 		if !strings.Contains(system.Content, fragment) {
 			t.Fatalf("system prompt missing %q:\n%s", fragment, system.Content)
 		}
