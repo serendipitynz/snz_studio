@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -112,24 +113,11 @@ func (c *EmbeddingClient) ListModels(baseURL string) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if !respOK(resp) {
-		return nil, fmt.Errorf("Embedding model list request failed with %d", resp.StatusCode)
-	}
-	var data struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, modelListBodyLimit))
+	if err != nil {
 		return nil, err
 	}
-	out := []string{}
-	for _, item := range data.Data {
-		if item.ID != "" {
-			out = append(out, item.ID)
-		}
-	}
-	return sortedStrings(out), nil
+	return parseModelList("Embedding", resp.StatusCode, body)
 }
 
 // ListAvailableModels mirrors the embedding listAvailableModels (type=="embedding").
