@@ -391,3 +391,137 @@ func TestMultiAgentMessagesAreStoredNotAnswered(t *testing.T) {
 		t.Fatalf("assistant chat reply role = %q, want assistant", stored.Role)
 	}
 }
+
+// TestMultiAgentPresets covers the preset half of TASK-5 AC #1: the bundled
+// list is served, a presetId creates the chat with the preset's rule, scene and
+// roster in preset order, and an inline preset goes through the same parser.
+func TestMultiAgentPresets(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Preset Project")
+
+	rec := doJSON(t, h, "GET", "/api/multi-agent-presets", nil)
+	wantStatus(t, rec, http.StatusOK)
+	var presets []struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		Group        string `json:"group"`
+		TurnRule     string `json:"turnRule"`
+		ScenePrompt  string `json:"scenePrompt"`
+		Participants []struct {
+			DisplayName string `json:"displayName"`
+		} `json:"participants"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "presets", &presets)
+	var debate *struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		Group        string `json:"group"`
+		TurnRule     string `json:"turnRule"`
+		ScenePrompt  string `json:"scenePrompt"`
+		Participants []struct {
+			DisplayName string `json:"displayName"`
+		} `json:"participants"`
+	}
+	for i := range presets {
+		if presets[i].ID == "debate" {
+			debate = &presets[i]
+		}
+	}
+	if debate == nil {
+		t.Fatalf("preset list lacks debate: %+v", presets)
+	}
+
+	// Bundled preset by id, with an empty title: the preset's title is used.
+	rec = doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "presetId": "debate"})
+	wantStatus(t, rec, http.StatusCreated)
+	var chat struct {
+		ID          string `json:"id"`
+		Title       string `json:"title"`
+		Kind        string `json:"kind"`
+		TurnRule    string `json:"turnRule"`
+		ScenePrompt string `json:"scenePrompt"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.Kind != "multi_agent" || chat.Title != debate.Title || chat.TurnRule != debate.TurnRule || chat.ScenePrompt != debate.ScenePrompt {
+		t.Fatalf("chat from preset = %+v, want the preset's title, rule and scene", chat)
+	}
+
+	rec = doJSON(t, h, "GET", "/api/chats/"+chat.ID+"/participants", nil)
+	wantStatus(t, rec, http.StatusOK)
+	var roster []struct {
+		DisplayName string  `json:"displayName"`
+		RolePrompt  string  `json:"rolePrompt"`
+		BaseURL     string  `json:"baseUrl"`
+		SortOrder   int     `json:"sortOrder"`
+		DeletedAt   *string `json:"deletedAt"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "participants", &roster)
+	if len(roster) != len(debate.Participants) {
+		t.Fatalf("roster has %d participants, want %d", len(roster), len(debate.Participants))
+	}
+	for i, p := range roster {
+		if p.DisplayName != debate.Participants[i].DisplayName || p.SortOrder != i || p.RolePrompt == "" || p.BaseURL != "" || p.DeletedAt != nil {
+			t.Fatalf("roster[%d] = %+v, want %q in preset order with a role prompt and no endpoint", i, p, debate.Participants[i].DisplayName)
+		}
+	}
+
+	// An explicit title wins over the preset's.
+	rec = doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "presetId": "debate", "title": "宿題ディベート"})
+	wantStatus(t, rec, http.StatusCreated)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.Title != "宿題ディベート" {
+		t.Fatalf("title = %q, want the explicit title", chat.Title)
+	}
+
+	// Inline preset, as the file import sends it.
+	inline := map[string]any{
+		"title":       "自作の対話",
+		"turnRule":    "manual",
+		"scenePrompt": "静かな部屋。",
+		"participants": []map[string]any{
+			{"displayName": "甲", "rolePrompt": "あなたは甲です。"},
+			{"displayName": "乙", "rolePrompt": "あなたは乙です。"},
+		},
+	}
+	rec = doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "preset": inline})
+	wantStatus(t, rec, http.StatusCreated)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.Title != "自作の対話" || chat.TurnRule != "manual" || chat.ScenePrompt != "静かな部屋。" {
+		t.Fatalf("chat from inline preset = %+v", chat)
+	}
+	rec = doJSON(t, h, "GET", "/api/chats/"+chat.ID+"/participants", nil)
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "participants", &roster)
+	if len(roster) != 2 || roster[0].DisplayName != "甲" || roster[1].DisplayName != "乙" {
+		t.Fatalf("inline roster = %+v, want 甲 then 乙", roster)
+	}
+
+	// Refusals.
+	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "presetId": "no-such-preset"}),
+		http.StatusNotFound, "preset not found")
+	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"presetId": "debate"}),
+		http.StatusBadRequest, "presetId and preset apply to multi-agent chats only")
+	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "presetId": "debate", "preset": inline}),
+		http.StatusBadRequest, "specify either presetId or preset, not both")
+	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "preset": map[string]any{"title": "x", "participants": []any{}}}),
+		http.StatusBadRequest, "preset: invalid preset: participants must have at least two entries")
+	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "preset": "not an object"}),
+		http.StatusBadRequest, "preset: invalid preset: json: cannot unmarshal string into Go value of type preset.MultiAgentPreset")
+
+	// A refused preset leaves no chat behind.
+	rec = doJSON(t, h, "GET", "/api/projects/"+projectID, nil)
+	wantStatus(t, rec, http.StatusOK)
+	var chats []json.RawMessage
+	unmarshalField(t, decodeJSONMap(t, rec), "chats", &chats)
+	if len(chats) != 3 {
+		t.Fatalf("project has %d chats, want the 3 created above", len(chats))
+	}
+}

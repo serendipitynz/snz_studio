@@ -373,16 +373,34 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "kind must be \"assistant\" or \"multi_agent\"")
 		return
 	}
+	chosen, ok := s.presetFromBody(w, m, kind)
+	if !ok {
+		return
+	}
 
-	chat, err := s.chats.CreateChat(repository.CreateChatInput{
+	input := repository.CreateChatInput{
 		ProjectID:   project.ID,
 		Title:       title,
 		IsTemporary: isTemporary,
 		Kind:        kind,
-	})
+	}
+	if chosen != nil {
+		input.TurnRule = chosen.TurnRule
+		input.ScenePrompt = chosen.ScenePrompt
+		if strings.TrimSpace(title) == "" {
+			input.Title = chosen.Title
+		}
+	}
+	chat, err := s.chats.CreateChat(input)
 	if err != nil {
 		fail(w, err)
 		return
+	}
+	if chosen != nil {
+		if err := s.applyPresetRoster(chat.ID, chosen); err != nil {
+			fail(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"chat": chat})
 }
