@@ -246,8 +246,9 @@ func TestTurnEnginePromptMapping(t *testing.T) {
 			t.Fatalf("history[%d] = %+v, want %+v", i, msgs[i+1], expected)
 		}
 	}
-	// プロンプトは答えるべき発言で終わる。進行キューで終わると、推論するモデルは
-	// それを「発言せよ」という指示と読んで内容を返さないことがある。
+	// The prompt ends with the utterance to answer. Ending it with the hand-off
+	// instead lets a model that reasons before answering read it as an
+	// instruction about the conversation and return no content at all.
 	if last := msgs[len(msgs)-1]; last.Role != "user" || last.Content != "Bob: 反対の立場から述べます" {
 		t.Fatalf("final prompt message = %+v, want Bob's utterance", last)
 	}
