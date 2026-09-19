@@ -214,8 +214,8 @@ func TestTurnEnginePromptMapping(t *testing.T) {
 		t.Fatalf("%d completions, want 1", len(requests))
 	}
 	msgs := requests[0].Messages
-	if len(msgs) != 5 {
-		t.Fatalf("prompt has %d messages, want 5: %+v", len(msgs), msgs)
+	if len(msgs) != 4 {
+		t.Fatalf("prompt has %d messages, want 4: %+v", len(msgs), msgs)
 	}
 
 	system := msgs[0]
@@ -246,8 +246,38 @@ func TestTurnEnginePromptMapping(t *testing.T) {
 			t.Fatalf("history[%d] = %+v, want %+v", i, msgs[i+1], expected)
 		}
 	}
-	if last := msgs[len(msgs)-1]; last.Role != "user" || !strings.Contains(last.Content, "Alice") {
-		t.Fatalf("turn cue = %+v, want a user message naming Alice", last)
+	// プロンプトは答えるべき発言で終わる。進行キューで終わると、推論するモデルは
+	// それを「発言せよ」という指示と読んで内容を返さないことがある。
+	if last := msgs[len(msgs)-1]; last.Role != "user" || last.Content != "Bob: 反対の立場から述べます" {
+		t.Fatalf("final prompt message = %+v, want Bob's utterance", last)
+	}
+}
+
+// TestTurnEngineCueWhenNothingToAnswer covers the two turns whose prompt carries
+// no utterance for the speaker: the opening turn of an empty transcript, and a
+// manual re-nomination of the participant who just spoke. Both fall back to the
+// hand-off cue, because the final user slot cannot be left blank.
+func TestTurnEngineCueWhenNothingToAnswer(t *testing.T) {
+	srv := newTurnLLMServer(t, "発言します", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleManual, "場面設定", srv.URL, "Alice", "Bob")
+	alice := roster[0]
+
+	for _, label := range []string{"opening", "re-nomination"} {
+		if _, err := g.engine.RunTurn(chat.ID, alice.ID, nil); err != nil {
+			t.Fatalf("RunTurn (%s): %v", label, err)
+		}
+	}
+
+	requests := srv.captured()
+	if len(requests) != 2 {
+		t.Fatalf("%d completions, want 2", len(requests))
+	}
+	for i, req := range requests {
+		last := req.Messages[len(req.Messages)-1]
+		if last.Role != "user" || !strings.Contains(last.Content, "Alice") {
+			t.Fatalf("turn %d ends with %+v, want the hand-off naming Alice", i+1, last)
+		}
 	}
 }
 

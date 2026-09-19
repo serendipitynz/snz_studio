@@ -134,11 +134,12 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 	}
 
 	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s", chatID, speaker.ID, speaker.ModelName)
+	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers), speaker)
 	var streamed strings.Builder
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
 		SystemPrompt: buildTurnSystemPrompt(chat, speaker, knownSpeakers),
-		Messages:     mapHistoryForSpeaker(messages, speaker, knownSpeakers),
-		UserInput:    buildTurnCue(speaker),
+		Messages:     history,
+		UserInput:    finalUserMessage,
 		Temperature:  float64Ptr(0.7),
 		Target:       &CompletionTarget{BaseURL: speaker.BaseURL, Model: speaker.ModelName},
 	}, func(chunk string) {
@@ -330,9 +331,30 @@ func rosterNames(participants []model.Participant) string {
 	return strings.Join(names, ", ")
 }
 
-// buildTurnCue is the final user message of the prompt. A turn has no new human
-// input, but LLMClient always appends one (and it is left unmodified, §1), so
-// the slot carries the hand-off to this speaker instead of being left blank.
+// buildTurnPrompt splits the mapped transcript into the history and the final
+// user message. A chat completion answers its last user message, and LLMClient
+// always fills that slot (§1), so the utterance the speaker has to answer goes
+// there rather than behind a hand-off line.
+//
+// Why: a model that reasons before answering reads a trailing "it is your turn"
+// as an instruction about the conversation rather than as something to answer,
+// spends the turn deciding whether it should speak at all, and returns reasoning
+// with no content — which RunTurn can only fail. Measured against the bundled
+// twenty-questions preset on gemma-4-e4b (2026-09-19): with the hand-off last,
+// two of four turns came back empty and the others spent 184-454 tokens on an
+// answer of one word; with the question last, four of four answered in 6 tokens.
+//
+// The hand-off remains for the turns with nothing to answer: the opening turn,
+// and a manual re-nomination of the participant who just spoke.
+func buildTurnPrompt(mapped []model.Message, speaker *model.Participant) ([]model.Message, string) {
+	if n := len(mapped); n > 0 && mapped[n-1].Role == "user" {
+		return mapped[:n-1], mapped[n-1].Content
+	}
+	return mapped, buildTurnCue(speaker)
+}
+
+// buildTurnCue is the hand-off used when the prompt has no utterance for the
+// speaker to answer (see buildTurnPrompt).
 func buildTurnCue(speaker *model.Participant) string {
 	return fmt.Sprintf("（進行）次は「%s」の番です。%s として発言してください。", speaker.DisplayName, speaker.DisplayName)
 }
