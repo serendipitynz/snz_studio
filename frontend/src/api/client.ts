@@ -94,6 +94,26 @@ export interface ChatSummary {
   updatedAt: string;
 }
 
+// MultiAgentPreset mirrors the Go preset.MultiAgentPreset: the roster, turn rule
+// and scene a new multi-agent chat starts from (design §6). Endpoint and model
+// are not preset data; they are picked per participant after creation.
+export type PresetGroup = "discussion" | "drama" | "hosted" | "pair";
+
+export interface MultiAgentPresetParticipant {
+  displayName: string;
+  rolePrompt: string;
+}
+
+export interface MultiAgentPreset {
+  id: string;
+  title: string;
+  description: string;
+  group: PresetGroup | string;
+  turnRule: TurnRule;
+  scenePrompt: string;
+  participants: MultiAgentPresetParticipant[];
+}
+
 export interface AssistantReference {
   id: string;
   assistantMessageId: string;
@@ -247,7 +267,12 @@ export const api = {
     request<{ project: Project; documents: DocumentRecord[]; memories: MemoryRecord[]; chats: ChatRecord[] }>(
       `/api/projects/${projectId}`
     ),
-  createChat: (projectId: string, input: { title: string; isTemporary?: boolean; kind?: ChatKind }) =>
+  // presetId applies a bundled preset; preset applies one read from a file. The
+  // server refuses both together and either on a single-assistant chat.
+  createChat: (
+    projectId: string,
+    input: { title: string; isTemporary?: boolean; kind?: ChatKind; presetId?: string; preset?: MultiAgentPreset }
+  ) =>
     request<{ chat: ChatRecord }>(`/api/projects/${projectId}/chats`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -330,6 +355,7 @@ export const api = {
     }),
   // The list carries removed participants too, so the spectator view can name the
   // speaker of an older message; callers that want the roster filter on deletedAt.
+  listMultiAgentPresets: () => request<{ presets: MultiAgentPreset[] }>("/api/multi-agent-presets"),
   listParticipants: (chatId: string) =>
     request<{ participants: Participant[] }>(`/api/chats/${chatId}/participants`),
   createParticipant: (chatId: string, input: { displayName: string; rolePrompt?: string; baseUrl?: string; modelName?: string }) =>

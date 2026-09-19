@@ -11,6 +11,7 @@ import {
   MemoryKind,
   MemoryOrganizationPlan,
   MemoryRecord,
+  MultiAgentPreset,
   Project
 } from "../api/client";
 import { MarkdownPreview } from "../components/MarkdownPreview";
@@ -45,6 +46,10 @@ import {
   WorkspaceShell
 } from "../styles/ui";
 
+// The picker value that stands for the preset read from a file: it lives beside
+// the bundled ids in the same select, so it must be a value no bundled id uses.
+const IMPORTED_PRESET_CHOICE = "__file__";
+
 interface ProjectDetailState {
   project: Project;
   documents: DocumentRecord[];
@@ -65,6 +70,12 @@ export function ProjectDetailPage() {
   const [chatTitle, setChatTitle] = useState("");
   const [newChatIsTemporary, setNewChatIsTemporary] = useState(false);
   const [newChatKind, setNewChatKind] = useState<ChatKind>("assistant");
+  const [presets, setPresets] = useState<MultiAgentPreset[]>([]);
+  const [presetChoice, setPresetChoice] = useState("");
+  const [importedPreset, setImportedPreset] = useState<MultiAgentPreset | null>(null);
+  const [presetError, setPresetError] = useState("");
+  const presetsRequestedRef = useRef(false);
+  const presetFileRef = useRef<HTMLInputElement | null>(null);
   const [memoryKind, setMemoryKind] = useState<MemoryKind>("semantic");
   const [memoryContent, setMemoryContent] = useState("");
   const [memoryLocked, setMemoryLocked] = useState(true);
@@ -128,6 +139,66 @@ export function ProjectDetailPage() {
     return base;
   }, [state]);
 
+  // The bundled presets are only needed once the form is set to a multi-agent
+  // chat, and only once: the list is fixed for the life of the process.
+  useEffect(() => {
+    if (newChatKind !== "multi_agent" || presetsRequestedRef.current) {
+      return;
+    }
+    presetsRequestedRef.current = true;
+    api
+      .listMultiAgentPresets()
+      .then((response) => setPresets(response.presets))
+      .catch((nextError) => setPresetError(nextError instanceof Error ? nextError.message : t("preset.loadError")));
+  }, [newChatKind, t]);
+
+  const presetGroups = useMemo(() => {
+    const order = ["discussion", "drama", "hosted", "pair"];
+    const groups = new Map<string, MultiAgentPreset[]>();
+    for (const preset of presets) {
+      const group = order.includes(preset.group) ? preset.group : "other";
+      groups.set(group, [...(groups.get(group) ?? []), preset]);
+    }
+    return [...order, "other"].filter((group) => groups.has(group)).map((group) => [group, groups.get(group) ?? []] as const);
+  }, [presets]);
+
+  const selectedPreset =
+    presetChoice === IMPORTED_PRESET_CHOICE ? importedPreset : presets.find((preset) => preset.id === presetChoice) ?? null;
+
+  function presetGroupLabel(group: string): string {
+    const key = `preset.group.${group}` as MessageKey;
+    return t(key) === key ? t("preset.group.other") : t(key);
+  }
+
+  // Only the shape the picker needs is checked here; the server validates the
+  // preset in full and its message is shown if it refuses the file.
+  async function handleImportPresetFile(file: File | undefined) {
+    if (!file) {
+      return;
+    }
+    setPresetError("");
+    try {
+      const parsed = JSON.parse(await file.text()) as Partial<MultiAgentPreset> | null;
+      if (!parsed || typeof parsed.title !== "string" || !Array.isArray(parsed.participants)) {
+        throw new Error("not a preset");
+      }
+      setImportedPreset(parsed as MultiAgentPreset);
+      setPresetChoice(IMPORTED_PRESET_CHOICE);
+    } catch {
+      setPresetError(t("preset.importError"));
+    }
+  }
+
+  function presetInput(): { presetId?: string; preset?: MultiAgentPreset } {
+    if (newChatKind !== "multi_agent" || !presetChoice) {
+      return {};
+    }
+    if (presetChoice === IMPORTED_PRESET_CHOICE) {
+      return importedPreset ? { preset: importedPreset } : {};
+    }
+    return { presetId: presetChoice };
+  }
+
   async function handleCreateChat(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -135,7 +206,8 @@ export function ProjectDetailPage() {
       const response = await api.createChat(projectId, {
         title: chatTitle,
         isTemporary: newChatIsTemporary,
-        kind: newChatKind
+        kind: newChatKind,
+        ...presetInput()
       });
       navigate(`/chats/${response.chat.id}`);
     } catch (nextError) {
@@ -487,6 +559,52 @@ export function ProjectDetailPage() {
                         <option value="multi_agent">{t("multiAgent.kindMultiAgent")}</option>
                       </Select>
                     </Field>
+                    {newChatKind === "multi_agent" ? (
+                      <>
+                        <Field>
+                          {t("preset.label")}
+                          <Select value={presetChoice} onChange={(event) => setPresetChoice(event.target.value)}>
+                            <option value="">{t("preset.none")}</option>
+                            {importedPreset ? (
+                              <option value={IMPORTED_PRESET_CHOICE}>{t("preset.imported", { title: importedPreset.title })}</option>
+                            ) : null}
+                            {presetGroups.map(([group, items]) => (
+                              <optgroup key={group} label={presetGroupLabel(group)}>
+                                {items.map((preset) => (
+                                  <option key={preset.id} value={preset.id}>
+                                    {preset.title}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </Select>
+                        </Field>
+                        {selectedPreset ? (
+                          <Subtle style={{ margin: 0 }}>
+                            {selectedPreset.description}
+                            {" "}
+                            {t("preset.summary", { count: selectedPreset.participants.length, turnRule: selectedPreset.turnRule })}
+                          </Subtle>
+                        ) : null}
+                        <Row style={{ alignItems: "center", gap: 10 }}>
+                          <Button type="button" variant="ghost" disabled={busy} onClick={() => presetFileRef.current?.click()}>
+                            {t("preset.import")}
+                          </Button>
+                        </Row>
+                        <Subtle style={{ margin: 0 }}>{t("preset.hint")}</Subtle>
+                        {presetError ? <ErrorText>{presetError}</ErrorText> : null}
+                        <input
+                          ref={presetFileRef}
+                          type="file"
+                          accept=".json,application/json"
+                          style={{ display: "none" }}
+                          onChange={(event) => {
+                            void handleImportPresetFile(event.target.files?.[0]);
+                            event.target.value = "";
+                          }}
+                        />
+                      </>
+                    ) : null}
                     <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <input
                         type="checkbox"
