@@ -227,12 +227,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
     }),
+  // Normalised here rather than at each call site: a Go handler that marshals a
+  // nil slice sends `null`, and every caller feeds this straight into a .map().
   listConfigurationModels: (input: { kind: "llm" | "embedding"; baseUrl: string }) =>
-    request<{ models: string[] }>("/api/configuration/models", {
+    request<{ models: string[] | null }>("/api/configuration/models", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
-    }),
+    }).then((response) => ({ models: response.models ?? [] })),
   getEmbeddingStatus: () => request<EmbeddingStatus>("/api/embedding/status"),
   getProjects: () => request<{ projects: Project[] }>("/api/projects"),
   createProject: (input: { title: string; description: string; systemPrompt: string }) =>

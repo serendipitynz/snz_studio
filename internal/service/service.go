@@ -79,8 +79,11 @@ func sliceFromRune(s string, offset int) string {
 
 // sortedStrings returns a lexicographically sorted copy, mirroring Array.sort()
 // for the ASCII model identifiers these helpers deal with.
+// sortedStrings returns the sorted input, never nil. The nil matters: these lists
+// are marshalled straight into JSON responses, where a nil slice becomes `null`
+// rather than `[]` and breaks clients that treat the field as an array.
 func sortedStrings(in []string) []string {
-	out := append([]string(nil), in...)
+	out := append(make([]string, 0, len(in)), in...)
 	sort.Strings(out)
 	return out
 }

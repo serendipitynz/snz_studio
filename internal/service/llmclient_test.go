@@ -193,3 +193,80 @@ func TestCreateChatCompletionErrorStatus(t *testing.T) {
 		t.Fatal("expected error on 500 status, got nil")
 	}
 }
+
+// TestParseModelList covers the replies a local endpoint actually gives, including
+// the one that used to read as success: LM Studio answers a base URL missing its
+// /v1 suffix with 200 and an error body.
+func TestParseModelList(t *testing.T) {
+	models, err := parseModelList("LLM", 200, strings.NewReader(`{"data":[{"id":"beta"},{"id":""},{"id":"alpha"}]}`))
+	if err != nil {
+		t.Fatalf("well-formed list => %v", err)
+	}
+	if len(models) != 2 || models[0] != "alpha" || models[1] != "beta" {
+		t.Fatalf("models = %v, want [alpha beta]", models)
+	}
+
+	// An endpoint serving no models is a reachable endpoint, so `data: []` stays a
+	// success — and must marshal as [] rather than null.
+	models, err = parseModelList("LLM", 200, strings.NewReader(`{"object":"list","data":[]}`))
+	if err != nil {
+		t.Fatalf("empty list => %v", err)
+	}
+	if models == nil {
+		t.Fatal("empty list returned a nil slice, which marshals to JSON null")
+	}
+	if len(models) != 0 {
+		t.Fatalf("empty list => %v, want no models", models)
+	}
+
+	// LM Studio, base URL missing /v1.
+	_, err = parseModelList("LLM", 200, strings.NewReader(`{"error":"Unexpected endpoint or method. (GET /models)"}`))
+	if err == nil {
+		t.Fatal("200 with an error body was accepted as a model list")
+	}
+	if !strings.Contains(err.Error(), "Unexpected endpoint or method") {
+		t.Fatalf("error = %q, want the endpoint's own wording", err)
+	}
+
+	// A 200 that is neither a list nor an error: no `data` field to read.
+	_, err = parseModelList("LLM", 200, strings.NewReader(`{"object":"list"}`))
+	if err == nil {
+		t.Fatal("200 without a data field was accepted as a model list")
+	}
+
+	// Non-2xx keeps the status and gains the server's wording, in OpenAI's shape.
+	_, err = parseModelList("LLM", 404, strings.NewReader(`{"error":{"message":"no such route","type":"invalid_request_error"}}`))
+	if err == nil {
+		t.Fatal("404 was accepted as a model list")
+	}
+	if !strings.Contains(err.Error(), "404") || !strings.Contains(err.Error(), "no such route") {
+		t.Fatalf("error = %q, want both the status and the server's message", err)
+	}
+
+	// Non-2xx with an unreadable body still reports the status.
+	_, err = parseModelList("LLM", 502, strings.NewReader("<html>bad gateway</html>"))
+	if err == nil || !strings.Contains(err.Error(), "502") {
+		t.Fatalf("error = %v, want the 502 status", err)
+	}
+
+	// An aggregator's list runs to megabytes, well past any size a reply from a
+	// single local server would suggest. Truncating one would surface as a parse
+	// error and be reported to the user as a failed connection.
+	entries := make([]string, 0, 2000)
+	for i := 0; i < 2000; i++ {
+		entries = append(entries, fmt.Sprintf(
+			`{"id":"vendor/model-%04d","object":"model","description":%q,"pricing":{"prompt":"0.000001"}}`,
+			i, strings.Repeat("long description ", 8)))
+	}
+	large := `{"object":"list","data":[` + strings.Join(entries, ",") + `]}`
+	if len(large) < 64<<10 {
+		t.Fatalf("fixture is %d bytes, too small to exercise a large reply", len(large))
+	}
+	models, err = parseModelList("LLM", 200, strings.NewReader(large))
+	if err != nil {
+		t.Fatalf("large list => %v", err)
+	}
+	if len(models) != 2000 {
+		t.Fatalf("large list => %d models, want 2000", len(models))
+	}
+}

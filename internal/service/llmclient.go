@@ -170,7 +170,11 @@ func (c *LLMClient) authHeader(req *http.Request, apiKey string) {
 }
 
 func respOK(resp *http.Response) bool {
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	return statusOK(resp.StatusCode)
+}
+
+func statusOK(statusCode int) bool {
+	return statusCode >= 200 && statusCode < 300
 }
 
 func isContextTimeout(err error, ctx context.Context) bool {
@@ -421,6 +425,79 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 	}, nil
 }
 
+// modelListReply is an OpenAI-compatible /models response. Data is a pointer so
+// that an endpoint which answered without a `data` field can be told apart from
+// one that genuinely serves no models.
+type modelListReply struct {
+	Data *[]struct {
+		ID string `json:"id"`
+	} `json:"data"`
+	Error json.RawMessage `json:"error"`
+}
+
+// parseModelList turns a /models reply into the sorted model ids, or into an
+// error carrying the endpoint's own wording.
+//
+// A 2xx status is not by itself a successful listing. LM Studio answers a base
+// URL that is missing its /v1 suffix with 200 and {"error": "Unexpected endpoint
+// ..."}, which otherwise decodes as a working endpoint serving no models — the
+// connection check then reports success for an address no turn can run against.
+func parseModelList(kind string, statusCode int, body io.Reader) ([]string, error) {
+	// Streamed rather than read whole: an aggregator's /models runs to megabytes
+	// (hundreds of entries carrying descriptions and pricing), and any cap on the
+	// read would truncate it into a parse error reported as a failed connection.
+	var reply modelListReply
+	decodeErr := json.NewDecoder(body).Decode(&reply)
+	serverMessage := ""
+	if decodeErr == nil {
+		serverMessage = modelListErrorMessage(reply.Error)
+	}
+
+	if !statusOK(statusCode) {
+		if serverMessage != "" {
+			return nil, fmt.Errorf("%s model list request failed with %d: %s", kind, statusCode, serverMessage)
+		}
+		return nil, fmt.Errorf("%s model list request failed with %d", kind, statusCode)
+	}
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	if serverMessage != "" {
+		return nil, fmt.Errorf("%s model list request failed: %s", kind, serverMessage)
+	}
+	if reply.Data == nil {
+		return nil, fmt.Errorf("%s model list response carried no model list; check that the base URL ends with /v1", kind)
+	}
+
+	out := []string{}
+	for _, item := range *reply.Data {
+		if item.ID != "" {
+			out = append(out, item.ID)
+		}
+	}
+	return sortedStrings(out), nil
+}
+
+// modelListErrorMessage reads the endpoint's own error wording, accepting both
+// shapes in use: OpenAI's {"error": {"message": ...}} and LM Studio's
+// {"error": "..."}.
+func modelListErrorMessage(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var object struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(raw, &object) == nil {
+		return strings.TrimSpace(object.Message)
+	}
+	return ""
+}
+
 // ListModels mirrors listModels: GET {base}/models, returning the sorted ids.
 func (c *LLMClient) ListModels(baseURL string) ([]string, error) {
 	s := c.cfg.Get()
@@ -441,24 +518,7 @@ func (c *LLMClient) ListModels(baseURL string) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if !respOK(resp) {
-		return nil, fmt.Errorf("LLM model list request failed with %d", resp.StatusCode)
-	}
-	var data struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
-	}
-	out := []string{}
-	for _, item := range data.Data {
-		if item.ID != "" {
-			out = append(out, item.ID)
-		}
-	}
-	return sortedStrings(out), nil
+	return parseModelList("LLM", resp.StatusCode, resp.Body)
 }
 
 // ListAvailableModels mirrors listAvailableModels: GET {lmRoot}/api/v1/models,
