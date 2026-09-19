@@ -13,6 +13,12 @@ ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS �
 - chat ごとの summary 保存
 - persistent memory の最小実装
 - assistant 返答ごとに参照した `project` / `summary` / `document` / `memory` を UI で確認
+- 多人数会話 chat（2 名以上の参加者が順番に発言する chat）
+  - 参加者ごとに表示名・役割プロンプト・接続先・モデルを設定（接続先を分ければ複数の LM Studio を混在させられる）
+  - ターン進行ルールは編成順の循環（`round_robin`）と発言者の指名（`manual`）
+  - 全参加者に共通する場面設定（論題・シーン・世界観）
+  - 同梱プリセット 7 件（ディベート・即興劇など）で選ぶだけで開始、JSON ファイルの読み込みで追加のプリセットも適用
+  - 観戦ビューで 1 ターンずつ進める / 自動進行、任意の時点で人間として会話に発言
 - OpenAI 互換 API への接続
   - LM Studio
   - Ollama の OpenAI 互換 endpoint
@@ -30,17 +36,19 @@ app.go                 App ライフサイクル / ローカル API サーバー
 internal/
   bootstrap/           データパス解決・初回データ移行・dev/prod 環境切替
   config/              app-config.json + env 既定値
-  db/                  SQLite 接続・schema・9 migrations
-  repository/          project / document / memory / chat の永続化層
+  db/                  SQLite 接続・schema・10 migrations
+  repository/          project / document / memory / chat / participant の永続化層
   search/              日本語トークナイザ移植 + FTS クエリ生成
   vector/              cosine 類似度
-  service/             retrieval / context / llm / embedding / summary / memory / review
-  httpapi/             22 ルートのハンドラ + SSE
+  service/             retrieval / context / llm / embedding / summary / memory / review / turnengine
+  preset/              多人数会話の同梱プリセット（bundled/*.json を go:embed）と検証
+  httpapi/             35 ルートのハンドラ + SSE
+presets/multi-agent/   同梱していない追加プリセット（JSON・形式は同ディレクトリの README）
 frontend/
   src/
     api/               HTTP client
-    components/        shell
-    pages/             画面
+    components/        shell + 編成パネル（ParticipantPanel）
+    pages/             画面（単独 assistant は ChatPage、多人数会話は MultiAgentChatPage）
     styles/            emotion styles
     wailsjs/           生成バインド（GetApiBase）
 ```
@@ -53,6 +61,8 @@ frontend/
 - persistence layer: `internal/repository`
 - retrieval layer: `internal/service/retrieval.go`
 - llm integration layer: `internal/service/llmclient.go`
+- multi-agent turn layer: `internal/service/turnengine.go`（単独 assistant の `chat.go` とは独立。共有するのは
+  LLM クライアントと repository だけ）
 
 ## データモデル
 
@@ -68,6 +78,10 @@ SQLite には最低限以下を持たせています。
 - `memories`
 - `memories_fts`
 - `assistant_message_references`
+- `participants`（多人数会話の参加者。除籍は `deleted_at` の論理削除で、過去の発言の帰属は残る）
+
+`chats` には種別（`kind`）・ターン進行ルール（`turn_rule`）・場面設定（`scene_prompt`）、`messages` には
+発言者（`participant_id`）の列があります。既存 chat は `kind = 'assistant'` のままです。
 
 ## 必要なツール
 
@@ -224,6 +238,8 @@ Dashboard の `Configuration` から接続先、モデル、`LLM Response Format
 - 過去 chat は毎回全文を渡さず、`chat_summaries` と recent messages を中心に扱う
 - memory は durable fact だけを保存する前提
 - 初期実装では memory 抽出は軽量な rule-based heuristic
+- 多人数会話は 1 リクエスト = 1 ターン（常駐の進行ジョブを持たず、自動進行はフロントのループ）。
+  進行中のターンはクライアントが切断しても完走して保存されるため、停止できる粒度はターン境界だけ
 
 ## API の要点
 
@@ -235,6 +251,10 @@ Dashboard の `Configuration` から接続先、モデル、`LLM Response Format
 - `POST /api/projects/:projectId/documents`
 - `GET /api/chats/:chatId`
 - `POST /api/chats/:chatId/messages`
+- `GET /api/multi-agent-presets`
+- `GET / POST /api/chats/:chatId/participants`
+- `PATCH / DELETE /api/participants/:participantId`
+- `POST /api/chats/:chatId/turns/stream`（1 ターン実行・SSE。実行中の重複呼び出しは 409）
 
 ## 今後の拡張ポイント
 
@@ -244,6 +264,8 @@ Dashboard の `Configuration` から接続先、モデル、`LLM Response Format
 - document 編集 / 削除 UI
 - rerank 層の追加
 - image document の manual annotation UX 改善
+- 多人数会話の TRPG 対応（chat 単位の状態保持・ダイス・構造化出力での判定）、進行役モデルによる発言者指名、
+  生成中断（[設計書](docs/multi-agent-chat-design.md) §7）
 
 ## 注意
 

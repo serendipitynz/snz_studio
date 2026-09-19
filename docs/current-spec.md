@@ -1,6 +1,6 @@
 # SNZ Studio Current Specification
 
-Last updated: 2026-05-09
+Last updated: 2026-09-19
 
 This document summarizes the current behavior of SNZ Studio, now implemented as a Wails v2 desktop app (Go backend + React frontend).
 
@@ -79,8 +79,32 @@ A chat belongs to exactly one project and contains:
 - assistant references
 - title
 - temporary flag
+- kind: `assistant` (single assistant) or `multi_agent` (multi-agent conversation)
 
 Empty titles are allowed and are auto-generated after the first assistant response.
+
+### Multi-agent conversations
+
+A multi-agent conversation is a chat of kind `multi_agent`: two or more participants speak in turn,
+each through its own endpoint and model. It is a kind of chat, not a separate top-level concept — it
+lives in the same `chats` table and under the same project.
+
+A multi-agent conversation has:
+
+- participants: display name, role prompt, endpoint, model, roster order
+- turn rule: `round_robin` (cycle the roster) or `manual` (nominate each speaker)
+- scene: text prefixed to every participant's system prompt (topic, setting, world)
+
+The roster is the set of participants still on the conversation. Removing a participant is a soft
+delete: the row stays, so past messages keep their speaker name, and the round-robin cycle keeps a
+starting point.
+
+Presets fill participants, turn rule and scene in one step when the conversation is created. Seven
+presets ship with the app; further presets are applied by loading a JSON file of the same shape.
+An applied preset leaves no link behind — everything is edited from the organisation panel afterwards.
+
+The user is not a participant. Human messages are stored as `user` messages with no participant, so
+the user can speak into the conversation at any point (adding a topic, heckling) without taking a turn.
 
 ### Temporary chats
 
@@ -125,6 +149,34 @@ Current assistant turn flow:
 6. save references
 7. update summary
 8. optionally auto-title the chat
+
+## Multi-agent turn flow
+
+One API request runs exactly one turn. There is no long-running conversation job on the server;
+auto-advance is the frontend calling the next turn repeatedly.
+
+A turn:
+
+1. takes the conversation's turn lock (a second concurrent turn gets 409)
+2. picks the speaker (round-robin: the next roster entry after the last participant message; manual:
+   the nominated participant)
+3. checks the participant's endpoint and loads the model
+4. builds the prompt from the participant's point of view: system = scene + role prompt + role
+   reminder; history mapped to `assistant` for the participant's own past messages and `user` for
+   everyone else's, prefixed with the speaker's display name; the prompt ends on the message this
+   participant has to answer
+5. streams the utterance and stores it as an `assistant` message carrying `participant_id`
+
+Current limits, accepted as behavior:
+
+- history is truncated to the most recent 30 messages; there is no summary-based compression
+- a turn in progress is never interrupted — it finishes generating and is stored even if the client
+  disconnects, so stopping auto-advance only takes effect at the turn boundary
+- recovery after a disconnect is re-reading the stored messages; missed deltas are not replayed
+
+The multi-agent flow is separate from the single-assistant flow: it shares the LLM client and the
+persistence layer only, and does not use retrieval, memories or summaries. On a `multi_agent` chat the
+existing message routes store the user's message without generating a reply.
 
 ## Context assembly
 
@@ -293,7 +345,8 @@ Temporary chats use a `⏱️` prefix.
 
 Center:
 
-- new chat
+- new chat, with the chat kind and (for a multi-agent conversation) a preset selector grouped by
+  situation, plus loading a preset JSON file
 - documents card
 
 Right pane:
@@ -301,6 +354,22 @@ Right pane:
 - system prompt
 - memories
 - chats
+
+### Multi-agent chat screen
+
+Center:
+
+- transcript, each utterance labelled with the speaker's display name and model
+- streaming output for the turn in progress
+- advance one turn / start and stop auto-advance / (manual rule) nominate the next speaker
+- a composer for speaking into the conversation as the user
+
+Right pane:
+
+- organisation panel: participant CRUD with endpoint + model selection and a connection check,
+  roster order, turn rule, scene
+
+Removed participants are listed separately from the roster, since their past utterances remain.
 
 ### Chat screen
 
@@ -347,7 +416,11 @@ Main tables:
 - `memories_fts`
 - `memory_embeddings`
 - `assistant_message_references`
+- `participants`
 - `schema_migrations`
+
+`chats` carries `kind` / `turn_rule` / `scene_prompt`, and `messages` carries `participant_id`
+(null for user and single-assistant messages).
 
 ## API responsibilities
 
@@ -361,6 +434,9 @@ Current API groups:
 - memory organization
 - review
 - workspace configuration
+- participant CRUD (soft delete)
+- multi-agent turn streaming
+- bundled preset listing
 
 ## Debugging
 

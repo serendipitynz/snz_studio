@@ -1,6 +1,6 @@
 # SNZ Studio 現在仕様
 
-最終更新: 2026-05-09
+最終更新: 2026-09-19
 
 この文書は、現在の SNZ Studio 実装（Wails v2 + Go バックエンド + React フロント のデスクトップアプリ）の
 仕様を、動作上の責務と境界を優先してまとめたものです。実装コードの断片ではなく振る舞いを記述します。
@@ -134,6 +134,7 @@ chat は必ず 1 つの project に属します。
 - summary
 - references history
 - temporary flag
+- kind: `assistant`（単独 assistant）/ `multi_agent`（多人数会話、4.6）
 
 特徴:
 
@@ -184,6 +185,28 @@ metadata:
 - `procedural`: どう振る舞うか
 - `semantic`: 安定した事実
 - `episodic`: 過去の決定や出来事
+
+### 4.6 多人数会話
+
+多人数会話は `kind = multi_agent` の chat です。2 名以上の参加者が、それぞれの接続先とモデルを通じて
+順番に発言します。project / document / chat / memory と並ぶ別のドメインではなく chat の種別であり、
+同じ `chats` テーブル・同じ project 配下に置きます。
+
+多人数会話は次を持ちます。
+
+- 参加者: 表示名・役割プロンプト・接続先・モデル・編成順
+- ターン進行ルール: `round_robin`（編成順の循環）/ `manual`（発言者の指名）
+- 場面設定: 全参加者のシステムプロンプトに前置される論題・シーン・世界観
+
+**編成**とは、除籍されていない参加者の集合を指します（`round_robin` の巡回対象・編成パネルの表示対象）。
+除籍は論理削除なので行は残り、過去の発言は表示名を保ち、巡回の起点も失われません。
+
+**プリセット**は、参加者・ターン進行ルール・場面設定を新規作成時に一度で埋める雛形です。7 件をアプリに
+同梱し、それ以外は同じ形式の JSON ファイルを読み込んで適用します（`presets/multi-agent/` に 17 件）。
+適用後の chat はプリセットとの結びつきを持たず、以後の編集はすべて編成パネルから行います。
+
+ユーザーは参加者ではありません。人間の発言は `participant_id` を持たない `user` message として保存され、
+ターンを消費せずに任意の時点で会話へ介入できます（論題の追加投入・野次など）。
 
 ## 5. Chat 生成フロー
 
@@ -253,6 +276,32 @@ document title が user input に明示されると、その document を優先�
 - quote mode
 - multiple relevant chunks
 - conditional full document inclusion
+
+### 5.6 多人数会話のターン（単独 assistant フローとは別系統）
+
+1 リクエストが 1 ターンを実行します。サーバー側に常駐の進行ジョブは持たず、自動進行はフロントエンドが
+次のターンを呼び続けることで実現します。
+
+ターンの処理順:
+
+1. その chat のターン実行権を取る（重なった 2 本目は 409）
+2. 発言者を決める（`round_robin`: `participant_id` を持つ直近メッセージの次の編成順 / `manual`: 指名された参加者）
+3. 参加者の接続先を確認し、モデルのロードを確認する
+4. 発言者本人の視点でプロンプトを組む。system = 場面設定 + 役割プロンプト + 役割リマインド。履歴は自分の
+   過去発言を `assistant`、他の参加者と人間の発言を `user`（「表示名: 本文」の形）へ写像し、末尾はその参加者が
+   答えるべき直前の発言にする
+5. 発言を stream し、`participant_id` を持つ `assistant` message として保存する
+
+現在の割り切り:
+
+- 履歴は直近 30 発言に切り詰める。要約による圧縮は行わない
+- 進行中のターンは中断しない。クライアントが切断してもモデル生成は完走して保存されるので、自動進行の停止が
+  効くのはターン境界だけ
+- 切断後の復帰は保存済み message の読み直し。取りこぼした delta の再送は行わない
+
+このフローは単独 assistant のフローと分離されており、共有するのは LLM クライアントと永続化層だけです。
+retrieval / memory / summary は使いません。`multi_agent` の chat に既存の message ルートを叩くと、生成は
+行わず人間の発言の保存だけを行います。
 
 ## 6. Memory の生成と整理
 
@@ -407,7 +456,7 @@ temporary chat は `⏱️` prefix で表示します。
 
 中央:
 
-- new chat
+- new chat（chat 種別の選択。多人数会話では群ごとのプリセット選択と「プリセットの JSON を読み込む」）
 - documents card
 
 右:
@@ -455,6 +504,22 @@ assistant footer:
 - delete
 - organize
 
+### 11.6 多人数会話画面（観戦ビュー + 編成パネル）
+
+中央:
+
+- 発言ごとに発言者の表示名とモデル名を付けた transcript
+- 進行中ターンの stream 表示
+- 「1 ターン進める」/「自動進行の開始・停止」/（`manual` のとき）次の発言者の指名
+- 人間として会話に発言する composer
+
+右:
+
+- 編成パネル: 参加者の CRUD（接続先入力 + モデル選択 + 接続確認）、編成順、ターン進行ルール、場面設定
+
+除籍済みの参加者は編成とは別に一覧します（過去の発言が残るため）。
+自動進行の停止はターン境界で効くことを UI にも明示します。
+
 ## 12. Database の主なテーブル
 
 現在の主テーブル:
@@ -471,7 +536,11 @@ assistant footer:
 - `memories_fts`
 - `memory_embeddings`
 - `assistant_message_references`
+- `participants`
 - `schema_migrations`
+
+`chats` は `kind` / `turn_rule` / `scene_prompt`、`messages` は `participant_id`
+（user 発言と単独 assistant 発言では NULL）を持ちます。
 
 ## 13. API の責務
 
@@ -485,6 +554,9 @@ assistant footer:
 - memory organize
 - configuration read/write
 - review
+- participant CRUD（除籍は論理削除）
+- 多人数会話の 1 ターン実行（SSE）
+- 同梱プリセットの一覧
 
 API は local-only の browser client を前提としています。
 
