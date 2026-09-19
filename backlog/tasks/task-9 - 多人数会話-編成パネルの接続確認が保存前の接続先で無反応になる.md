@@ -1,10 +1,10 @@
 ---
 id: TASK-9
 title: '多人数会話: 編成パネルの接続確認が保存前の接続先で無反応になる'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-19 01:46'
-updated_date: '2026-09-19 21:26'
+updated_date: '2026-09-19 21:54'
 labels: []
 milestone: m-0
 dependencies: []
@@ -44,9 +44,9 @@ ordinal: 9000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 保存していない接続先に対して接続確認を押すと、確認中・接続済み・失敗のいずれかが画面に出る
-- [ ] #2 保存前の接続先で接続確認が成功したら、モデル選択のプルダウンにモデルが並ぶ
-- [ ] #3 接続確認が失敗したときは、サーバーが返したエラー文言が画面に出る (base URL の /v1 付け忘れなら、LM Studio が返す Unexpected endpoint or method. の文言)
+- [x] #1 保存していない接続先に対して接続確認を押すと、確認中・接続済み・失敗のいずれかが画面に出る
+- [x] #2 保存前の接続先で接続確認が成功したら、モデル選択のプルダウンにモデルが並ぶ
+- [x] #3 接続確認が失敗したときは、サーバーが返したエラー文言が画面に出る (base URL の /v1 付け忘れなら、LM Studio が返す Unexpected endpoint or method. の文言)
 <!-- AC:END -->
 
 ## Implementation Plan
