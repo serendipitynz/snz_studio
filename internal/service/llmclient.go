@@ -425,11 +425,6 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 	}, nil
 }
 
-// modelListBodyLimit caps how much of a /models reply is read. A model list is a
-// few KiB at most, and the body has to be held whole to be both decoded and
-// quoted back in an error.
-const modelListBodyLimit = 64 << 10
-
 // modelListReply is an OpenAI-compatible /models response. Data is a pointer so
 // that an endpoint which answered without a `data` field can be told apart from
 // one that genuinely serves no models.
@@ -447,9 +442,12 @@ type modelListReply struct {
 // URL that is missing its /v1 suffix with 200 and {"error": "Unexpected endpoint
 // ..."}, which otherwise decodes as a working endpoint serving no models — the
 // connection check then reports success for an address no turn can run against.
-func parseModelList(kind string, statusCode int, body []byte) ([]string, error) {
+func parseModelList(kind string, statusCode int, body io.Reader) ([]string, error) {
+	// Streamed rather than read whole: an aggregator's /models runs to megabytes
+	// (hundreds of entries carrying descriptions and pricing), and any cap on the
+	// read would truncate it into a parse error reported as a failed connection.
 	var reply modelListReply
-	decodeErr := json.Unmarshal(body, &reply)
+	decodeErr := json.NewDecoder(body).Decode(&reply)
 	serverMessage := ""
 	if decodeErr == nil {
 		serverMessage = modelListErrorMessage(reply.Error)
@@ -520,11 +518,7 @@ func (c *LLMClient) ListModels(baseURL string) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, modelListBodyLimit))
-	if err != nil {
-		return nil, err
-	}
-	return parseModelList("LLM", resp.StatusCode, body)
+	return parseModelList("LLM", resp.StatusCode, resp.Body)
 }
 
 // ListAvailableModels mirrors listAvailableModels: GET {lmRoot}/api/v1/models,

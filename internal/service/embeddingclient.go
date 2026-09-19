@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -113,11 +112,7 @@ func (c *EmbeddingClient) ListModels(baseURL string) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, modelListBodyLimit))
-	if err != nil {
-		return nil, err
-	}
-	return parseModelList("Embedding", resp.StatusCode, body)
+	return parseModelList("Embedding", resp.StatusCode, resp.Body)
 }
 
 // ListAvailableModels mirrors the embedding listAvailableModels (type=="embedding").
