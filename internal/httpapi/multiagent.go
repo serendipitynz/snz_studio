@@ -6,11 +6,14 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
 	"snzstudio/internal/model"
+	"snzstudio/internal/preset"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
 )
@@ -238,6 +241,79 @@ func (s *Server) requireMultiAgentChat(w http.ResponseWriter, chatID string) (*m
 		return nil, false
 	}
 	return chat, true
+}
+
+// handleListMultiAgentPresets lists the bundled presets for the creation form
+// (design §6). Imported presets are not listed: they are applied once, from the
+// file, and leave no record of their own.
+func (s *Server) handleListMultiAgentPresets(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"presets": preset.Bundled()})
+}
+
+// presetFromBody reads the preset a chat creation names: presetId picks a
+// bundled one, preset carries an imported JSON inline. Both end in the same
+// parser, so an imported file is held to exactly what a bundled one is. The
+// second return value is false once a refusal has been written.
+func (s *Server) presetFromBody(w http.ResponseWriter, m map[string]any, kind string) (*preset.MultiAgentPreset, bool) {
+	presetID := strings.TrimSpace(bodyString(m, "presetId"))
+	inline, hasInline := m["preset"]
+	if presetID == "" && !hasInline {
+		return nil, true
+	}
+	if kind != model.ChatKindMultiAgent {
+		writeError(w, http.StatusBadRequest, "presetId and preset apply to multi-agent chats only")
+		return nil, false
+	}
+	if presetID != "" && hasInline {
+		writeError(w, http.StatusBadRequest, "specify either presetId or preset, not both")
+		return nil, false
+	}
+	if presetID != "" {
+		p, ok := preset.Find(presetID)
+		if !ok {
+			writeError(w, http.StatusNotFound, "preset not found")
+			return nil, false
+		}
+		return p, true
+	}
+
+	// The body was decoded into a generic map, so the preset object is re-encoded
+	// for the parser rather than given a second decoding path of its own.
+	raw, err := json.Marshal(inline)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "preset must be a JSON object")
+		return nil, false
+	}
+	p, err := preset.Parse(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return nil, false
+	}
+	return p, true
+}
+
+// applyPresetRoster creates the preset's participants in preset order, which is
+// the round_robin order (§2). Endpoint and model are left empty, so a turn runs
+// against the workspace endpoint until the organisation panel assigns one.
+// Chat creation and the roster are not one transaction (the repositories expose
+// none), so a roster that fails midway takes its chat with it rather than
+// leaving a multi-agent chat with a partial roster behind.
+func (s *Server) applyPresetRoster(chatID string, p *preset.MultiAgentPreset) error {
+	for _, participant := range p.Participants {
+		_, err := s.participants.CreateParticipant(repository.CreateParticipantInput{
+			ChatID:      chatID,
+			DisplayName: participant.DisplayName,
+			RolePrompt:  participant.RolePrompt,
+		})
+		if err == nil {
+			continue
+		}
+		if _, deleteErr := s.chats.DeleteChat(chatID); deleteErr != nil {
+			log.Printf("[preset] chat %s kept with a partial roster: %v", chatID, deleteErr)
+		}
+		return err
+	}
+	return nil
 }
 
 // storeHumanMessage records the human's intervention in a multi-agent chat: the
