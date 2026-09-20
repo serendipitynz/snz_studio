@@ -143,7 +143,7 @@ embedding（[sidecar.go:51-61](../internal/embed/sidecar.go#L51-L61)）との差
 - **Phase G3 — HTTP/ステータス**: `PUT /api/configuration` の mode 切替、`EnsureModelLoaded` の内蔵 skip ガード、`GET /api/llm/status`。
 - **Phase G4 — フロント**: ソーストグル + ファイル選択 + ステータス表示。
 - **Phase G5（任意） — おすすめモデルDL**: 案 B を上乗せ。
-- 各 Phase で `go build/vet/test`（`-race`）と `gofmt` をグリーンに保つ（既存 HANDOFF の検証規律に準拠）。
+- 各 Phase で `go build/vet/test`（`-race`）と `gofmt` をグリーンに保つ。
 
 ---
 
@@ -153,4 +153,3 @@ embedding（[sidecar.go:51-61](../internal/embed/sidecar.go#L51-L61)）との差
 - 設定 overlay: [internal/config/config.go](../internal/config/config.go)
 - LLM クライアント: [internal/service/llmclient.go](../internal/service/llmclient.go)
 - HTTP 結線: [internal/httpapi/server.go](../internal/httpapi/server.go) / [handlers.go](../internal/httpapi/handlers.go)
-- 全体の経緯: [docs/HANDOFF.md](HANDOFF.md)

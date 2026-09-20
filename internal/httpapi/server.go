@@ -75,9 +75,9 @@ type Server struct {
 func (s *Server) SetAuthToken(token string) { s.token = token }
 
 // NewServer wires the repository and service graph over a shared DB handle, a
-// config snapshot source, and the upload directory. The dependency order matches
-// HANDOFF §3 Phase 6 (repos -> emb/llm -> retrieval -> embeddingSync -> context
-// -> summary/memory -> chat/review/organizer).
+// config snapshot source, and the upload directory. The dependency order is
+// repos -> emb/llm -> retrieval -> embeddingSync -> context -> summary/memory
+// -> chat/review/organizer.
 func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *embed.Manager) *Server {
 	projects := repository.NewProjectRepository(db)
 	documents := repository.NewDocumentRepository(db)

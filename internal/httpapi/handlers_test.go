@@ -21,8 +21,8 @@ import (
 // newTestServer builds a Server backed by a fresh temp SQLite DB and a config
 // whose LLM/embedding endpoints point at a closed loopback port (so connection
 // checks fail fast and chat falls back) with embeddings disabled (empty model).
-// This is the endpoint-less harness from HANDOFF §5: every route except the LLM
-// happy paths can be exercised without a live model server.
+// The harness is endpoint-less: every route except the LLM happy paths can be
+// exercised without a live model server.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	dir := t.TempDir()
