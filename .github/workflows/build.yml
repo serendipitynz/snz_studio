@@ -152,11 +152,33 @@ jobs:
           set -euo pipefail
           ls build/bin/*-installer.exe
 
+      # The File directives in build/windows/installer/project.nsi are the only thing
+      # putting the notices inside the installer, and nothing else in the build would
+      # fail if they stopped resolving. Install silently into a scratch directory and
+      # assert both files landed, so a template that quietly stops shipping them breaks
+      # the build rather than the license obligation.
+      - name: Verify the installer ships the license notices (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Get-ChildItem build/bin/*-installer.exe | Select-Object -First 1).FullName
+          $dest = Join-Path $env:RUNNER_TEMP 'installed-check'
+          # /D= has to come last and stay unquoted: NSIS takes the rest of the line verbatim.
+          $p = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$dest" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode)" }
+          Get-ChildItem $dest
+          foreach ($f in 'LICENSE', 'THIRD_PARTY_NOTICES.md') {
+            if (-not (Test-Path (Join-Path $dest $f))) { throw "$f is missing from the installed directory" }
+          }
+
       # Stage the Windows embedding sidecar (CPU build): llama-server.exe + ggml/llama
-      # DLLs next to the app exe. TODO: bundling these INTO the NSIS installer needs
-      # build/windows/installer template changes (File directives); until then the
-      # loose files are uploaded as a portable fallback. Authenticode-sign the sidecar
-      # with the app (signing TODO below).
+      # DLLs next to the app exe. Bundling these INTO the NSIS installer stays deferred
+      # (TASK-26): makensis runs inside `wails build`, so it is already over by the time
+      # this step downloads them, and they never exist in a plain checkout — a File
+      # directive would break a local `wails build -nsis` to improve a build that has no
+      # signed distribution path yet. The loose files are uploaded as a portable fallback
+      # instead. Authenticode-sign the sidecar with the app (signing TODO below).
       - name: Stage embedding sidecar (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -170,10 +192,10 @@ jobs:
           cp "$SRC/llama-server.exe" build/bin/
           find "$SRC" -name '*.dll' -exec cp {} build/bin/ \;
 
-      # Same obligation as the macOS step above. Folding these into the NSIS
-      # installer itself needs the build/windows/installer template changes the
-      # sidecar step already defers, so until then they ship beside the exe and
-      # reach a recipient through the artifact zip (TASK-26).
+      # Same obligation as the macOS step above. The installer carries its own copies
+      # now (build/windows/installer/project.nsi), so these cover the portable fallback:
+      # the loose sidecar exe and DLLs are a binary redistribution of their own, and
+      # someone who takes the artifact zip without running the installer still needs them.
       - name: Stage license notices (Windows)
         if: runner.os == 'Windows'
         shell: bash
