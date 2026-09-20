@@ -216,8 +216,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   }
 
   return (
-    <ModalOverlay onClick={onClose}>
-      <ModalCard onClick={(event) => event.stopPropagation()}>
+    <ModalOverlay>
+      <ModalCard>
         <Stack>
           <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
             <SectionTitle>{t("settings.title")}</SectionTitle>
