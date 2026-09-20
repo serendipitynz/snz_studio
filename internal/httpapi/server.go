@@ -225,6 +225,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/chats/{chatId}", s.handleDeleteChat)
 	mux.HandleFunc("POST /api/chats/{chatId}/messages", s.handleSendMessage)
 	mux.HandleFunc("POST /api/chats/{chatId}/messages/stream", s.handleSendMessageStream)
+	mux.HandleFunc("GET /api/chats/{chatId}/export/markdown", s.handleExportChatMarkdown)
 
 	// Multi-agent chats (docs/multi-agent-chat-design.md §5). Participant updates
 	// and removals hang off a flat participant id rather than nesting under the
