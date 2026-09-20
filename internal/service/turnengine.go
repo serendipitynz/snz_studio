@@ -129,9 +129,19 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 	// fall back independently. Resolving it here — through the same resolveTarget
 	// the completion calls — is what lets the check and the error below name what
 	// was really tried, instead of printing a blank where the inherited field was.
-	target := &CompletionTarget{BaseURL: speaker.BaseURL, Model: speaker.ModelName}
+	//
+	// The resolved values, not the participant's raw ones, are what the completion
+	// is then handed: resolveTarget passes a non-empty field through unchanged, so
+	// this pins the inheritance to the settings the check ran against. Handing over
+	// the raw fields would let the completion re-resolve them from a snapshot taken
+	// later, and a workspace setting saved mid-turn would send the turn to a
+	// combination nothing checked.
 	settings := e.cfg.Get()
-	effectiveBaseURL, effectiveModel := resolveTarget(target, settings.LLMBaseURL, settings.LLMModel)
+	effectiveBaseURL, effectiveModel := resolveTarget(
+		&CompletionTarget{BaseURL: speaker.BaseURL, Model: speaker.ModelName},
+		settings.LLMBaseURL, settings.LLMModel,
+	)
+	target := &CompletionTarget{BaseURL: effectiveBaseURL, Model: effectiveModel}
 
 	if !e.endpointAccepts(effectiveBaseURL, effectiveModel) {
 		return nil, fmt.Errorf("%w: %s (%s at %s)", ErrEndpointUnavailable, speaker.DisplayName, effectiveModel, effectiveBaseURL)

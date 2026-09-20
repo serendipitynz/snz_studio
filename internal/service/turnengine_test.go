@@ -85,6 +85,7 @@ type turnGraph struct {
 	projects     *repository.ProjectRepository
 	chats        *repository.ChatRepository
 	participants *repository.ParticipantRepository
+	cfg          *config.Config
 	engine       *TurnEngine
 }
 
@@ -102,6 +103,7 @@ func newTurnGraph(t *testing.T) *turnGraph {
 		projects:     projects,
 		chats:        chats,
 		participants: participants,
+		cfg:          cfg,
 		engine:       NewTurnEngine(chats, participants, NewLLMClient(cfg), cfg),
 	}
 }
@@ -546,5 +548,67 @@ func TestTurnEngineInheritedModelRuns(t *testing.T) {
 	}
 	if message.ModelName == nil || *message.ModelName != "default-model" {
 		t.Fatalf("stored model = %v, want the inherited workspace model", message.ModelName)
+	}
+}
+
+// TestTurnEngineInheritedTargetSurvivesConfigChange covers the window between
+// the pre-turn check and the completion. A participant that inherits both fields
+// resolves them from one settings snapshot, so a Configuration save landing
+// mid-turn cannot send the turn to a combination the check never approved.
+func TestTurnEngineInheritedTargetSurvivesConfigChange(t *testing.T) {
+	g := newTurnGraph(t)
+	var endpointURL string
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/"):
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/models"):
+			// The pre-turn check is reading the model list right now; save a
+			// different workspace model while it does, the way the Configuration
+			// screen can at any moment.
+			if _, err := g.cfg.UpdateEditable(config.Editable{
+				LLMBaseURL: endpointURL,
+				LLMModel:   "swapped-in-mid-turn",
+			}); err != nil {
+				t.Errorf("UpdateEditable: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"data":[{"id":"default-model"}]}`)
+		case strings.HasSuffix(r.URL.Path, "/chat/completions"):
+			var body capturedRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode completion body: %v", err)
+				return
+			}
+			if body.Model != "default-model" {
+				t.Errorf("completion ran model %q, want the model the pre-turn check approved", body.Model)
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, sseReply("発言"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(endpoint.Close)
+	endpointURL = endpoint.URL
+
+	if _, err := g.cfg.UpdateEditable(config.Editable{LLMBaseURL: endpoint.URL, LLMModel: "default-model"}); err != nil {
+		t.Fatalf("UpdateEditable: %v", err)
+	}
+	// Both fields blank, so both are inherited.
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "論題", "", "Alice")
+	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{
+		ParticipantID: roster[0].ID,
+		ModelName:     strPtr(""),
+	}); err != nil {
+		t.Fatalf("UpdateParticipant: %v", err)
+	}
+
+	message, err := g.engine.RunTurn(chat.ID, "", nil)
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if message.ModelName == nil || *message.ModelName != "default-model" {
+		t.Fatalf("stored model = %v, want the model resolved before the check", message.ModelName)
 	}
 }
