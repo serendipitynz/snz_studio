@@ -58,6 +58,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # wails.json's frontend:install (`pnpm -C .. install`) never runs: Wails
+      # skips installation outright when there is no package.json in frontend:dir
+      # (NpmInstallUsingCommand returns early), and this repo keeps a single
+      # package.json at the root. It still prints "Installing frontend
+      # dependencies: Done.", so the skip is invisible — locally it goes unnoticed
+      # because a developer's root node_modules already exists. CI starts from a
+      # bare checkout, so the install has to be explicit here.
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Put GOPATH bin on PATH
         shell: bash
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
@@ -74,8 +84,8 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install nsis -y
 
-      # `wails build` runs the frontend install/build itself (see wails.json
-      # frontend:install / frontend:build), so no separate pnpm install is needed.
+      # `wails build` runs the frontend build itself (wails.json frontend:build),
+      # against the node_modules the install step above produced.
       # scripts/wails.mjs is the same launcher the local `pnpm build:app` uses: it
       # pins GOTOOLCHAIN to go.mod's `toolchain` value, which the directive alone
       # cannot do (it is a floor, so a newer Go on the runner would be used as-is
