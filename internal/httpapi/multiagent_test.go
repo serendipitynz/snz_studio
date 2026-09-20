@@ -525,3 +525,196 @@ func TestMultiAgentPresets(t *testing.T) {
 		t.Fatalf("project has %d chats, want the 3 created above", len(chats))
 	}
 }
+
+// presetChatShape is what applying a preset has to produce, whether the preset
+// was named at creation or applied afterwards: the two are compared field by
+// field, which is TASK-14 AC #2.
+type presetChatShape struct {
+	Title        string `json:"title"`
+	TurnRule     string `json:"turnRule"`
+	ScenePrompt  string `json:"scenePrompt"`
+	Participants []struct {
+		DisplayName string  `json:"displayName"`
+		RolePrompt  string  `json:"rolePrompt"`
+		BaseURL     string  `json:"baseUrl"`
+		ModelName   string  `json:"modelName"`
+		SortOrder   int     `json:"sortOrder"`
+		DeletedAt   *string `json:"deletedAt"`
+	} `json:"participants"`
+}
+
+func readPresetChatShape(t *testing.T, h http.Handler, chatID string) presetChatShape {
+	t.Helper()
+	var shape presetChatShape
+	rec := doJSON(t, h, "GET", "/api/chats/"+chatID, nil)
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &shape)
+	rec = doJSON(t, h, "GET", "/api/chats/"+chatID+"/participants", nil)
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "participants", &shape.Participants)
+	return shape
+}
+
+func createEmptyMultiAgentChat(t *testing.T, h http.Handler, projectID, title string) string {
+	t.Helper()
+	rec := doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "title": title})
+	wantStatus(t, rec, http.StatusCreated)
+	var chat struct {
+		ID string `json:"id"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	return chat.ID
+}
+
+// TestMultiAgentPresetAppliedAfterCreation covers TASK-14: a multi-agent chat
+// that has not been spoken in yet takes a preset from the organisation panel,
+// the result is indistinguishable from having named the preset at creation
+// (AC #2), and a chat with a message refuses it (AC #3).
+func TestMultiAgentPresetAppliedAfterCreation(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Apply Preset Project")
+
+	rec := doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "presetId": "debate"})
+	wantStatus(t, rec, http.StatusCreated)
+	var created struct {
+		ID string `json:"id"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &created)
+	atCreation := readPresetChatShape(t, h, created.ID)
+
+	// The sidebar's "+" makes exactly this chat: multi-agent, untitled, empty
+	// roster. A participant typed in by hand is added first, so the assertions
+	// below show the roster replaced rather than appended to (AC #4).
+	chatID := createEmptyMultiAgentChat(t, h, projectID, "")
+	addParticipant(t, h, chatID, "下書きの参加者", "http://127.0.0.1:1")
+
+	rec = doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "debate"})
+	wantStatus(t, rec, http.StatusOK)
+	applied := readPresetChatShape(t, h, chatID)
+	if applied.Title != atCreation.Title || applied.TurnRule != atCreation.TurnRule || applied.ScenePrompt != atCreation.ScenePrompt {
+		t.Fatalf("applied chat = %+v, want the same title, rule and scene as %+v", applied, atCreation)
+	}
+	if len(applied.Participants) != len(atCreation.Participants) {
+		t.Fatalf("applied roster has %d participants, want %d (the hand-typed one must be gone)",
+			len(applied.Participants), len(atCreation.Participants))
+	}
+	for i := range applied.Participants {
+		if applied.Participants[i] != atCreation.Participants[i] {
+			t.Fatalf("applied roster[%d] = %+v, want %+v", i, applied.Participants[i], atCreation.Participants[i])
+		}
+	}
+
+	// The response carries the applied state, so the panel does not have to re-read it.
+	body := decodeJSONMap(t, rec)
+	var responded presetChatShape
+	unmarshalField(t, body, "chat", &responded)
+	unmarshalField(t, body, "participants", &responded.Participants)
+	if responded.TurnRule != applied.TurnRule || len(responded.Participants) != len(applied.Participants) {
+		t.Fatalf("apply response = %+v, want the stored chat and roster", responded)
+	}
+
+	// A title the user gave is kept; only an empty one takes the preset's.
+	namedID := createEmptyMultiAgentChat(t, h, projectID, "宿題ディベート")
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+namedID+"/preset", map[string]any{"presetId": "debate"}), http.StatusOK)
+	if named := readPresetChatShape(t, h, namedID); named.Title != "宿題ディベート" {
+		t.Fatalf("title after applying = %q, want the title the chat already had", named.Title)
+	}
+
+	// An imported preset goes through the same parser as a bundled one (AC #1).
+	inlineID := createEmptyMultiAgentChat(t, h, projectID, "")
+	inline := map[string]any{
+		"title":       "自作の対話",
+		"turnRule":    "manual",
+		"scenePrompt": "静かな部屋。",
+		"participants": []map[string]any{
+			{"displayName": "甲", "rolePrompt": "あなたは甲です。"},
+			{"displayName": "乙", "rolePrompt": "あなたは乙です。"},
+		},
+	}
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+inlineID+"/preset", map[string]any{"preset": inline}), http.StatusOK)
+	fromFile := readPresetChatShape(t, h, inlineID)
+	if fromFile.Title != "自作の対話" || fromFile.TurnRule != "manual" || fromFile.ScenePrompt != "静かな部屋。" {
+		t.Fatalf("chat from an imported preset = %+v", fromFile)
+	}
+	if len(fromFile.Participants) != 2 || fromFile.Participants[0].DisplayName != "甲" || fromFile.Participants[1].SortOrder != 1 {
+		t.Fatalf("imported roster = %+v, want 甲 then 乙 in preset order", fromFile.Participants)
+	}
+
+	// Refusals.
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{}),
+		http.StatusBadRequest, "presetId or preset is required")
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset",
+		map[string]any{"presetId": "debate", "preset": inline}),
+		http.StatusBadRequest, "specify either presetId or preset, not both")
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "no-such-preset"}),
+		http.StatusNotFound, "preset not found")
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+createChat(t, h, projectID)+"/preset",
+		map[string]any{"presetId": "debate"}),
+		http.StatusBadRequest, "chat is not a multi-agent chat")
+
+	// Once the conversation has a message, the preset is refused and the roster
+	// it would have replaced is left as it is (AC #3).
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": "始めましょう"}), http.StatusCreated)
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "twenty-questions"}),
+		http.StatusConflict, "a preset applies only while the conversation has no messages")
+	if after := readPresetChatShape(t, h, chatID); after.ScenePrompt != applied.ScenePrompt || len(after.Participants) != len(applied.Participants) {
+		t.Fatalf("refused apply changed the chat: %+v", after)
+	}
+}
+
+// TestMultiAgentPresetApplyExcludesTurns covers the race the review raised:
+// a turn picks its speaker from the roster and stores the message only when it
+// finishes, so an apply that ran alongside it would delete the participant the
+// stored message points at. Both take the chat's turn slot, so the second one
+// is refused rather than interleaved.
+func TestMultiAgentPresetApplyExcludesTurns(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	llm := newMultiAgentLLM(t, func() {
+		once.Do(func() {
+			entered <- struct{}{}
+			<-release
+		})
+	})
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Preset Exclusion Project")
+	chatID := createMultiAgentChat(t, h, projectID, "round_robin")
+	alice := addParticipant(t, h, chatID, "Alice", llm.URL+"/v1")
+	addParticipant(t, h, chatID, "Bob", llm.URL+"/v1")
+
+	turnDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		turnDone <- doJSON(t, h, "POST", "/api/chats/"+chatID+"/turns/stream", map[string]any{})
+	}()
+
+	<-entered // the turn holds the chat, has chosen Alice, and has stored nothing yet
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "debate"}),
+		http.StatusConflict, "service: a turn is already running for this chat")
+	close(release)
+	wantStatus(t, <-turnDone, http.StatusOK)
+
+	// The refused apply left the roster alone, so the stored message still resolves
+	// to the participant that spoke it.
+	var messages []struct {
+		ParticipantID *string `json:"participantId"`
+	}
+	unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil)), "messages", &messages)
+	if len(messages) != 1 || messages[0].ParticipantID == nil || *messages[0].ParticipantID != alice {
+		t.Fatalf("stored messages = %+v, want one message attributed to the speaker that was chosen", messages)
+	}
+	var roster []struct {
+		ID string `json:"id"`
+	}
+	unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID+"/participants", nil)), "participants", &roster)
+	if len(roster) != 2 || roster[0].ID != alice {
+		t.Fatalf("roster = %+v, want the two participants the turn ran against", roster)
+	}
+
+	// The slot is released with the turn: the apply is refused for having a
+	// message now, not for a lock that outlived it.
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "debate"}),
+		http.StatusConflict, "a preset applies only while the conversation has no messages")
+}

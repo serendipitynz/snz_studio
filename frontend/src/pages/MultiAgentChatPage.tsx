@@ -493,6 +493,7 @@ export function MultiAgentChatPage() {
         <ParticipantPanel
           chat={state.chat}
           participants={participants}
+          canApplyPreset={state.messages.length === 0}
           onChatChange={(chat) => setState((current) => (current ? { ...current, chat } : current))}
           onParticipantsChange={setParticipants}
           disabled={autoRunning || runningSpeaker !== null}

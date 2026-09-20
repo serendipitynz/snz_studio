@@ -292,38 +292,174 @@ func (s *Server) presetFromBody(w http.ResponseWriter, m map[string]any, kind st
 	return p, true
 }
 
-// applyPresetRoster creates the preset's participants in preset order, which is
-// the round_robin order (§2). Endpoint and model are left empty, so a turn runs
-// against the workspace endpoint until the organisation panel assigns one.
-// Chat creation and the roster are not one transaction (the repositories expose
-// none), so a roster that fails midway takes its chat with it rather than
-// leaving a multi-agent chat with a partial roster behind.
-func (s *Server) applyPresetRoster(chatID string, p *preset.MultiAgentPreset) error {
+// createPresetParticipants creates the preset's participants in preset order,
+// which is the round_robin order (§2). Endpoint and model are left empty, so a
+// turn runs against the workspace endpoint until the organisation panel assigns
+// one.
+func (s *Server) createPresetParticipants(chatID string, p *preset.MultiAgentPreset) error {
 	for _, participant := range p.Participants {
-		_, err := s.participants.CreateParticipant(repository.CreateParticipantInput{
+		if _, err := s.participants.CreateParticipant(repository.CreateParticipantInput{
 			ChatID:      chatID,
 			DisplayName: participant.DisplayName,
 			RolePrompt:  participant.RolePrompt,
-		})
-		if err == nil {
-			continue
+		}); err != nil {
+			return err
 		}
-		if _, deleteErr := s.chats.DeleteChat(chatID); deleteErr != nil {
-			log.Printf("[preset] chat %s kept with a partial roster: %v", chatID, deleteErr)
-		}
-		return err
 	}
 	return nil
 }
 
+// applyPresetRoster is createPresetParticipants for a chat that was just created
+// from the preset. Chat creation and the roster are not one transaction (the
+// repositories expose none), so a roster that fails midway takes its chat with
+// it rather than leaving a multi-agent chat with a partial roster behind.
+func (s *Server) applyPresetRoster(chatID string, p *preset.MultiAgentPreset) error {
+	err := s.createPresetParticipants(chatID, p)
+	if err == nil {
+		return nil
+	}
+	if _, deleteErr := s.chats.DeleteChat(chatID); deleteErr != nil {
+		log.Printf("[preset] chat %s kept with a partial roster: %v", chatID, deleteErr)
+	}
+	return err
+}
+
+// The refusals handleApplyMultiAgentPreset raises from inside the turn exclusion,
+// where it can report only an error.
+var (
+	errChatAlreadySpoken = errors.New("a preset applies only while the conversation has no messages")
+	errChatVanished      = errors.New("chat not found")
+)
+
+// handleApplyMultiAgentPreset applies a preset to a multi-agent chat that exists
+// already, which is allowed only while the chat has no messages. A chat can now
+// be created with an empty roster (the sidebar's "+"), so the preset has to be
+// pickable after creation; a conversation that has already been spoken in is
+// refused instead, because replacing the roster, the turn rule and the scene
+// would leave the transcript referring to a cast the chat no longer has.
+func (s *Server) handleApplyMultiAgentPreset(w http.ResponseWriter, r *http.Request) {
+	chat, ok := s.requireMultiAgentChat(w, r.PathValue("chatId"))
+	if !ok {
+		return
+	}
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	chosen, ok := s.presetFromBody(w, m, chat.Kind)
+	if !ok {
+		return
+	}
+	if chosen == nil {
+		writeError(w, http.StatusBadRequest, "presetId or preset is required")
+		return
+	}
+
+	// The emptiness check and the replacement it guards run under both of the
+	// chat's exclusions, because either kind of write would otherwise slip between
+	// them. A turn picks its speaker from the roster and stores its message only
+	// when it finishes, so a turn in flight would store a message pointing at a
+	// participant this route has since deleted — a speaker the transcript can no
+	// longer name, which is what §3's logical removal exists to prevent. A human
+	// intervention needs no roster at all, so it can land straight after the check
+	// and leave the preset applied to a conversation that has been spoken in.
+	var updated *model.Chat
+	applyErr := s.turnEngine.WithTurnExcluded(chat.ID, func() error {
+		return s.turnEngine.WithMessageWrite(chat.ID, func() error {
+			var err error
+			updated, err = s.applyPresetToChat(chat.ID, chosen)
+			return err
+		})
+	})
+	switch {
+	case errors.Is(applyErr, errChatVanished):
+		writeError(w, http.StatusNotFound, applyErr.Error())
+		return
+	// 409 rather than 400 for both: the request is well formed and the same body
+	// would be accepted on the same chat a moment earlier — it is the chat's state
+	// that rules it out, which is what 409 says (as it already does for an
+	// overlapping turn).
+	case errors.Is(applyErr, errChatAlreadySpoken), errors.Is(applyErr, service.ErrTurnInProgress):
+		writeError(w, http.StatusConflict, applyErr.Error())
+		return
+	case applyErr != nil:
+		fail(w, applyErr)
+		return
+	}
+
+	participants, err := s.participants.ListAll(chat.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chat": updated, "participants": participants})
+}
+
+// applyPresetToChat is the state change handleApplyMultiAgentPreset makes, run
+// by its caller under the chat's turn and message-write exclusions — the
+// emptiness check included, since it is what the rest of this depends on.
+func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*model.Chat, error) {
+	spoken, err := s.chats.ListRecentMessages(chatID, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(spoken) > 0 {
+		return nil, errChatAlreadySpoken
+	}
+
+	// The roster is replaced rather than appended to, and the rows are deleted
+	// outright: applying a preset must leave the chat as if it had been created
+	// from that preset, and a kept row would both show up as a removed participant
+	// and push the new roster's sort_order past it.
+	if err := s.participants.DeleteRoster(chatID); err != nil {
+		return nil, err
+	}
+	chat, err := s.chats.UpdateMultiAgentSettings(chatID, &p.TurnRule, &p.ScenePrompt)
+	if err != nil {
+		return nil, err
+	}
+	if chat == nil {
+		return nil, errChatVanished
+	}
+	// Same rule as creation: the preset names the chat only when nothing else has.
+	// A chat created from the sidebar has an empty title, which is the case this
+	// route exists for.
+	if strings.TrimSpace(chat.Title) == "" {
+		chat, err = s.chats.UpdateChatTitle(chatID, p.Title)
+		if err != nil {
+			return nil, err
+		}
+		if chat == nil {
+			return nil, errChatVanished
+		}
+	}
+	// A failure partway through leaves a partial roster, which creation avoids by
+	// deleting the chat (applyPresetRoster). Here the chat predates the preset and
+	// may be the only thing the user has, so it is kept: the transcript is still
+	// empty, so this same route stays open and re-applying clears the partial
+	// roster and starts over.
+	if err := s.createPresetParticipants(chatID, p); err != nil {
+		return nil, err
+	}
+	return chat, nil
+}
+
 // storeHumanMessage records the human's intervention in a multi-agent chat: the
 // message only, with none of the memory extraction, retrieval or summary work a
-// single-assistant turn does (design §4.4).
+// single-assistant turn does (design §4.4). It takes the chat's message-write
+// lock, which is what keeps it from landing inside an apply that has already
+// found the conversation empty; a turn in flight does not hold that lock, so
+// speaking mid-turn still goes straight through.
 func (s *Server) storeHumanMessage(chatID, content string) (*model.Message, error) {
-	message, err := s.chats.AddMessage(repository.AddMessageInput{
-		ChatID:  chatID,
-		Role:    "user",
-		Content: content,
+	var message model.Message
+	err := s.turnEngine.WithMessageWrite(chatID, func() error {
+		stored, err := s.chats.AddMessage(repository.AddMessageInput{
+			ChatID:  chatID,
+			Role:    "user",
+			Content: content,
+		})
+		message = stored
+		return err
 	})
 	if err != nil {
 		return nil, err

@@ -25,9 +25,10 @@ interface WorkspaceSidebarProps {
   activeChatId?: string;
 }
 
-// Presets are deliberately absent: a preset can only be applied at creation time
-// and picking one needs the project form's fields, so this quick menu creates an
-// empty roster and leaves the line-up to the participant panel.
+// Presets are deliberately absent: picking one needs the project form's fields,
+// so this quick menu creates an empty roster and leaves the line-up to the
+// organisation panel, where the preset can still be applied until the
+// conversation's first message.
 const CHAT_KIND_CHOICES: { kind: ChatKind; label: MessageKey }[] = [
   { kind: "assistant", label: "multiAgent.kindAssistant" },
   { kind: "multi_agent", label: "multiAgent.kindMultiAgent" }

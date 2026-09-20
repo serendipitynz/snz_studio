@@ -99,9 +99,13 @@ The roster is the set of participants still on the conversation. Removing a part
 delete: the row stays, so past messages keep their speaker name, and the round-robin cycle keeps a
 starting point.
 
-Presets fill participants, turn rule and scene in one step when the conversation is created. Seven
-presets ship with the app; further presets are applied by loading a JSON file of the same shape.
-An applied preset leaves no link behind — everything is edited from the organisation panel afterwards.
+Presets fill participants, turn rule and scene in one step. Seven presets ship with the app; further
+presets are applied by loading a JSON file of the same shape. A preset can be applied when the
+conversation is created, and afterwards from the organisation panel for as long as the conversation
+has no messages — which replaces the roster, the turn rule and the scene. Once something has been
+said the preset is refused, since the transcript would be left naming speakers the conversation no
+longer has. An applied preset leaves no link behind — everything is edited from the organisation
+panel afterwards.
 
 The user is not a participant. Human messages are stored as `user` messages with no participant, so
 the user can speak into the conversation at any point (adding a topic, heckling) without taking a turn.
@@ -367,7 +371,8 @@ Center:
 Right pane:
 
 - organisation panel: participant CRUD with endpoint + model selection and a connection check,
-  roster order, turn rule, scene
+  roster order, turn rule, scene, and — while the conversation has no messages — applying a preset
+  (collapsed by default)
 
 Removed participants are listed separately from the roster, since their past utterances remain.
 
@@ -437,6 +442,7 @@ Current API groups:
 - participant CRUD (soft delete)
 - multi-agent turn streaming
 - bundled preset listing
+- applying a preset to a multi-agent conversation that has no messages
 
 ## Debugging
 

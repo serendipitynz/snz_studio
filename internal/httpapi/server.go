@@ -236,6 +236,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/participants/{participantId}", s.handleRemoveParticipant)
 	mux.HandleFunc("POST /api/chats/{chatId}/turns/stream", s.handleRunTurnStream)
 	mux.HandleFunc("GET /api/multi-agent-presets", s.handleListMultiAgentPresets)
+	mux.HandleFunc("POST /api/chats/{chatId}/preset", s.handleApplyMultiAgentPreset)
 
 	// Messages / review
 	mux.HandleFunc("POST /api/messages/{messageId}/review", s.handleReviewMessage)

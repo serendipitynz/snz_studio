@@ -61,16 +61,24 @@ type TurnEngine struct {
 	// participant and make it speak twice (§4.2 step 0).
 	mu      sync.Mutex
 	running map[string]bool
+
+	// messageWrites holds one lock per chat for the writes that must not
+	// interleave with each other: storing a human message, and applying a preset.
+	// A lock is never removed once created — dropping one another goroutine is
+	// about to take would need refcounting, to save a mutex per chat that has been
+	// written to in this process.
+	messageWrites map[string]*sync.Mutex
 }
 
 // NewTurnEngine builds a TurnEngine.
 func NewTurnEngine(chats *repository.ChatRepository, participants *repository.ParticipantRepository, llm *LLMClient, cfg *config.Config) *TurnEngine {
 	return &TurnEngine{
-		chats:        chats,
-		participants: participants,
-		llm:          llm,
-		cfg:          cfg,
-		running:      map[string]bool{},
+		chats:         chats,
+		participants:  participants,
+		llm:           llm,
+		cfg:           cfg,
+		running:       map[string]bool{},
+		messageWrites: map[string]*sync.Mutex{},
 	}
 }
 
@@ -88,6 +96,51 @@ func (e *TurnEngine) releaseTurn(chatID string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	delete(e.running, chatID)
+}
+
+// WithTurnExcluded runs fn while holding the chat's turn slot, and answers
+// ErrTurnInProgress without running fn when a turn already holds it. It is for a
+// write that invalidates a turn's premise rather than merely racing it: applying
+// a preset deletes the roster outright, and a turn that picked its speaker before
+// the delete would store a message whose participant_id no longer resolves —
+// exactly the breakage the logical removal of §3 exists to prevent. Taking the
+// same slot the turn takes is what makes the two mutually exclusive; a lock of
+// its own would let them run side by side.
+func (e *TurnEngine) WithTurnExcluded(chatID string, fn func() error) error {
+	if !e.acquireTurn(chatID) {
+		return ErrTurnInProgress
+	}
+	defer e.releaseTurn(chatID)
+	return fn()
+}
+
+// WithMessageWrite runs fn while holding the chat's message-write lock, waiting
+// for it rather than refusing. Storing a human message and applying a preset both
+// take it, which is what stops an intervention from landing between the apply's
+// emptiness check and its roster replacement — leaving a preset applied to a
+// conversation that has already been spoken in.
+//
+// It is deliberately not the turn slot. Speaking into a conversation while a turn
+// runs is intended (§4.4), so a human message must not be refused, nor made to
+// wait out a completion that can take tens of seconds. A turn's own message needs
+// no lock here: applying a preset holds the turn slot, so the two are already
+// exclusive.
+func (e *TurnEngine) WithMessageWrite(chatID string, fn func() error) error {
+	lock := e.messageWriteLock(chatID)
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
+}
+
+func (e *TurnEngine) messageWriteLock(chatID string) *sync.Mutex {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	lock, ok := e.messageWrites[chatID]
+	if !ok {
+		lock = &sync.Mutex{}
+		e.messageWrites[chatID] = lock
+	}
+	return lock
 }
 
 // RunTurn executes one turn of the chat and returns the stored message. A turn is
