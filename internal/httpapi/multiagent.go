@@ -355,54 +355,21 @@ func (s *Server) handleApplyMultiAgentPreset(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// The whole apply runs inside the chat's turn exclusion, and the transcript is
-	// read there too. Both halves matter: a turn picks its speaker from the roster
-	// and stores its message only when it finishes, so a turn already in flight
-	// would otherwise store a message pointing at a participant this route has
-	// since deleted — a speaker the transcript can no longer name, which is the
-	// breakage §3's logical removal exists to prevent.
+	// The emptiness check and the replacement it guards run under both of the
+	// chat's exclusions, because either kind of write would otherwise slip between
+	// them. A turn picks its speaker from the roster and stores its message only
+	// when it finishes, so a turn in flight would store a message pointing at a
+	// participant this route has since deleted — a speaker the transcript can no
+	// longer name, which is what §3's logical removal exists to prevent. A human
+	// intervention needs no roster at all, so it can land straight after the check
+	// and leave the preset applied to a conversation that has been spoken in.
 	var updated *model.Chat
 	applyErr := s.turnEngine.WithTurnExcluded(chat.ID, func() error {
-		spoken, err := s.chats.ListRecentMessages(chat.ID, 1)
-		if err != nil {
+		return s.turnEngine.WithMessageWrite(chat.ID, func() error {
+			var err error
+			updated, err = s.applyPresetToChat(chat.ID, chosen)
 			return err
-		}
-		if len(spoken) > 0 {
-			return errChatAlreadySpoken
-		}
-
-		// The roster is replaced rather than appended to, and the rows are deleted
-		// outright: applying a preset must leave the chat as if it had been created
-		// from that preset, and a kept row would both show up as a removed
-		// participant and push the new roster's sort_order past it.
-		if err := s.participants.DeleteRoster(chat.ID); err != nil {
-			return err
-		}
-		updated, err = s.chats.UpdateMultiAgentSettings(chat.ID, &chosen.TurnRule, &chosen.ScenePrompt)
-		if err != nil {
-			return err
-		}
-		if updated == nil {
-			return errChatVanished
-		}
-		// Same rule as creation: the preset names the chat only when nothing else
-		// has. A chat created from the sidebar has an empty title, which is the case
-		// this route exists for.
-		if strings.TrimSpace(updated.Title) == "" {
-			updated, err = s.chats.UpdateChatTitle(chat.ID, chosen.Title)
-			if err != nil {
-				return err
-			}
-			if updated == nil {
-				return errChatVanished
-			}
-		}
-		// A failure partway through leaves a partial roster, which creation avoids
-		// by deleting the chat (applyPresetRoster). Here the chat predates the preset
-		// and may be the only thing the user has, so it is kept: the transcript is
-		// still empty, so this same route stays open and re-applying clears the
-		// partial roster and starts over.
-		return s.createPresetParticipants(chat.ID, chosen)
+		})
 	})
 	switch {
 	case errors.Is(applyErr, errChatVanished):
@@ -428,14 +395,71 @@ func (s *Server) handleApplyMultiAgentPreset(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"chat": updated, "participants": participants})
 }
 
+// applyPresetToChat is the state change handleApplyMultiAgentPreset makes, run
+// by its caller under the chat's turn and message-write exclusions — the
+// emptiness check included, since it is what the rest of this depends on.
+func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*model.Chat, error) {
+	spoken, err := s.chats.ListRecentMessages(chatID, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(spoken) > 0 {
+		return nil, errChatAlreadySpoken
+	}
+
+	// The roster is replaced rather than appended to, and the rows are deleted
+	// outright: applying a preset must leave the chat as if it had been created
+	// from that preset, and a kept row would both show up as a removed participant
+	// and push the new roster's sort_order past it.
+	if err := s.participants.DeleteRoster(chatID); err != nil {
+		return nil, err
+	}
+	chat, err := s.chats.UpdateMultiAgentSettings(chatID, &p.TurnRule, &p.ScenePrompt)
+	if err != nil {
+		return nil, err
+	}
+	if chat == nil {
+		return nil, errChatVanished
+	}
+	// Same rule as creation: the preset names the chat only when nothing else has.
+	// A chat created from the sidebar has an empty title, which is the case this
+	// route exists for.
+	if strings.TrimSpace(chat.Title) == "" {
+		chat, err = s.chats.UpdateChatTitle(chatID, p.Title)
+		if err != nil {
+			return nil, err
+		}
+		if chat == nil {
+			return nil, errChatVanished
+		}
+	}
+	// A failure partway through leaves a partial roster, which creation avoids by
+	// deleting the chat (applyPresetRoster). Here the chat predates the preset and
+	// may be the only thing the user has, so it is kept: the transcript is still
+	// empty, so this same route stays open and re-applying clears the partial
+	// roster and starts over.
+	if err := s.createPresetParticipants(chatID, p); err != nil {
+		return nil, err
+	}
+	return chat, nil
+}
+
 // storeHumanMessage records the human's intervention in a multi-agent chat: the
 // message only, with none of the memory extraction, retrieval or summary work a
-// single-assistant turn does (design §4.4).
+// single-assistant turn does (design §4.4). It takes the chat's message-write
+// lock, which is what keeps it from landing inside an apply that has already
+// found the conversation empty; a turn in flight does not hold that lock, so
+// speaking mid-turn still goes straight through.
 func (s *Server) storeHumanMessage(chatID, content string) (*model.Message, error) {
-	message, err := s.chats.AddMessage(repository.AddMessageInput{
-		ChatID:  chatID,
-		Role:    "user",
-		Content: content,
+	var message model.Message
+	err := s.turnEngine.WithMessageWrite(chatID, func() error {
+		stored, err := s.chats.AddMessage(repository.AddMessageInput{
+			ChatID:  chatID,
+			Role:    "user",
+			Content: content,
+		})
+		message = stored
+		return err
 	})
 	if err != nil {
 		return nil, err

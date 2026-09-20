@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"snzstudio/internal/config"
 	"snzstudio/internal/model"
@@ -610,5 +611,72 @@ func TestTurnEngineInheritedTargetSurvivesConfigChange(t *testing.T) {
 	}
 	if message.ModelName == nil || *message.ModelName != "default-model" {
 		t.Fatalf("stored model = %v, want the model resolved before the check", message.ModelName)
+	}
+}
+
+// TestMessageWriteExclusion covers what the message-write lock is for: a human
+// message and a preset apply on the same chat cannot interleave, while a turn in
+// flight still lets a human speak (design §4.4).
+func TestMessageWriteExclusion(t *testing.T) {
+	engine := newTurnGraph(t).engine
+
+	held := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan struct{})
+	go func() {
+		_ = engine.WithMessageWrite("chat-1", func() error {
+			close(held)
+			<-release
+			return nil
+		})
+		close(firstDone)
+	}()
+
+	<-held
+	second := make(chan struct{})
+	go func() {
+		_ = engine.WithMessageWrite("chat-1", func() error { return nil })
+		close(second)
+	}()
+	select {
+	case <-second:
+		t.Fatal("a second message write ran while the first held the chat's lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Another chat is never blocked by it, and neither is a turn: the lock is per
+	// chat and separate from the turn slot.
+	if err := engine.WithMessageWrite("chat-2", func() error { return nil }); err != nil {
+		t.Fatalf("message write on another chat = %v, want nil", err)
+	}
+	if !engine.acquireTurn("chat-1") {
+		t.Fatal("a turn could not start while a message write held chat-1 — speaking mid-turn must stay possible in both directions")
+	}
+	engine.releaseTurn("chat-1")
+
+	close(release)
+	<-firstDone
+	<-second
+}
+
+// TestMessageWriteIsNotTheTurnSlot pins the half that keeps the fix from
+// regressing intervention: a turn holds its own slot for as long as a completion
+// takes, and a human message must not wait for it.
+func TestMessageWriteIsNotTheTurnSlot(t *testing.T) {
+	engine := newTurnGraph(t).engine
+	if !engine.acquireTurn("chat-1") {
+		t.Fatal("could not take the turn slot")
+	}
+	defer engine.releaseTurn("chat-1")
+
+	done := make(chan struct{})
+	go func() {
+		_ = engine.WithMessageWrite("chat-1", func() error { return nil })
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("a human message waited on a turn in flight")
 	}
 }
