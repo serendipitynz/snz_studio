@@ -114,6 +114,11 @@ export interface MultiAgentPreset {
   participants: MultiAgentPresetParticipant[];
 }
 
+// What a request names a preset by: a bundled id, or the whole preset when it
+// was read from a file. Chat creation and applying to an existing chat take the
+// same pair, so the picker hands back one of these whichever route uses it.
+export type MultiAgentPresetSelection = { presetId: string; preset?: undefined } | { presetId?: undefined; preset: MultiAgentPreset };
+
 export interface AssistantReference {
   id: string;
   assistantMessageId: string;
@@ -375,6 +380,15 @@ export const api = {
   // The list carries removed participants too, so the spectator view can name the
   // speaker of an older message; callers that want the roster filter on deletedAt.
   listMultiAgentPresets: () => request<{ presets: MultiAgentPreset[] }>("/api/multi-agent-presets"),
+  // Applies a preset to a chat that exists already, replacing its roster, turn
+  // rule and scene. Only while the chat has no messages: the server answers 409
+  // once one has been spoken.
+  applyMultiAgentPreset: (chatId: string, selection: MultiAgentPresetSelection) =>
+    request<{ chat: ChatRecord; participants: Participant[] }>(`/api/chats/${chatId}/preset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(selection)
+    }),
   listParticipants: (chatId: string) =>
     request<{ participants: Participant[] }>(`/api/chats/${chatId}/participants`),
   createParticipant: (chatId: string, input: { displayName: string; rolePrompt?: string; baseUrl?: string; modelName?: string }) =>

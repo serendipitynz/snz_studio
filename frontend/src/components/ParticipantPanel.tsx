@@ -2,6 +2,7 @@ import styled from "@emotion/styled";
 import { FormEvent, useState } from "react";
 import { api, ChatRecord, Participant, TurnRule } from "../api/client";
 import { useConfirm } from "./ConfirmDialog";
+import { PresetChoice, PresetPicker } from "./PresetPicker";
 import { useLanguage } from "../i18n";
 import {
   Badge,
@@ -26,6 +27,11 @@ interface ParticipantPanelProps {
   onChatChange: (chat: ChatRecord) => void;
   onParticipantsChange: (participants: Participant[]) => void;
   disabled: boolean;
+  // True while the conversation has no messages, which is the only time a preset
+  // may be applied: it replaces the roster, the turn rule and the scene, and a
+  // transcript would be left referring to a cast the chat no longer has. The
+  // server refuses it either way; this only keeps the control off screen.
+  canApplyPreset: boolean;
 }
 
 // The fallback rule of a blank endpoint / model hangs off a (?) beside the label
@@ -124,6 +130,8 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
   const [probes, setProbes] = useState<Record<string, EndpointProbe>>({});
   const [newDisplayName, setNewDisplayName] = useState("");
   const [adding, setAdding] = useState(false);
+  const [presetChoice, setPresetChoice] = useState<PresetChoice | null>(null);
+  const [applyingPreset, setApplyingPreset] = useState(false);
   const [error, setError] = useState("");
 
   const roster = props.participants.filter((participant) => participant.deletedAt === null);
@@ -226,6 +234,29 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     }
   }
 
+  async function handleApplyPreset() {
+    if (!presetChoice) {
+      return;
+    }
+    // Only when there is something to lose: applying to the empty roster the
+    // sidebar creates is the ordinary path and asking there would be noise.
+    if (roster.length > 0 && !(await confirm(t("preset.applyConfirm", { count: roster.length })))) {
+      return;
+    }
+
+    setApplyingPreset(true);
+    setError("");
+    try {
+      const response = await api.applyMultiAgentPreset(props.chat.id, presetChoice.selection);
+      props.onChatChange(response.chat);
+      props.onParticipantsChange(response.participants);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : t("preset.applyError"));
+    } finally {
+      setApplyingPreset(false);
+    }
+  }
+
   async function handleChangeTurnRule(turnRule: TurnRule) {
     setError("");
     try {
@@ -251,6 +282,25 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     <Stack>
       <SectionTitle>{t("participants.title")}</SectionTitle>
       {error ? <ErrorText>{error}</ErrorText> : null}
+
+      {props.canApplyPreset ? (
+        <Card>
+          <Stack>
+            <Badge tone="accent">{t("preset.applyTitle")}</Badge>
+            <Subtle style={{ margin: 0 }}>{t("preset.applyNote")}</Subtle>
+            <PresetPicker disabled={props.disabled || applyingPreset} onChange={setPresetChoice} />
+            <div>
+              <Button
+                type="button"
+                disabled={!presetChoice || applyingPreset || props.disabled}
+                onClick={() => void handleApplyPreset()}
+              >
+                {applyingPreset ? t("preset.applying") : t("preset.apply")}
+              </Button>
+            </div>
+          </Stack>
+        </Card>
+      ) : null}
 
       <Card>
         <Stack>
