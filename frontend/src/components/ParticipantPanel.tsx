@@ -27,6 +27,14 @@ interface ParticipantPanelProps {
   disabled: boolean;
 }
 
+// The fallback rule of a blank endpoint / model is shown beside the field rather
+// than in its placeholder: the panel is narrow enough to clip a placeholder
+// mid-sentence, and a placeholder is gone once the field has a value — which is
+// exactly when a roster is being reviewed.
+function FieldHint(props: { children: string }) {
+  return <MetaText style={{ lineHeight: 1.5 }}>{props.children}</MetaText>;
+}
+
 // A per-endpoint probe result. Listing an endpoint's models is both the model
 // picker's source and the connection check the design asks for (§6): the API has
 // no separate check route, and an endpoint that answers with its model list is
@@ -402,6 +410,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
             onChange={(event) => setBaseUrl(event.target.value)}
             placeholder={t("participants.baseUrlPlaceholder")}
           />
+          <FieldHint>{t("participants.baseUrlHint")}</FieldHint>
         </Field>
 
         <Row style={{ alignItems: "center" }}>
@@ -437,6 +446,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
               placeholder={t("participants.modelPlaceholder")}
             />
           )}
+          <FieldHint>{t("participants.modelHint")}</FieldHint>
         </Field>
 
         <div>
