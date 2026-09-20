@@ -21,3 +21,13 @@ frontend/src/wailsjs
 # Working tree for scripts/build-ruri-gguf.sh (llama.cpp source/release, venv, HF
 # snapshot, f16 intermediate — all large and regenerable).
 /build/model-build
+
+# pnpm's local content-addressable store (created by the workspace config).
+.pnpm-store
+
+# Claude Code's per-machine permission grants; not part of the project.
+.claude/settings.local.json
+
+# Personal scratch area for drafts. Was only in .git/info/exclude, which does not
+# travel with a clone, so an accidental commit was one fresh checkout away.
+/_sandbox
