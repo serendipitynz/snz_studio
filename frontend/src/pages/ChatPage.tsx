@@ -899,8 +899,8 @@ export function ChatPage() {
       ) : null}
 
       {isTitleModalOpen ? (
-        <ModalOverlay onClick={() => setIsTitleModalOpen(false)}>
-          <ModalCard onClick={(event) => event.stopPropagation()}>
+        <ModalOverlay>
+          <ModalCard>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <SectionTitle>{t("chat.editTitleModal")}</SectionTitle>
@@ -940,8 +940,8 @@ export function ChatPage() {
       ) : null}
 
       {isDocumentModalOpen ? (
-        <ModalOverlay onClick={() => setIsDocumentModalOpen(false)}>
-          <ModalCard onClick={(event) => event.stopPropagation()}>
+        <ModalOverlay>
+          <ModalCard>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <SectionTitle>{t("chat.addDocumentModal")}</SectionTitle>
@@ -986,15 +986,8 @@ export function ChatPage() {
       ) : null}
 
       {reviewTargetMessageId ? (
-        <ModalOverlay
-          onClick={() => {
-            setReviewTargetMessageId(null);
-            setReviewContent("");
-            setReviewReferences([]);
-            setReviewLoading(false);
-          }}
-        >
-          <ModalCard onClick={(event) => event.stopPropagation()}>
+        <ModalOverlay>
+          <ModalCard>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <SectionTitle>{t("chat.editorialReview")}</SectionTitle>

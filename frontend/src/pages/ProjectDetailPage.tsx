@@ -868,8 +868,8 @@ export function ProjectDetailPage() {
       </WorkspaceShell>
 
       {selectedDocument ? (
-        <ModalOverlay onClick={() => setSelectedDocument(null)}>
-          <ModalCard onClick={(event) => event.stopPropagation()}>
+        <ModalOverlay>
+          <ModalCard>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <div>
@@ -943,8 +943,8 @@ export function ProjectDetailPage() {
       ) : null}
 
       {isTitleModalOpen ? (
-        <ModalOverlay onClick={() => setIsTitleModalOpen(false)}>
-          <ModalCard onClick={(event) => event.stopPropagation()}>
+        <ModalOverlay>
+          <ModalCard>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <SectionTitle>{t("project.editTitleModal")}</SectionTitle>
@@ -975,8 +975,8 @@ export function ProjectDetailPage() {
       ) : null}
 
       {isSystemPromptModalOpen ? (
-        <ModalOverlay onClick={() => setIsSystemPromptModalOpen(false)}>
-          <ModalCard onClick={(event) => event.stopPropagation()}>
+        <ModalOverlay>
+          <ModalCard>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <SectionTitle>{t("project.editSystemPromptModal")}</SectionTitle>
@@ -1007,8 +1007,8 @@ export function ProjectDetailPage() {
       ) : null}
 
       {isMemoryModalOpen ? (
-        <ModalOverlay onClick={() => setIsMemoryModalOpen(false)}>
-          <ModalCard onClick={(event) => event.stopPropagation()}>
+        <ModalOverlay>
+          <ModalCard>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <SectionTitle>{t("project.projectMemories")}</SectionTitle>
