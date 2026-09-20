@@ -210,6 +210,19 @@ async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+// requestText is request() for a route whose body is not JSON. The error branch
+// still reads a JSON {error} body, because a failure is produced by the shared
+// writeError helper whatever the success body looks like.
+async function requestText(input: string, init?: RequestInit): Promise<string> {
+  const target = `${window.__API_BASE__ ?? ""}${input}`;
+  const response = await fetch(target, { ...init, headers: authHeaders(init?.headers) });
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? `Request failed with ${response.status}`);
+  }
+  return await response.text();
+}
+
 export const api = {
   getConfiguration: () => request<{ configuration: WorkspaceConfiguration }>("/api/configuration"),
   updateConfiguration: (input: {
@@ -339,6 +352,10 @@ export const api = {
     }),
   getChatDetail: (chatId: string) =>
     request<{ project: Project; chat: ChatRecord; summary: ChatSummary | null; messages: MessageRecord[] }>(`/api/chats/${chatId}`),
+  // Returns the markdown transcript itself, not a JSON envelope. Both chat kinds
+  // export through this one route; the server drops the multi-agent-only
+  // sections for a single-assistant chat.
+  exportChatMarkdown: (chatId: string) => requestText(`/api/chats/${chatId}/export/markdown`),
   reviewMessage: (messageId: string) =>
     request<ReviewResponse>(`/api/messages/${messageId}/review`, {
       method: "POST"

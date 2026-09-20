@@ -11,6 +11,15 @@ declare global {
     // API/file request so a stray local browser tab can't drive the loopback
     // API. Empty when the binding is unavailable (unsupported host).
     __API_TOKEN__?: string;
+    // The Wails binding bridge. It exists only inside the Wails WebView, so its
+    // presence is what tells the SPA whether a Go binding can be called at all
+    // — checked before use so a genuine binding failure is not mistaken for an
+    // unsupported host.
+    go?: {
+      main?: {
+        App?: Record<string, ((...args: never[]) => unknown) | undefined>;
+      };
+    };
   }
 }
 
