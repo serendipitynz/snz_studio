@@ -4,7 +4,7 @@ title: Windows インストーラ本体に LICENSE / THIRD_PARTY_NOTICES を同�
 status: In Review
 assignee: []
 created_date: '2026-09-20 11:47'
-updated_date: '2026-09-20 23:47'
+updated_date: '2026-09-20 23:49'
 labels: []
 milestone: m-1
 dependencies: []
@@ -108,7 +108,8 @@ installer/tmp の WebView2 bootstrapper もすべて生成物なので、.gitign
 "Verify the installer ships the license notices"): 生成された installer.exe を
 `/S /D=$env:RUNNER_TEMP\installed-check` でサイレント実行し、インストール先に両ファイルが
 あることを assert する。`/D=` は最後・クォート無しが NSIS の要件なので Start-Process の
-ArgumentList を分けている。ワークフロー実走の結果が出るまで AC #2 は未チェックのまま。
+ArgumentList を分けている。実走結果は下の「AC #2 の証跡 (CI 実走)」の通りで、
+run 35545446747 をもって AC #2 は充足済み。
 
 ### AC #3: サイドカーは引き続き先送りで決着
 理由 (project.nsi と build.yml のコメントに記録):
