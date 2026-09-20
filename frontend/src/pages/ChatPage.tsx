@@ -10,6 +10,7 @@ import {
   Project as ProjectRecord
 } from "../api/client";
 import type { ReviewReference } from "../api/client";
+import { useConfirm } from "../components/ConfirmDialog";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
@@ -101,6 +102,7 @@ const INSPECTOR_STORAGE_KEY = "snz.chat.inspectorCollapsed";
 export function ChatPage() {
   const { chatId = "" } = useParams();
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const messageScrollerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -446,7 +448,7 @@ export function ChatPage() {
 
         const existing = currentDocuments.find((document) => document.title === file.name);
         if (existing) {
-          const overwrite = window.confirm(t("chat.overwritePrompt", { name: file.name }));
+          const overwrite = await confirm(t("chat.overwritePrompt", { name: file.name }));
           if (!overwrite) {
             continue;
           }
