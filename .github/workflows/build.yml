@@ -103,6 +103,13 @@ jobs:
           for f in "$SRC"/*; do b="$(basename "$f")"; if [[ -f "$f" && "$b" != llama-server && "$b" != *.dylib ]] && file "$f" | grep -q "Mach-O.*executable"; then rm -f "$f"; fi; done
           cp -R "$SRC"/. "$RES"/
 
+      # TinySegmenter's modified BSD requires its notice to accompany a binary
+      # redistribution, so the notices ride inside the .app rather than only in
+      # the repo. scripts/build-mac-signed.sh stages them at the same point.
+      - name: Stage license notices (macOS)
+        if: runner.os == 'macOS'
+        run: cp LICENSE THIRD_PARTY_NOTICES.md "build/bin/snz-studio.app/Contents/Resources/"
+
       - name: Package .dmg (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -136,6 +143,14 @@ jobs:
           cp "$SRC/llama-server.exe" build/bin/
           find "$SRC" -name '*.dll' -exec cp {} build/bin/ \;
 
+      # Same obligation as the macOS step above. Folding these into the NSIS
+      # installer itself needs the build/windows/installer template changes the
+      # sidecar step already defers, so until then they ship beside the exe.
+      - name: Stage license notices (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cp LICENSE THIRD_PARTY_NOTICES.md build/bin/
+
       # --- Signing & notarization (TODO: needs user-provided secrets) -----------
       #
       # macOS (Developer ID):
@@ -167,4 +182,6 @@ jobs:
           path: |
             build/bin/*.dmg
             build/bin/*.exe
+            build/bin/LICENSE
+            build/bin/THIRD_PARTY_NOTICES.md
           if-no-files-found: warn

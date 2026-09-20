@@ -5,6 +5,10 @@ lists the third-party works it redistributes, either inside this source tree or
 inside the packaged application (`.dmg` / NSIS installer), together with the
 notices their licenses require.
 
+This file and `LICENSE` are shipped with the packaged application as well, so
+that a recipient who never sees the repository still receives them: on macOS
+inside `SNZ Studio.app/Contents/Resources`, on Windows beside the executable.
+
 ---
 
 ## 1. TinySegmenter 0.2 — bundled in this source tree
