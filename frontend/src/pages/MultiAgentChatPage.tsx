@@ -59,6 +59,8 @@ interface TurnDonePayload {
   participants?: Participant[];
 }
 
+const ROSTER_STORAGE_KEY = "snz.multiAgent.rosterCollapsed";
+
 // MultiAgentChatPage is the spectator view and progression control of
 // docs/multi-agent-chat-design.md §6. Auto-advance is this loop calling the
 // one-turn route repeatedly (§4.1): there is no server-side progression job, so
@@ -82,6 +84,13 @@ export function MultiAgentChatPage() {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [isRosterCollapsed, setIsRosterCollapsed] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.localStorage.getItem(ROSTER_STORAGE_KEY) === "true";
+  });
 
   // The loop reads its stop flag from a ref rather than from state: the flag is
   // set while an awaited turn is in flight, and the loop's closure would keep
@@ -112,6 +121,10 @@ export function MultiAgentChatPage() {
     setLoading(true);
     void load().finally(() => setLoading(false));
   }, [load]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ROSTER_STORAGE_KEY, String(isRosterCollapsed));
+  }, [isRosterCollapsed]);
 
   // Leaving the page stops the loop. The turn in flight still finishes and is
   // stored server-side, which is the same guarantee a disconnect gets (§4.1).
@@ -315,7 +328,7 @@ export function MultiAgentChatPage() {
   const stopPending = !autoRunning && runningSpeaker !== null;
 
   return (
-    <WorkspaceShell>
+    <WorkspaceShell $columns={isRosterCollapsed ? "280px minmax(0, 1fr)" : undefined}>
       <WorkspaceSidebar
         projects={projects}
         currentProjectId={state.project.id}
@@ -339,6 +352,14 @@ export function MultiAgentChatPage() {
               onClick={() => void load()}
             >
               <ReloadIcon />
+            </IconButton>
+            <IconButton
+              type="button"
+              aria-label={isRosterCollapsed ? t("multiAgent.showRoster") : t("multiAgent.hideRoster")}
+              title={isRosterCollapsed ? t("multiAgent.showRoster") : t("multiAgent.hideRoster")}
+              onClick={() => setIsRosterCollapsed((current) => !current)}
+            >
+              {isRosterCollapsed ? <PanelOpenIcon /> : <PanelCloseIcon />}
             </IconButton>
           </Row>
         </PaneHeader>
@@ -464,7 +485,11 @@ export function MultiAgentChatPage() {
         </Composer>
       </MainPane>
 
-      <InspectorPane>
+      {/* Hidden rather than unmounted: the panel holds unsaved edits (display name,
+          role prompt, endpoint, model, scene), and collapsing must not throw away
+          an edit in progress. display:none also takes it out of the grid, so the
+          transcript gets the full width. */}
+      <InspectorPane style={isRosterCollapsed ? { display: "none" } : undefined}>
         <ParticipantPanel
           chat={state.chat}
           participants={participants}
@@ -474,6 +499,26 @@ export function MultiAgentChatPage() {
         />
       </InspectorPane>
     </WorkspaceShell>
+  );
+}
+
+function PanelCloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M8.25 8 5.75 10.25V5.75L8.25 8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PanelOpenIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M7.75 8 10.25 5.75v4.5L7.75 8Z" fill="currentColor" />
+    </svg>
   );
 }
 
