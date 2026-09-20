@@ -145,7 +145,8 @@ jobs:
 
       # Same obligation as the macOS step above. Folding these into the NSIS
       # installer itself needs the build/windows/installer template changes the
-      # sidecar step already defers, so until then they ship beside the exe.
+      # sidecar step already defers, so until then they ship beside the exe and
+      # reach a recipient through the artifact zip (TASK-26).
       - name: Stage license notices (Windows)
         if: runner.os == 'Windows'
         shell: bash
