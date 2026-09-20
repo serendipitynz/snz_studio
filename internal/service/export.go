@@ -28,13 +28,13 @@ const exportTimeLayout = "2006-01-02 15:04"
 func BuildChatMarkdown(project *model.Project, chat *model.Chat, participants []model.Participant, messages []model.Message, now time.Time) string {
 	var b strings.Builder
 
-	title := strings.TrimSpace(chat.Title)
+	title := singleLine(chat.Title)
 	if title == "" {
 		title = "無題のチャット"
 	}
 	fmt.Fprintf(&b, "# %s\n\n", title)
 	if project != nil {
-		fmt.Fprintf(&b, "- プロジェクト: %s\n", strings.TrimSpace(project.Title))
+		fmt.Fprintf(&b, "- プロジェクト: %s\n", singleLine(project.Title))
 	}
 	fmt.Fprintf(&b, "- 出力日時: %s\n", now.Format(exportTimeLayout))
 
@@ -147,7 +147,7 @@ func exportSpeakerLabel(m model.Message, byID map[string]model.Participant) stri
 }
 
 func participantLabel(p model.Participant) string {
-	name := strings.TrimSpace(p.DisplayName)
+	name := singleLine(p.DisplayName)
 	if name == "" {
 		name = assistantSpeakerLabel
 	}
@@ -158,8 +158,19 @@ func participantLabel(p model.Participant) string {
 }
 
 func modelSuffix(modelName string) string {
-	if name := strings.TrimSpace(modelName); name != "" {
+	if name := singleLine(modelName); name != "" {
 		return " (" + name + ")"
 	}
 	return ""
+}
+
+// singleLine flattens a value that is interpolated into a heading or a list
+// item. Titles, display names and model names are free text — the API and the
+// preset JSON both accept a newline in one — and a newline there would end the
+// line it sits on and let the rest be read as markdown of its own, so a display
+// name carrying "### " would attribute the following message to a speaker that
+// does not exist. Message bodies and the scene are deliberately not passed
+// through here: multi-line markdown is the point of those.
+func singleLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

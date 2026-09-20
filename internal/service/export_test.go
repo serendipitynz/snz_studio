@@ -145,3 +145,39 @@ func TestBuildChatMarkdownEmptyChat(t *testing.T) {
 		}
 	}
 }
+
+// A display name carrying a newline would otherwise close the heading it sits
+// on and let the rest be read as markdown, attributing the message under it to
+// a speaker that does not exist.
+func TestBuildChatMarkdownFlattensMetadataNewlines(t *testing.T) {
+	project := &model.Project{ID: "p1", Title: "調査\nプロジェクト"}
+	chat := &model.Chat{ID: "c1", Title: "第 1 回\n### 偽の見出し", Kind: model.ChatKindMultiAgent}
+	participants := []model.Participant{
+		{ID: "pa1", ChatID: "c1", DisplayName: "Alice\n\n### Bob", ModelName: "qwen\n3-8b"},
+	}
+	messages := []model.Message{
+		{ID: "m1", ChatID: "c1", Role: "assistant", Content: "本文", ParticipantID: strPtr("pa1")},
+	}
+
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+
+	for _, want := range []string{
+		"# 第 1 回 ### 偽の見出し",
+		"- プロジェクト: 調査 プロジェクト",
+		"- Alice ### Bob (qwen 3-8b)",
+		"### Alice ### Bob (qwen 3-8b)\n\n本文",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("markdown is missing %q\n--- got ---\n%s", want, got)
+		}
+	}
+	headingLines := 0
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(line, "#") {
+			headingLines++
+		}
+	}
+	if headingLines != 6 {
+		t.Errorf("metadata opened a heading of its own: %d heading lines, want 6\n--- got ---\n%s", headingLines, got)
+	}
+}
