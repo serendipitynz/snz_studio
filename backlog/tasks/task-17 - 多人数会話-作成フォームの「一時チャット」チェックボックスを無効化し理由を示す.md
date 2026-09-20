@@ -1,10 +1,10 @@
 ---
 id: TASK-17
 title: '多人数会話: 作成フォームの「一時チャット」チェックボックスを無効化し、メモリを書き込まない旨を示す'
-status: To Do
+status: In Review
 assignee: []
 created_date: '2026-09-19 22:29'
-updated_date: '2026-09-19 23:58'
+updated_date: '2026-09-20 10:50'
 labels: []
 milestone: m-1
 dependencies: []
@@ -37,7 +37,59 @@ ordinal: 17000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 種別を多人数会話にすると「一時チャット」チェックボックスが無効化され、チェック済みだった場合は外れる
-- [ ] #2 無効化の理由 (多人数会話はプロジェクトのメモリを書き込まない) が短い説明として表示され、TASK-18 導入後も文面が正しい
-- [ ] #3 多人数会話の作成リクエストに isTemporary が含まれない
+- [x] #1 種別を多人数会話にすると「一時チャット」チェックボックスが無効化され、チェック済みだった場合は外れる
+- [x] #2 無効化の理由 (多人数会話はプロジェクトのメモリを書き込まない) が短い説明として表示され、TASK-18 導入後も文面が正しい
+- [x] #3 多人数会話の作成リクエストに isTemporary が含まれない
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. 作成フォームの種別 Select で multi_agent を選んだ時点で newChatIsTemporary を false に落とす (AC#1 のチェック解除)
+2. チェックボックスを multi_agent のとき disabled にし、既存の presetInput() と同じ形の temporaryInput() で isTemporary をリクエストから省く (AC#3)
+3. i18n に project.temporaryChatMultiAgentNote を EN/JA で追加し、multi_agent のときだけ Subtle で表示。文面は「メモリを書き込まない」とし、TASK-18 (読む機能) 後も正しいままにする (AC#2)
+4. pnpm check:client と go build/test で検証
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## 変更点
+
+- `ProjectDetailPage.tsx`: 種別 Select の onChange で multi_agent を選んだ時点で
+  `setNewChatIsTemporary(false)` を呼び、チェック済みの状態を解除する。あわせて
+  チェックボックスを `disabled={newChatKind === "multi_agent"}` にした (AC#1)。
+- 同ファイル: 既存の `presetInput()` と同じ形の `temporaryInput()` を追加し、
+  multi_agent のときは空オブジェクトを返してリクエストボディから `isTemporary` を
+  落とす (AC#3)。`handlers.go` の `bodyBool` はキー欠落時 false を返すため、
+  サーバ側の `is_temporary` は従来どおり false になる。
+- `i18n/index.tsx`: `project.temporaryChatMultiAgentNote` を EN/JA に追加し、
+  multi_agent のときだけ `Subtle` で表示する (AC#2)。
+
+## 判断
+
+- チェックボックスを非表示ではなく disabled + 説明文にした。TASK-19 で再有効化する
+  予定の項目なので、存在ごと消すと「なぜ多人数会話だけ設定がないのか」が UI から
+  読み取れなくなる。
+- 説明文は「メモリを書き込まない」とだけ書き、「読まない」には触れていない。
+  TASK-18 でドキュメント・メモリを読むようになっても文面が正しいままになる (AC#2)。
+- `isTemporary: false` を送るのではなく、キーごと省く方式にした。false を送ると
+  「一時チャットでないことを明示的に指定した」という記録になり、TASK-19 で
+  再有効化するときに既存データの解釈が変わる。
+
+## 検証
+
+- `pnpm check:client` (tsc --noEmit) 成功。`ja` は `Record<MessageKey, string>` で
+  `en` のキー集合に型で縛られているため、これが通ることが新キーの両ロケール実装の証拠。
+- `pnpm build:client` 成功 (347 modules)。
+- `go build ./...` / `go test ./...` 成功 (全パッケージ ok)。
+
+## 未検証 (人間の目で見てほしい点)
+
+- 実機 (Wails ウィンドウ) での見た目は確認していない。フロントにテスト基盤がなく
+  (vitest 等の devDependency なし)、導入はこのタスクのスコープ外と判断した。
+  説明文の折り返しと Subtle の余白は実機で見てほしい。
+- ChatPage の「チャット設定」モーダルにも同じ一時チャットのチェックボックスがあり、
+  多人数会話でも操作できる状態のまま。AC は作成フォームのみを対象にしているので
+  今回は触っていない。TASK-19 で再有効化を扱う際に一緒に見るのが自然だと思う。
+<!-- SECTION:NOTES:END -->
