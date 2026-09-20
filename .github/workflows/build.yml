@@ -58,6 +58,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # wails.json's frontend:install (`pnpm -C .. install`) never runs: Wails
+      # skips installation outright when there is no package.json in frontend:dir
+      # (NpmInstallUsingCommand returns early), and this repo keeps a single
+      # package.json at the root. It still prints "Installing frontend
+      # dependencies: Done.", so the skip is invisible — locally it goes unnoticed
+      # because a developer's root node_modules already exists. CI starts from a
+      # bare checkout, so the install has to be explicit here.
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Put GOPATH bin on PATH
         shell: bash
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
@@ -69,13 +79,19 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
 
       # NSIS provides makensis, which `wails build -nsis` invokes to produce the
-      # Windows installer.
+      # Windows installer. Chocolatey puts it on the machine PATH, which the
+      # already-running runner process never picks up, so the install directory
+      # has to go on GITHUB_PATH for the later build step to resolve makensis —
+      # without it Wails only warns ("Cannot create installer: makensis not
+      # found") and still exits 0, leaving a green job with no installer.
       - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
-        run: choco install nsis -y
+        run: |
+          choco install nsis -y
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
 
-      # `wails build` runs the frontend install/build itself (see wails.json
-      # frontend:install / frontend:build), so no separate pnpm install is needed.
+      # `wails build` runs the frontend build itself (wails.json frontend:build),
+      # against the node_modules the install step above produced.
       # scripts/wails.mjs is the same launcher the local `pnpm build:app` uses: it
       # pins GOTOOLCHAIN to go.mod's `toolchain` value, which the directive alone
       # cannot do (it is a floor, so a newer Go on the runner would be used as-is
@@ -124,6 +140,17 @@ jobs:
         # -webview2 download ships the Evergreen bootstrapper so the installer can
         # fetch the WebView2 runtime at install time when it is absent.
         run: node scripts/wails.mjs build -platform windows/amd64 -nsis -webview2 download -clean
+
+      # `wails build -nsis` downgrades a missing makensis to a warning, so the
+      # only thing that distinguishes "installer built" from "installer silently
+      # skipped" is the file itself. Assert it, or the job goes green while the
+      # artifact recipients actually install from is absent.
+      - name: Verify the NSIS installer was produced (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls build/bin/*-installer.exe
 
       # Stage the Windows embedding sidecar (CPU build): llama-server.exe + ggml/llama
       # DLLs next to the app exe. TODO: bundling these INTO the NSIS installer needs
