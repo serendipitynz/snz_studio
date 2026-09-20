@@ -185,6 +185,38 @@ func (a *App) GetApiToken() string {
 	return a.apiToken
 }
 
+// SaveTextFile is bound to the frontend. It opens the OS save dialog with
+// suggestedName preselected and writes content there, returning false when the
+// user cancels.
+//
+// Why a Go binding rather than a Blob + <a download> in the SPA: Wails v2.16's
+// macOS WebView declares WKNavigationDelegate but implements no download
+// callback, so a download-attribute click is dropped without a word — the same
+// silent no-op that window.confirm suffers there. The SPA keeps a Blob fallback
+// for the host where this binding is absent (window.go undefined), which is the
+// only place that path can still work.
+func (a *App) SaveTextFile(suggestedName string, content string) (bool, error) {
+	if a.ctx == nil {
+		return false, fmt.Errorf("save dialog unavailable: no application context")
+	}
+	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
+		DefaultFilename:      suggestedName,
+		CanCreateDirectories: true,
+	})
+	if err != nil {
+		return false, err
+	}
+	// An empty path is how the dialog reports a cancel; it is not an error, and
+	// the caller distinguishes it from a write by the returned bool.
+	if path == "" {
+		return false, nil
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // randomToken returns a 256-bit cryptographically random token, hex-encoded.
 func randomToken() (string, error) {
 	b := make([]byte, 32)
