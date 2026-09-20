@@ -1,10 +1,10 @@
 ---
 id: TASK-25
 title: リポジトリを public 化する
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-20 02:31'
-updated_date: '2026-09-20 11:26'
+updated_date: '2026-09-20 11:58'
 labels: []
 milestone: m-1
 dependencies: []
@@ -73,7 +73,7 @@ fork の PR から secrets に届くトリガ (`pull_request_target` 等) を足
 - [x] #3 同じファイルに、配布物へ同梱する llama.cpp (MIT) と ruri-v3-30m (Apache-2.0) の表記がある
 - [x] #4 docs/HANDOFF.md が削除され、参照していた 6 箇所 (app.go / main.go / handlers.go / server.go / handlers_test.go / local-generation-design.md) に宙に浮いた参照が残っていない
 - [x] #5 .github/workflows/build.yml のトリガ方針のコメントが public リポジトリの実態と一致している
-- [ ] #6 GitHub 上でリポジトリが public になっている
+- [x] #6 GitHub 上でリポジトリが public になっている
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -154,4 +154,30 @@ README 参照 2 箇所を、同ファイルが current-spec に使っている�
 
 ### 未達
 AC#6 (GitHub 上の public 化) のみ未了。不可逆な外向き操作のため、PR マージ後に確認を取ってから実施する。
+
+## レビュー対応 (PR #19・Codex CLI 3 ラウンド)
+
+**[P2] 配布物に LICENSE / THIRD_PARTY_NOTICES が入っていない** (round 1)。反証不可な指摘だった —
+修正 BSD は binary 形式の再頒布に表示の付随を求め、配布物には TinySegmenter 由来コードが入る。
+AC の外 (配布スクリプト) に出るため範囲を確認した上で対応 (commit a722739):
+
+- macOS: `scripts/build-mac-signed.sh` と CI の macOS ジョブで、GGUF と同じく**署名前**に
+  `Contents/Resources` へステージ。`.app` 署名が CodeResources で封をし公証の対象にも入る。
+  ローカル署名ビルドはファイル欠落時に中断する (既存の GGUF 欠落時と同じ形)
+- Windows: exe の隣に配置し、アップロードする artifact のパスにも追加
+- `THIRD_PARTY_NOTICES.md` に、配布物内のどこに置かれるかを追記
+
+**同じ [P2] の Windows 分を round 2 で再提示された**。won't-fix とし TASK-26 へ分離 (commit f5348b7)。
+判断の根拠: `build/windows/installer/project.nsi` が未コミットで `wails build -nsis` が生成する側
+＝テンプレートの新規導入になること、手元に Windows 環境が無く未検証のテンプレートを public の
+リリース経路に入れる方が、塞ごうとしている穴より risky であること、Windows ビルドは未署名で
+実配布経路が無く、Actions の artifact (zip) 経由なら両ファイルが届くこと。
+workflow のコメントに TASK-26 を書き、後から同じ穴を再発見する場所に先送りの記録を残した。
+
+round 3 で「TASK-26 への先送りとして受理」され APPROVED (HEAD f5348b7)。
+
+## AC#6
+
+リポジトリは public 化済み (2026-09-20 確認・`gh repo view` で visibility=PUBLIC)。
+PR #19 は merge commit 14a85af でマージ済み。
 <!-- SECTION:NOTES:END -->
