@@ -10,9 +10,13 @@
 # activate without changing the build once those secrets exist.
 name: build
 
-# Manual-only trigger: this is a private repo, where GitHub-hosted minutes are
-# billed against a monthly quota (macOS counts 10x), so the workflow runs only on
-# an explicit dispatch from the Actions tab — never automatically on a tag push.
+# Manual-only trigger: this repo is public, so GitHub-hosted standard runners cost
+# nothing and minutes are not the reason. A full matrix build takes tens of minutes
+# and produces unsigned artifacts nobody consumes automatically, so it runs only on
+# an explicit dispatch from the Actions tab — never automatically on a push or tag.
+#
+# Keep it that way when signing secrets land: no fork-reachable trigger
+# (pull_request_target and friends) may be added, or a fork's PR could read them.
 on:
   workflow_dispatch: {}
 
