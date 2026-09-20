@@ -290,7 +290,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
               section above the roster would be shouting about a decision already
               taken. Opening it is one click when the preset is what is wanted. */}
           <details>
-            <summary>{t("preset.applyTitle")}</summary>
+            <summary>{t("preset.section")}</summary>
             <Stack style={{ marginTop: 10 }}>
               <Subtle style={{ margin: 0 }}>{t("preset.applyNote")}</Subtle>
               <PresetPicker disabled={props.disabled || applyingPreset} onChange={setPresetChoice} />
