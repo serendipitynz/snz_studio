@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ChatRecord, Project } from "../api/client";
+import styled from "@emotion/styled";
+import { api, ChatKind, ChatRecord, Project } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
 import { SettingsModal } from "./SettingsModal";
 import {
@@ -24,21 +25,87 @@ interface WorkspaceSidebarProps {
   activeChatId?: string;
 }
 
+// Presets are deliberately absent: a preset can only be applied at creation time
+// and picking one needs the project form's fields, so this quick menu creates an
+// empty roster and leaves the line-up to the participant panel.
+const CHAT_KIND_CHOICES: { kind: ChatKind; label: MessageKey }[] = [
+  { kind: "assistant", label: "multiAgent.kindAssistant" },
+  { kind: "multi_agent", label: "multiAgent.kindMultiAgent" }
+];
+
 export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [creatingChat, setCreatingChat] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isKindMenuOpen, setIsKindMenuOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  async function handleCreateChat() {
+  const closeKindMenu = useCallback((restoreFocus: boolean) => {
+    setIsKindMenuOpen(false);
+    if (restoreFocus) {
+      triggerRef.current?.focus();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isKindMenuOpen) {
+      return;
+    }
+
+    itemRefs.current[0]?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeKindMenu(true);
+      }
+    }
+
+    // A pointer outside the menu has already chosen where focus should land, so
+    // this path closes without pulling focus back to the trigger.
+    function handlePointerDown(event: PointerEvent) {
+      if (!anchorRef.current?.contains(event.target as Node)) {
+        setIsKindMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isKindMenuOpen, closeKindMenu]);
+
+  // role="menu" promises arrow-key navigation; Tab alone would not honour it.
+  function handleKindMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      return;
+    }
+
+    event.preventDefault();
+    const items = itemRefs.current.filter((item): item is HTMLButtonElement => item !== null);
+    if (!items.length) {
+      return;
+    }
+
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    items[(current + step + items.length) % items.length]?.focus();
+  }
+
+  async function handleCreateChat(kind: ChatKind) {
     if (!props.currentProjectId || creatingChat) {
       return;
     }
 
+    closeKindMenu(false);
     setCreatingChat(true);
 
     try {
-      const response = await api.createChat(props.currentProjectId, { title: "" });
+      const response = await api.createChat(props.currentProjectId, { title: "", kind });
       navigate(`/chats/${response.chat.id}`);
     } finally {
       setCreatingChat(false);
@@ -75,15 +142,37 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
           <SidebarSection>
             <Row style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap" }}>
               <SidebarSectionLabel>{t("sidebar.chats")}</SidebarSectionLabel>
-              <IconButton
-                type="button"
-                aria-label={t("sidebar.createChat")}
-                onClick={() => void handleCreateChat()}
-                disabled={creatingChat}
-                title={t("sidebar.createChat")}
-              >
-                <PlusIcon />
-              </IconButton>
+              <MenuAnchor ref={anchorRef}>
+                <IconButton
+                  ref={triggerRef}
+                  type="button"
+                  aria-label={t("sidebar.createChat")}
+                  aria-haspopup="menu"
+                  aria-expanded={isKindMenuOpen}
+                  onClick={() => setIsKindMenuOpen((open) => !open)}
+                  disabled={creatingChat}
+                  title={t("sidebar.createChat")}
+                >
+                  <PlusIcon />
+                </IconButton>
+                {isKindMenuOpen ? (
+                  <KindMenu role="menu" aria-label={t("multiAgent.chatType")} onKeyDown={handleKindMenuKeyDown}>
+                    {CHAT_KIND_CHOICES.map((choice, index) => (
+                      <KindMenuItem
+                        key={choice.kind}
+                        ref={(element) => {
+                          itemRefs.current[index] = element;
+                        }}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => void handleCreateChat(choice.kind)}
+                      >
+                        {t(choice.label)}
+                      </KindMenuItem>
+                    ))}
+                  </KindMenu>
+                ) : null}
+              </MenuAnchor>
             </Row>
             {props.chats?.length ? (
               props.chats.map((chat) => (
@@ -109,6 +198,45 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
     </SidebarPane>
   );
 }
+
+const MenuAnchor = styled.div`
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+`;
+
+const KindMenu = styled.div`
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: ${({ theme }) => theme.surfaceCard};
+  border: 1px solid ${({ theme }) => theme.lineMedium};
+  border-radius: 14px;
+  box-shadow: ${({ theme }) => theme.shadowPopover};
+`;
+
+const KindMenuItem = styled.button`
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: ${({ theme }) => theme.ink};
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: ${({ theme }) => theme.surfaceCardFaint};
+  }
+`;
 
 function renderChatTitle(t: (key: MessageKey) => string, chat: ChatRecord) {
   // The two markers are independent facts about the chat, so both can show.
