@@ -1,10 +1,10 @@
 ---
 id: TASK-11
 title: '多人数会話: 参加者の接続先・モデルを空欄にしたときの挙動が UI から読み取れない'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-19 21:55'
-updated_date: '2026-09-20 08:26'
+updated_date: '2026-09-20 08:34'
 labels: []
 milestone: m-1
 dependencies: []
