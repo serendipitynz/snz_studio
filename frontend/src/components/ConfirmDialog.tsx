@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import styled from "@emotion/styled";
 import { useLanguage } from "../i18n";
 import { Button, ModalCard, ModalOverlay, Row, Stack, Subtle } from "../styles/ui";
@@ -17,6 +17,9 @@ const ConfirmContext = createContext<ConfirmContextValue | null>(null);
 const ConfirmCard = styled(ModalCard)`
   width: min(420px, 100%);
 `;
+
+// Only one dialog is ever mounted, so a fixed id cannot collide.
+const MESSAGE_ID = "confirm-dialog-message";
 
 interface PendingConfirm {
   message: string;
@@ -48,6 +51,24 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  // Escape cancels. window.confirm answered the key natively and this replaces it, so
+  // without the listener the dialog would be the one thing on screen the keyboard cannot
+  // dismiss; it resolves false, which is the safe direction for every current caller.
+  useEffect(() => {
+    if (!pending) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        close(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [pending, close]);
+
   const value = useMemo(() => ({ confirm }), [confirm]);
 
   return (
@@ -55,9 +76,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       {children}
       {pending ? (
         <ModalOverlay>
-          <ConfirmCard>
+          <ConfirmCard role="dialog" aria-modal="true" aria-labelledby={MESSAGE_ID}>
             <Stack>
-              <Subtle>{pending.message}</Subtle>
+              <Subtle id={MESSAGE_ID}>{pending.message}</Subtle>
               <Row style={{ justifyContent: "flex-end" }}>
                 {/* Cancel takes the initial focus: every current caller asks about a destructive
                     action, so a stray Enter right after the click must not confirm one. */}
