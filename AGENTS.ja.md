@@ -59,6 +59,8 @@
 - 重いリアルタイムアーキテクチャ不使用
 - 過度な設計禁止
 - Tailwind 不使用
+- `window.confirm` / `window.alert` / `window.prompt` 不使用 — Wails の WebView では
+  表示されず `confirm` は常に `false` になる。アプリ内ダイアログ (`components/ConfirmDialog`) を使う
 
 ## 技術スタック
 - デスクトップシェル: Wails v2（Go コア + OS ネイティブ WebView）
