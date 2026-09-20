@@ -324,6 +324,13 @@ func (s *Server) applyPresetRoster(chatID string, p *preset.MultiAgentPreset) er
 	return err
 }
 
+// The refusals handleApplyMultiAgentPreset raises from inside the turn exclusion,
+// where it can report only an error.
+var (
+	errChatAlreadySpoken = errors.New("a preset applies only while the conversation has no messages")
+	errChatVanished      = errors.New("chat not found")
+)
+
 // handleApplyMultiAgentPreset applies a preset to a multi-agent chat that exists
 // already, which is allowed only while the chat has no messages. A chat can now
 // be created with an empty roster (the sidebar's "+"), so the preset has to be
@@ -348,57 +355,68 @@ func (s *Server) handleApplyMultiAgentPreset(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// 409 rather than 400: the request is well formed and the same body would be
-	// accepted on the same chat a moment earlier — it is the chat's state that
-	// rules it out, which is what 409 says (as it does for an overlapping turn).
-	spoken, err := s.chats.ListRecentMessages(chat.ID, 1)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	if len(spoken) > 0 {
-		writeError(w, http.StatusConflict, "a preset applies only while the conversation has no messages")
-		return
-	}
-
-	// The roster is replaced rather than appended to, and the rows are deleted
-	// outright: applying a preset must leave the chat as if it had been created
-	// from that preset, and a kept row would both show up as a removed
-	// participant and push the new roster's sort_order past it.
-	if err := s.participants.DeleteRoster(chat.ID); err != nil {
-		fail(w, err)
-		return
-	}
-	updated, err := s.chats.UpdateMultiAgentSettings(chat.ID, &chosen.TurnRule, &chosen.ScenePrompt)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	if updated == nil {
-		writeError(w, http.StatusNotFound, "chat not found")
-		return
-	}
-	// Same rule as creation: the preset names the chat only when nothing else has.
-	// A chat created from the sidebar has an empty title, which is the case this
-	// route exists for.
-	if strings.TrimSpace(updated.Title) == "" {
-		updated, err = s.chats.UpdateChatTitle(chat.ID, chosen.Title)
+	// The whole apply runs inside the chat's turn exclusion, and the transcript is
+	// read there too. Both halves matter: a turn picks its speaker from the roster
+	// and stores its message only when it finishes, so a turn already in flight
+	// would otherwise store a message pointing at a participant this route has
+	// since deleted — a speaker the transcript can no longer name, which is the
+	// breakage §3's logical removal exists to prevent.
+	var updated *model.Chat
+	applyErr := s.turnEngine.WithTurnExcluded(chat.ID, func() error {
+		spoken, err := s.chats.ListRecentMessages(chat.ID, 1)
 		if err != nil {
-			fail(w, err)
-			return
+			return err
+		}
+		if len(spoken) > 0 {
+			return errChatAlreadySpoken
+		}
+
+		// The roster is replaced rather than appended to, and the rows are deleted
+		// outright: applying a preset must leave the chat as if it had been created
+		// from that preset, and a kept row would both show up as a removed
+		// participant and push the new roster's sort_order past it.
+		if err := s.participants.DeleteRoster(chat.ID); err != nil {
+			return err
+		}
+		updated, err = s.chats.UpdateMultiAgentSettings(chat.ID, &chosen.TurnRule, &chosen.ScenePrompt)
+		if err != nil {
+			return err
 		}
 		if updated == nil {
-			writeError(w, http.StatusNotFound, "chat not found")
-			return
+			return errChatVanished
 		}
-	}
-	// A failure partway through leaves a partial roster, which creation avoids by
-	// deleting the chat (applyPresetRoster). Here the chat predates the preset and
-	// may be the only thing the user has, so it is kept: the transcript is still
-	// empty, so this same route stays open and re-applying clears the partial
-	// roster and starts over.
-	if err := s.createPresetParticipants(chat.ID, chosen); err != nil {
-		fail(w, err)
+		// Same rule as creation: the preset names the chat only when nothing else
+		// has. A chat created from the sidebar has an empty title, which is the case
+		// this route exists for.
+		if strings.TrimSpace(updated.Title) == "" {
+			updated, err = s.chats.UpdateChatTitle(chat.ID, chosen.Title)
+			if err != nil {
+				return err
+			}
+			if updated == nil {
+				return errChatVanished
+			}
+		}
+		// A failure partway through leaves a partial roster, which creation avoids
+		// by deleting the chat (applyPresetRoster). Here the chat predates the preset
+		// and may be the only thing the user has, so it is kept: the transcript is
+		// still empty, so this same route stays open and re-applying clears the
+		// partial roster and starts over.
+		return s.createPresetParticipants(chat.ID, chosen)
+	})
+	switch {
+	case errors.Is(applyErr, errChatVanished):
+		writeError(w, http.StatusNotFound, applyErr.Error())
+		return
+	// 409 rather than 400 for both: the request is well formed and the same body
+	// would be accepted on the same chat a moment earlier — it is the chat's state
+	// that rules it out, which is what 409 says (as it already does for an
+	// overlapping turn).
+	case errors.Is(applyErr, errChatAlreadySpoken), errors.Is(applyErr, service.ErrTurnInProgress):
+		writeError(w, http.StatusConflict, applyErr.Error())
+		return
+	case applyErr != nil:
+		fail(w, applyErr)
 		return
 	}
 

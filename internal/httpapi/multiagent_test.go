@@ -663,3 +663,58 @@ func TestMultiAgentPresetAppliedAfterCreation(t *testing.T) {
 		t.Fatalf("refused apply changed the chat: %+v", after)
 	}
 }
+
+// TestMultiAgentPresetApplyExcludesTurns covers the race the review raised:
+// a turn picks its speaker from the roster and stores the message only when it
+// finishes, so an apply that ran alongside it would delete the participant the
+// stored message points at. Both take the chat's turn slot, so the second one
+// is refused rather than interleaved.
+func TestMultiAgentPresetApplyExcludesTurns(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	llm := newMultiAgentLLM(t, func() {
+		once.Do(func() {
+			entered <- struct{}{}
+			<-release
+		})
+	})
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Preset Exclusion Project")
+	chatID := createMultiAgentChat(t, h, projectID, "round_robin")
+	alice := addParticipant(t, h, chatID, "Alice", llm.URL+"/v1")
+	addParticipant(t, h, chatID, "Bob", llm.URL+"/v1")
+
+	turnDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		turnDone <- doJSON(t, h, "POST", "/api/chats/"+chatID+"/turns/stream", map[string]any{})
+	}()
+
+	<-entered // the turn holds the chat, has chosen Alice, and has stored nothing yet
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "debate"}),
+		http.StatusConflict, "service: a turn is already running for this chat")
+	close(release)
+	wantStatus(t, <-turnDone, http.StatusOK)
+
+	// The refused apply left the roster alone, so the stored message still resolves
+	// to the participant that spoke it.
+	var messages []struct {
+		ParticipantID *string `json:"participantId"`
+	}
+	unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil)), "messages", &messages)
+	if len(messages) != 1 || messages[0].ParticipantID == nil || *messages[0].ParticipantID != alice {
+		t.Fatalf("stored messages = %+v, want one message attributed to the speaker that was chosen", messages)
+	}
+	var roster []struct {
+		ID string `json:"id"`
+	}
+	unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID+"/participants", nil)), "participants", &roster)
+	if len(roster) != 2 || roster[0].ID != alice {
+		t.Fatalf("roster = %+v, want the two participants the turn ran against", roster)
+	}
+
+	// The slot is released with the turn: the apply is refused for having a
+	// message now, not for a lock that outlived it.
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "debate"}),
+		http.StatusConflict, "a preset applies only while the conversation has no messages")
+}

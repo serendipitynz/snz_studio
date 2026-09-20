@@ -90,6 +90,22 @@ func (e *TurnEngine) releaseTurn(chatID string) {
 	delete(e.running, chatID)
 }
 
+// WithTurnExcluded runs fn while holding the chat's turn slot, and answers
+// ErrTurnInProgress without running fn when a turn already holds it. It is for a
+// write that invalidates a turn's premise rather than merely racing it: applying
+// a preset deletes the roster outright, and a turn that picked its speaker before
+// the delete would store a message whose participant_id no longer resolves —
+// exactly the breakage the logical removal of §3 exists to prevent. Taking the
+// same slot the turn takes is what makes the two mutually exclusive; a lock of
+// its own would let them run side by side.
+func (e *TurnEngine) WithTurnExcluded(chatID string, fn func() error) error {
+	if !e.acquireTurn(chatID) {
+		return ErrTurnInProgress
+	}
+	defer e.releaseTurn(chatID)
+	return fn()
+}
+
 // RunTurn executes one turn of the chat and returns the stored message. A turn is
 // one completion by one participant: continuous progression is the frontend
 // calling this repeatedly (§4.1). participantID names the speaker under the
