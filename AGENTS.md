@@ -60,6 +60,8 @@ The UX should feel like a lightweight local version of ChatGPT Projects:
 - No heavy real-time architecture
 - No over-engineering
 - No tailwind
+- No `window.confirm` / `window.alert` / `window.prompt` — the Wails WebView never shows
+  them and resolves `confirm` to `false`; use the in-app dialog (`components/ConfirmDialog`)
 
 ## Tech preferences
 - Desktop shell: Wails v2 (Go core + OS-native WebView)

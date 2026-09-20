@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api, ChatRecord, Participant, TurnRule } from "../api/client";
+import { useConfirm } from "./ConfirmDialog";
 import { useLanguage } from "../i18n";
 import {
   Badge,
@@ -41,6 +42,7 @@ interface EndpointProbe {
 // chat-level turn rule and scene prompt.
 export function ParticipantPanel(props: ParticipantPanelProps) {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [probes, setProbes] = useState<Record<string, EndpointProbe>>({});
   const [newDisplayName, setNewDisplayName] = useState("");
   const [adding, setAdding] = useState(false);
@@ -101,7 +103,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
   }
 
   async function handleRemoveParticipant(participant: Participant) {
-    if (!window.confirm(t("participants.removeConfirm", { name: participant.displayName }))) {
+    if (!(await confirm(t("participants.removeConfirm", { name: participant.displayName })))) {
       return;
     }
 

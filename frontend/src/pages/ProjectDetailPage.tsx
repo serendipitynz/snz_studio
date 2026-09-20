@@ -14,6 +14,7 @@ import {
   MultiAgentPreset,
   Project
 } from "../api/client";
+import { useConfirm } from "../components/ConfirmDialog";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { MessageKey, useLanguage } from "../i18n";
@@ -62,6 +63,7 @@ export function ProjectDetailPage() {
   const navigate = useNavigate();
   const theme = useTheme();
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<ProjectDetailState | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -325,7 +327,7 @@ export function ProjectDetailPage() {
       return;
     }
 
-    const confirmed = window.confirm(t("project.deleteProjectConfirm", { title: state.project.title }));
+    const confirmed = await confirm(t("project.deleteProjectConfirm", { title: state.project.title }));
     if (!confirmed) {
       return;
     }
@@ -410,7 +412,7 @@ export function ProjectDetailPage() {
 
         const existing = currentDocuments.find((document) => document.title === file.name);
         if (existing) {
-          const overwrite = window.confirm(t("project.overwritePrompt", { name: file.name }));
+          const overwrite = await confirm(t("project.overwritePrompt", { name: file.name }));
           if (!overwrite) {
             continue;
           }

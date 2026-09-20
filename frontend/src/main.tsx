@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
+import { ConfirmProvider } from "./components/ConfirmDialog";
 import { LanguageProvider } from "./i18n";
 import { ThemeController } from "./styles/ThemeController";
 import { GetApiBase, GetApiToken } from "./wailsjs/go/main/App";
@@ -55,9 +56,11 @@ async function bootstrap() {
       <LanguageProvider>
         <ThemeController>
           <Global styles={globalStyles} />
-          <HashRouter>
-            <App />
-          </HashRouter>
+          <ConfirmProvider>
+            <HashRouter>
+              <App />
+            </HashRouter>
+          </ConfirmProvider>
         </ThemeController>
       </LanguageProvider>
     </React.StrictMode>
