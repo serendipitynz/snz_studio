@@ -1,10 +1,10 @@
 ---
 id: TASK-8
 title: 'CI: build ワークフローを実走させて通ることを確認する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-18 23:32'
-updated_date: '2026-09-20 19:51'
+updated_date: '2026-09-20 19:56'
 labels: []
 milestone: m-0
 dependencies:
