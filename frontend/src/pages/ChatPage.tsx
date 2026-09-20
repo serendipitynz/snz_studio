@@ -10,6 +10,7 @@ import {
   Project as ProjectRecord
 } from "../api/client";
 import type { ReviewReference } from "../api/client";
+import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { useLanguage } from "../i18n";
@@ -681,6 +682,7 @@ export function ChatPage() {
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
           <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+            <ExportChatButton chatId={state.chat.id} chatTitle={state.chat.title} onError={setError} />
             <IconButton type="button" aria-label={t("chat.editTitle")} onClick={() => setIsTitleModalOpen(true)}>
               <EditIcon />
             </IconButton>

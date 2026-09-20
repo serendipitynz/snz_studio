@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { api, ChatRecord, ChatSummary, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
 import { predictNextSpeaker } from "../api/turnOrder";
+import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { ParticipantPanel } from "../components/ParticipantPanel";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
@@ -329,14 +330,17 @@ export function MultiAgentChatPage() {
             <Badge tone="warm">{t("multiAgent.badge")}</Badge>
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
-          <IconButton
-            type="button"
-            aria-label={t("multiAgent.reload")}
-            title={t("multiAgent.reload")}
-            onClick={() => void load()}
-          >
-            <ReloadIcon />
-          </IconButton>
+          <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+            <ExportChatButton chatId={state.chat.id} chatTitle={state.chat.title} onError={setError} />
+            <IconButton
+              type="button"
+              aria-label={t("multiAgent.reload")}
+              title={t("multiAgent.reload")}
+              onClick={() => void load()}
+            >
+              <ReloadIcon />
+            </IconButton>
+          </Row>
         </PaneHeader>
 
         <MessageArea>
