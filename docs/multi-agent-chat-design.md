@@ -10,7 +10,7 @@
 > [turnengine.go](../internal/service/turnengine.go) / [preset](../internal/preset) /
 > [ParticipantPanel.tsx](../frontend/src/components/ParticipantPanel.tsx) /
 > [MultiAgentChatPage.tsx](../frontend/src/pages/MultiAgentChatPage.tsx)。
-> 製品文書側の記載は [AGENTS.md](../AGENTS.md) の Core product shape・[README](../README.md)・
+> 製品文書側の記載は [AGENTS.md](../AGENTS.md) の Core product shape・[README](../README.md)（[ja](../README.ja.md)）・
 > [current-spec](./current-spec.md)（[ja](./current-spec.ja.md)）にある。
 
 ---
@@ -267,7 +267,7 @@ Phase A〜C は完了している（A: migration 10 + ターンエンジン + AP
   2 種別として書き、参加者・ターン進行ルール・場面設定・プリセットを多人数会話の構成要素として並べた。
   **Why**: 多人数会話は projects / documents / chats / memories と並ぶ第 5 の製品要素ではなく、chat の種別である（§2）。
   並列の箇条書きに足すと、project 配下に別系統のデータがあるように読める。
-  同じ区分（chat の種別として書く）を [AGENTS.ja.md](../AGENTS.ja.md)・[README](../README.md)・
+  同じ区分（chat の種別として書く）を [AGENTS.ja.md](../AGENTS.ja.md)・[README](../README.md)（[ja](../README.ja.md)）・
   [current-spec](./current-spec.md)（[ja](./current-spec.ja.md)）にも通した。
 
 ### 8.2 将来拡張で判断する事項
