@@ -1,3 +1,4 @@
+import styled from "@emotion/styled";
 import { FormEvent, useState } from "react";
 import { api, ChatRecord, Participant, TurnRule } from "../api/client";
 import { useConfirm } from "./ConfirmDialog";
@@ -25,6 +26,83 @@ interface ParticipantPanelProps {
   onChatChange: (chat: ChatRecord) => void;
   onParticipantsChange: (participants: Participant[]) => void;
   disabled: boolean;
+}
+
+// The fallback rule of a blank endpoint / model hangs off a (?) beside the label
+// rather than sitting in the field's placeholder or under the field. A
+// placeholder is clipped by this panel's width and disappears once the field has
+// a value — which is exactly when a roster is being reviewed — while a permanent
+// hint line costs four lines of a narrow panel to say something that is read
+// once. The bubble spans the row rather than being sized to its text, so it can
+// never overflow the pane sideways however long a translation runs.
+const HintRow = styled.div`
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  button:hover + [role="tooltip"],
+  button:focus + [role="tooltip"] {
+    opacity: 1;
+    visibility: visible;
+  }
+`;
+
+const HintToggle = styled.button`
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid ${({ theme }) => theme.fieldBorder};
+  border-radius: 999px;
+  background: transparent;
+  color: ${({ theme }) => theme.muted};
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: help;
+  padding: 0;
+`;
+
+// Opens upward. Downward it lands on the very input it describes, so reading the
+// hint hid what had been typed into the field — and the field is focused exactly
+// when someone reaches for the hint. Upward it covers the control above instead,
+// which is never the one in use.
+const HintBubble = styled.span`
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  padding: 8px 10px;
+  border: 1px solid ${({ theme }) => theme.lineMedium};
+  border-radius: 10px;
+  background: ${({ theme }) => theme.surfacePane};
+  box-shadow: ${({ theme }) => theme.shadowPopover};
+  color: ${({ theme }) => theme.ink};
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+`;
+
+// label is the Field itself, so a click inside it is forwarded to the input and
+// takes the focus straight back off the toggle. Cancelling that is what makes
+// the tooltip reachable without a hover.
+function FieldHint(props: { label: string; hint: string }) {
+  return (
+    <HintRow>
+      {props.label}
+      <HintToggle type="button" aria-label={props.hint} onClick={(event) => event.preventDefault()}>
+        ?
+      </HintToggle>
+      <HintBubble role="tooltip">{props.hint}</HintBubble>
+    </HintRow>
+  );
 }
 
 // A per-endpoint probe result. Listing an endpoint's models is both the model
@@ -396,7 +474,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
         </Field>
 
         <Field>
-          {t("participants.baseUrl")}
+          <FieldHint label={t("participants.baseUrl")} hint={t("participants.baseUrlHint")} />
           <Input
             value={baseUrl}
             onChange={(event) => setBaseUrl(event.target.value)}
@@ -420,7 +498,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
         </Row>
 
         <Field>
-          {t("participants.model")}
+          <FieldHint label={t("participants.model")} hint={t("participants.modelHint")} />
           {probe?.state === "ok" && probe.models.length ? (
             <Select value={modelName} onChange={(event) => setModelName(event.target.value)}>
               <option value="">{t("participants.pickModel")}</option>

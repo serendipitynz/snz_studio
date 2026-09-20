@@ -85,6 +85,7 @@ type turnGraph struct {
 	projects     *repository.ProjectRepository
 	chats        *repository.ChatRepository
 	participants *repository.ParticipantRepository
+	cfg          *config.Config
 	engine       *TurnEngine
 }
 
@@ -102,6 +103,7 @@ func newTurnGraph(t *testing.T) *turnGraph {
 		projects:     projects,
 		chats:        chats,
 		participants: participants,
+		cfg:          cfg,
 		engine:       NewTurnEngine(chats, participants, NewLLMClient(cfg), cfg),
 	}
 }
@@ -462,5 +464,151 @@ func TestTurnEngineRejectsNonMultiAgentChat(t *testing.T) {
 	other, otherRoster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL, "Alice")
 	if _, err := g.engine.RunTurn(other.ID, otherRoster[0].ID, nil); !errors.Is(err, ErrParticipantNotNameable) {
 		t.Fatalf("round_robin nomination = %v, want ErrParticipantNotNameable", err)
+	}
+}
+
+// modelListingServer answers /v1/models with a real, non-empty list the way a
+// live LM Studio does, so the pre-turn check has to match a model name against
+// it rather than taking the empty-list shortcut turnLLMServer relies on.
+func modelListingServer(t *testing.T, models ...string) *httptest.Server {
+	t.Helper()
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/"):
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/models"):
+			entries := make([]map[string]string, 0, len(models))
+			for _, name := range models {
+				entries = append(entries, map[string]string{"id": name})
+			}
+			payload, err := json.Marshal(map[string]any{"data": entries})
+			if err != nil {
+				t.Errorf("marshal model list: %v", err)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(payload)
+		case strings.HasSuffix(r.URL.Path, "/chat/completions"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, sseReply("発言"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+// TestTurnEngineInheritedTargetInFailure covers TASK-11: a participant may leave
+// the endpoint or the model blank to inherit the workspace setting, and the two
+// inherit independently — so a participant can run its own endpoint with the
+// workspace model. When that combination is refused, the error has to name the
+// values the turn actually used; naming the participant's raw fields would print
+// a blank exactly where the inherited value was, leaving the reader with an
+// endpoint failure that names no model at all.
+func TestTurnEngineInheritedTargetInFailure(t *testing.T) {
+	endpoint := modelListingServer(t, "qwen3-8b")
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "論題", endpoint.URL, "Alice")
+	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{
+		ParticipantID: roster[0].ID,
+		ModelName:     strPtr(""),
+	}); err != nil {
+		t.Fatalf("UpdateParticipant: %v", err)
+	}
+
+	_, err := g.engine.RunTurn(chat.ID, "", nil)
+	if !errors.Is(err, ErrEndpointUnavailable) {
+		t.Fatalf("blank model against an endpoint without the workspace model = %v, want ErrEndpointUnavailable", err)
+	}
+	// "default-model" is the workspace model newTurnGraph configures, and the
+	// participant's own endpoint is where it was tried.
+	if !strings.Contains(err.Error(), "default-model") || !strings.Contains(err.Error(), endpoint.URL) {
+		t.Fatalf("error %q does not name the effective model and endpoint", err)
+	}
+}
+
+// TestTurnEngineInheritedModelRuns is the other half: the same participant with
+// a blank model runs when its own endpoint does serve the workspace model, and
+// the turn is recorded under that model rather than under a blank name.
+func TestTurnEngineInheritedModelRuns(t *testing.T) {
+	endpoint := modelListingServer(t, "qwen3-8b", "default-model")
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "論題", endpoint.URL, "Alice")
+	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{
+		ParticipantID: roster[0].ID,
+		ModelName:     strPtr(""),
+	}); err != nil {
+		t.Fatalf("UpdateParticipant: %v", err)
+	}
+
+	message, err := g.engine.RunTurn(chat.ID, "", nil)
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if message.ModelName == nil || *message.ModelName != "default-model" {
+		t.Fatalf("stored model = %v, want the inherited workspace model", message.ModelName)
+	}
+}
+
+// TestTurnEngineInheritedTargetSurvivesConfigChange covers the window between
+// the pre-turn check and the completion. A participant that inherits both fields
+// resolves them from one settings snapshot, so a Configuration save landing
+// mid-turn cannot send the turn to a combination the check never approved.
+func TestTurnEngineInheritedTargetSurvivesConfigChange(t *testing.T) {
+	g := newTurnGraph(t)
+	var endpointURL string
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/"):
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/models"):
+			// The pre-turn check is reading the model list right now; save a
+			// different workspace model while it does, the way the Configuration
+			// screen can at any moment.
+			if _, err := g.cfg.UpdateEditable(config.Editable{
+				LLMBaseURL: endpointURL,
+				LLMModel:   "swapped-in-mid-turn",
+			}); err != nil {
+				t.Errorf("UpdateEditable: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"data":[{"id":"default-model"}]}`)
+		case strings.HasSuffix(r.URL.Path, "/chat/completions"):
+			var body capturedRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode completion body: %v", err)
+				return
+			}
+			if body.Model != "default-model" {
+				t.Errorf("completion ran model %q, want the model the pre-turn check approved", body.Model)
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, sseReply("発言"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(endpoint.Close)
+	endpointURL = endpoint.URL
+
+	if _, err := g.cfg.UpdateEditable(config.Editable{LLMBaseURL: endpoint.URL, LLMModel: "default-model"}); err != nil {
+		t.Fatalf("UpdateEditable: %v", err)
+	}
+	// Both fields blank, so both are inherited.
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "論題", "", "Alice")
+	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{
+		ParticipantID: roster[0].ID,
+		ModelName:     strPtr(""),
+	}); err != nil {
+		t.Fatalf("UpdateParticipant: %v", err)
+	}
+
+	message, err := g.engine.RunTurn(chat.ID, "", nil)
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if message.ModelName == nil || *message.ModelName != "default-model" {
+		t.Fatalf("stored model = %v, want the model resolved before the check", message.ModelName)
 	}
 }
