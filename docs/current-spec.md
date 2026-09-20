@@ -372,6 +372,7 @@ Right pane:
 
 - organisation panel: participant CRUD with endpoint + model selection and a connection check,
   roster order, turn rule, scene, and — while the conversation has no messages — applying a preset
+  (collapsed by default)
 
 Removed participants are listed separately from the roster, since their past utterances remain.
 

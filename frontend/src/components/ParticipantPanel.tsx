@@ -285,20 +285,26 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
 
       {props.canApplyPreset ? (
         <Card>
-          <Stack>
-            <Badge tone="accent">{t("preset.applyTitle")}</Badge>
-            <Subtle style={{ margin: 0 }}>{t("preset.applyNote")}</Subtle>
-            <PresetPicker disabled={props.disabled || applyingPreset} onChange={setPresetChoice} />
-            <div>
-              <Button
-                type="button"
-                disabled={!presetChoice || applyingPreset || props.disabled}
-                onClick={() => void handleApplyPreset()}
-              >
-                {applyingPreset ? t("preset.applying") : t("preset.apply")}
-              </Button>
-            </div>
-          </Stack>
+          {/* Collapsed by default, and the open state is deliberately not kept: a
+              chat created from a preset already has its line-up, so an expanded
+              section above the roster would be shouting about a decision already
+              taken. Opening it is one click when the preset is what is wanted. */}
+          <details>
+            <summary>{t("preset.applyTitle")}</summary>
+            <Stack style={{ marginTop: 10 }}>
+              <Subtle style={{ margin: 0 }}>{t("preset.applyNote")}</Subtle>
+              <PresetPicker disabled={props.disabled || applyingPreset} onChange={setPresetChoice} />
+              <div>
+                <Button
+                  type="button"
+                  disabled={!presetChoice || applyingPreset || props.disabled}
+                  onClick={() => void handleApplyPreset()}
+                >
+                  {applyingPreset ? t("preset.applying") : t("preset.apply")}
+                </Button>
+              </div>
+            </Stack>
+          </details>
         </Card>
       ) : null}
 
