@@ -183,3 +183,17 @@ func (r *ParticipantRepository) RemoveParticipant(participantID string) (*model.
 	}
 	return r.GetParticipant(participantID)
 }
+
+// DeleteRoster removes every participant row of the chat outright. This is the
+// one place a participant is hard-deleted: it exists for applying a preset to a
+// chat that has no messages yet, where the two reasons the removal is otherwise
+// logical (design §3 — a past message has to keep resolving to a speaker, and
+// round_robin needs a cycle position) cannot apply, because no message exists to
+// point at a participant. Leaving the rows
+// behind would instead show the discarded line-up as removed participants and
+// push the new roster's sort_order past them. The caller is what enforces the
+// empty-transcript condition; this layer cannot see it.
+func (r *ParticipantRepository) DeleteRoster(chatID string) error {
+	_, err := r.db.Exec("DELETE FROM participants WHERE chat_id = ?", chatID)
+	return err
+}
