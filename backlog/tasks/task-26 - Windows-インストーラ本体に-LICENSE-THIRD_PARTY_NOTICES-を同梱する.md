@@ -4,7 +4,7 @@ title: Windows インストーラ本体に LICENSE / THIRD_PARTY_NOTICES を同�
 status: In Review
 assignee: []
 created_date: '2026-09-20 11:47'
-updated_date: '2026-09-20 23:40'
+updated_date: '2026-09-20 23:47'
 labels: []
 milestone: m-1
 dependencies: []
@@ -48,7 +48,7 @@ TinySegmenter の修正 BSD は binary 形式の再頒布に表示の付随を�
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 build/windows/installer のテンプレートがコミットされ、LICENSE と THIRD_PARTY_NOTICES.md が NSIS payload に入っている
-- [ ] #2 インストール後のディレクトリに両ファイルが存在することを、ビルドしたインストーラで確認できている
+- [x] #2 インストール後のディレクトリに両ファイルが存在することを、ビルドしたインストーラで確認できている
 - [x] #3 サイドカー (llama-server + DLL) を NSIS に入れる TODO の扱いが、同梱するか引き続き先送りするかで決着している
 <!-- AC:END -->
 
@@ -126,4 +126,18 @@ LICENSE / NOTICES 配置 (既存ステップ) は残してある。
 ### 検証
 `go vet ./...` / `go test ./...` / `pnpm run check:client` いずれも通過 (Go/TS は無変更)。
 build.yml は PyYAML でパースし、ステップ順を目視確認。actionlint / shellcheck は未インストールのため未実行。
+
+### AC #2 の証跡 (CI 実走)
+build ワークフローを task-26-nsis-license-notices ブランチで dispatch
+(run 35545446747)。macOS / Windows(amd64) とも success。
+"Verify the installer ships the license notices (Windows)" のログで、サイレント
+インストール先 `D:\a\_temp\installed-check` の中身を確認:
+
+    LICENSE                   1090
+    snz-studio.exe        17955840
+    THIRD_PARTY_NOTICES.md   16860
+    uninstall.exe            82226
+
+サイズがリポジトリ上 (1069 / 16542) と違うのは Windows チェックアウトの CRLF 変換による
+もので、内容の差ではない。インストーラ単体を配っても表示がアプリと同じディレクトリに届く。
 <!-- SECTION:NOTES:END -->
