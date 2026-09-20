@@ -464,3 +464,87 @@ func TestTurnEngineRejectsNonMultiAgentChat(t *testing.T) {
 		t.Fatalf("round_robin nomination = %v, want ErrParticipantNotNameable", err)
 	}
 }
+
+// modelListingServer answers /v1/models with a real, non-empty list the way a
+// live LM Studio does, so the pre-turn check has to match a model name against
+// it rather than taking the empty-list shortcut turnLLMServer relies on.
+func modelListingServer(t *testing.T, models ...string) *httptest.Server {
+	t.Helper()
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/"):
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/models"):
+			entries := make([]map[string]string, 0, len(models))
+			for _, name := range models {
+				entries = append(entries, map[string]string{"id": name})
+			}
+			payload, err := json.Marshal(map[string]any{"data": entries})
+			if err != nil {
+				t.Errorf("marshal model list: %v", err)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(payload)
+		case strings.HasSuffix(r.URL.Path, "/chat/completions"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, sseReply("発言"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+// TestTurnEngineInheritedTargetInFailure covers TASK-11: a participant may leave
+// the endpoint or the model blank to inherit the workspace setting, and the two
+// inherit independently — so a participant can run its own endpoint with the
+// workspace model. When that combination is refused, the error has to name the
+// values the turn actually used; naming the participant's raw fields would print
+// a blank exactly where the inherited value was, leaving the reader with an
+// endpoint failure that names no model at all.
+func TestTurnEngineInheritedTargetInFailure(t *testing.T) {
+	endpoint := modelListingServer(t, "qwen3-8b")
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "論題", endpoint.URL, "Alice")
+	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{
+		ParticipantID: roster[0].ID,
+		ModelName:     strPtr(""),
+	}); err != nil {
+		t.Fatalf("UpdateParticipant: %v", err)
+	}
+
+	_, err := g.engine.RunTurn(chat.ID, "", nil)
+	if !errors.Is(err, ErrEndpointUnavailable) {
+		t.Fatalf("blank model against an endpoint without the workspace model = %v, want ErrEndpointUnavailable", err)
+	}
+	// "default-model" is the workspace model newTurnGraph configures, and the
+	// participant's own endpoint is where it was tried.
+	if !strings.Contains(err.Error(), "default-model") || !strings.Contains(err.Error(), endpoint.URL) {
+		t.Fatalf("error %q does not name the effective model and endpoint", err)
+	}
+}
+
+// TestTurnEngineInheritedModelRuns is the other half: the same participant with
+// a blank model runs when its own endpoint does serve the workspace model, and
+// the turn is recorded under that model rather than under a blank name.
+func TestTurnEngineInheritedModelRuns(t *testing.T) {
+	endpoint := modelListingServer(t, "qwen3-8b", "default-model")
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "論題", endpoint.URL, "Alice")
+	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{
+		ParticipantID: roster[0].ID,
+		ModelName:     strPtr(""),
+	}); err != nil {
+		t.Fatalf("UpdateParticipant: %v", err)
+	}
+
+	message, err := g.engine.RunTurn(chat.ID, "", nil)
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if message.ModelName == nil || *message.ModelName != "default-model" {
+		t.Fatalf("stored model = %v, want the inherited workspace model", message.ModelName)
+	}
+}

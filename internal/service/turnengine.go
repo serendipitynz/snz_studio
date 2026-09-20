@@ -124,8 +124,17 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 		return nil, err
 	}
 
-	if !e.endpointAccepts(speaker) {
-		return nil, fmt.Errorf("%w: %s (%s at %s)", ErrEndpointUnavailable, speaker.DisplayName, speaker.ModelName, speaker.BaseURL)
+	// The target the completion will actually use: a participant leaves the
+	// endpoint or the model blank to inherit the workspace setting, and the two
+	// fall back independently. Resolving it here — through the same resolveTarget
+	// the completion calls — is what lets the check and the error below name what
+	// was really tried, instead of printing a blank where the inherited field was.
+	target := &CompletionTarget{BaseURL: speaker.BaseURL, Model: speaker.ModelName}
+	settings := e.cfg.Get()
+	effectiveBaseURL, effectiveModel := resolveTarget(target, settings.LLMBaseURL, settings.LLMModel)
+
+	if !e.endpointAccepts(effectiveBaseURL, effectiveModel) {
+		return nil, fmt.Errorf("%w: %s (%s at %s)", ErrEndpointUnavailable, speaker.DisplayName, effectiveModel, effectiveBaseURL)
 	}
 
 	knownSpeakers, err := e.participants.ListAll(chatID)
@@ -133,7 +142,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 		return nil, err
 	}
 
-	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s", chatID, speaker.ID, speaker.ModelName)
+	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s", chatID, speaker.ID, effectiveModel)
 	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers), speaker)
 	var streamed strings.Builder
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
@@ -141,7 +150,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 		Messages:     history,
 		UserInput:    finalUserMessage,
 		Temperature:  float64Ptr(0.7),
-		Target:       &CompletionTarget{BaseURL: speaker.BaseURL, Model: speaker.ModelName},
+		Target:       target,
 	}, func(chunk string) {
 		streamed.WriteString(chunk)
 		if onDelta != nil {
@@ -230,15 +239,18 @@ func (e *TurnEngine) namedSpeaker(chatID, participantID string) (*model.Particip
 	return participant, nil
 }
 
-// endpointAccepts runs the pre-turn check of §4.2 step 2. EnsureModelLoaded only
-// answers for LM Studio (it speaks the native /api/v1 routes), so a plain
-// OpenAI-compatible endpoint falls through to CheckConnection rather than being
-// rejected for not being LM Studio.
-func (e *TurnEngine) endpointAccepts(participant *model.Participant) bool {
-	if e.llm.EnsureModelLoaded(participant.ModelName, participant.BaseURL) {
+// endpointAccepts runs the pre-turn check of §4.2 step 2 against the resolved
+// target, not the participant's raw fields: a participant that inherits the
+// workspace model would otherwise be checked with an empty model name, which
+// EnsureModelLoaded always refuses. EnsureModelLoaded only answers for LM Studio
+// (it speaks the native /api/v1 routes), so a plain OpenAI-compatible endpoint
+// falls through to CheckConnection rather than being rejected for not being LM
+// Studio.
+func (e *TurnEngine) endpointAccepts(baseURL, modelName string) bool {
+	if e.llm.EnsureModelLoaded(modelName, baseURL) {
 		return true
 	}
-	return e.llm.CheckConnection(participant.BaseURL, participant.ModelName)
+	return e.llm.CheckConnection(baseURL, modelName)
 }
 
 func lastParticipantID(messages []model.Message) string {
