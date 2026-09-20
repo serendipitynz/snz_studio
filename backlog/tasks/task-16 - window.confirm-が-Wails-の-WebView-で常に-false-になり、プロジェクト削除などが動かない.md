@@ -1,10 +1,10 @@
 ---
 id: TASK-16
 title: window.confirm が Wails の WebView で常に false になり、プロジェクト削除などが動かない
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-19 22:29'
-updated_date: '2026-09-20 01:06'
+updated_date: '2026-09-20 02:08'
 labels: []
 milestone: m-1
 dependencies: []
@@ -44,8 +44,8 @@ WKWebView はこの場合ダイアログを出さずに `confirm` を false で�
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 プロジェクト画面の「プロジェクトを削除」で確認ダイアログが表示され、確認するとプロジェクトが削除されて一覧へ戻る (Wails アプリ実機で確認)
-- [ ] #2 参加者の削除、ドキュメント上書き確認も同じダイアログで動作し、確認・キャンセルがそれぞれ期待どおりに効く
+- [x] #1 プロジェクト画面の「プロジェクトを削除」で確認ダイアログが表示され、確認するとプロジェクトが削除されて一覧へ戻る (Wails アプリ実機で確認)
+- [x] #2 参加者の削除、ドキュメント上書き確認も同じダイアログで動作し、確認・キャンセルがそれぞれ期待どおりに効く
 - [x] #3 frontend/src に window.confirm / window.alert / window.prompt の呼び出しが残っていない
 <!-- AC:END -->
 
@@ -94,4 +94,19 @@ WKWebView はこの場合ダイアログを出さずに `confirm` を false で�
 - AC#1 / AC#2 は Wails アプリ実機でのクリック確認が要るため、このセッションでは未検証。
   フロントエンドに自動テスト基盤がなく (テストランナー未導入)、実機操作もできないため。
   マージ前に実機で確認をお願いしたい。
+
+レビュー対応 (PR #12, Codex CLI, 2 ラウンド):
+
+- ラウンド 1 は [P3] 1 件のみで P1/P2 なし。確認ダイアログに Escape とダイアログの
+  セマンティクスがなく、フォーカストラップもないという指摘。
+- Escape → キャンセルと `role="dialog"` / `aria-modal` / `aria-labelledby` を追加した
+  (de86d12)。Escape は単独で理由が立つ: `window.confirm` はこれをネイティブに処理して
+  いたので、置き換えた側が画面上でキーボードから閉じられない唯一の要素になっていた。
+- フォーカストラップと復帰は見送った。指摘自体は正しいが、既存モーダル 8 つ
+  (SettingsModal、ProjectDetailPage の 4 つ、ChatPage の 3 つ) がいずれも持っておらず、
+  このダイアログだけに入れるとモーダル層が不揃いになる。ModalOverlay / ModalCard を
+  まとめて見直す別タスクの範囲。理由は PR に author として返信済み。
+- ラウンド 2 で全件解決、bot (simpleboxes) が HEAD de86d12 に対して APPROVE。
+
+AC#1 / AC#2 はマージ後にユーザーが Wails アプリ実機で確認し、いずれも期待どおりだった。
 <!-- SECTION:NOTES:END -->
