@@ -66,9 +66,13 @@ const HintToggle = styled.button`
   padding: 0;
 `;
 
+// Opens upward. Downward it lands on the very input it describes, so reading the
+// hint hid what had been typed into the field — and the field is focused exactly
+// when someone reaches for the hint. Upward it covers the control above instead,
+// which is never the one in use.
 const HintBubble = styled.span`
   position: absolute;
-  top: calc(100% + 6px);
+  bottom: calc(100% + 6px);
   left: 0;
   right: 0;
   z-index: 3;
