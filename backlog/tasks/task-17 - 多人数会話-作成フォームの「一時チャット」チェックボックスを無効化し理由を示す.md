@@ -1,10 +1,10 @@
 ---
 id: TASK-17
 title: '多人数会話: 作成フォームの「一時チャット」チェックボックスを無効化し、メモリを書き込まない旨を示す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-19 22:29'
-updated_date: '2026-09-20 10:50'
+updated_date: '2026-09-20 11:12'
 labels: []
 milestone: m-1
 dependencies: []
