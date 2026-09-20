@@ -4,10 +4,6 @@
 // the Wails AssetServer (OS-native WebView). The application's HTTP API and
 // static /files are NOT served through the AssetServer bridge — see app.go for
 // why — but from a local 127.0.0.1 net/http server started in App.startup.
-//
-// Phase 1 (scaffold) only stands up the window, the local server, and the
-// GetApiBase binding. The DB/repository/service/HTTP-API layers under
-// internal/ are wired in later phases (see docs/HANDOFF.md).
 package main
 
 import (

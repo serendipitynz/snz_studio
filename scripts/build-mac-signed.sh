@@ -102,6 +102,22 @@ fi
 cp "$MODEL_SRC" "$RES/$MODEL_FILE"
 echo "    staged model into $RES/$MODEL_FILE"
 
+echo "==> Staging the license notices"
+# TinySegmenter's modified BSD requires the copyright notice, conditions and
+# disclaimer to accompany a binary redistribution, so the notices have to reach
+# whoever installs the .app — not only whoever reads the repo. Like the GGUF,
+# these are data files sealed by the .app signing below, so they are copied
+# before it. Missing files abort rather than silently shipping an app without
+# the notices it is obliged to carry.
+for notice in LICENSE THIRD_PARTY_NOTICES.md; do
+  if [[ ! -f "$notice" ]]; then
+    echo "ERROR: $notice not found at the repo root" >&2
+    exit 1
+  fi
+  cp "$notice" "$RES/$notice"
+done
+echo "    staged LICENSE and THIRD_PARTY_NOTICES.md into $RES"
+
 echo "==> Codesigning the sidecar first (inner-most), then the app (do NOT rely on --deep)"
 # Sign every sidecar dylib with a hardened runtime + secure timestamp, then the
 # llama-server executable with the JIT entitlements. Signing inner code before the

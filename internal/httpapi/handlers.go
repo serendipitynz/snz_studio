@@ -1039,7 +1039,7 @@ func toPublicFilePath(name string) string {
 
 // unlinkFile removes the on-disk upload backing a public /files path, ignoring a
 // missing file. The DB cascade only removes rows, so deletes/cascades that drop a
-// document must unlink its file here (HANDOFF §4).
+// document must unlink its file here.
 func (s *Server) unlinkFile(filePath *string) {
 	if filePath == nil || !strings.HasPrefix(*filePath, "/files/") {
 		return

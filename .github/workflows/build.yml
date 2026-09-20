@@ -10,9 +10,13 @@
 # activate without changing the build once those secrets exist.
 name: build
 
-# Manual-only trigger: this is a private repo, where GitHub-hosted minutes are
-# billed against a monthly quota (macOS counts 10x), so the workflow runs only on
-# an explicit dispatch from the Actions tab — never automatically on a tag push.
+# Manual-only trigger: this repo is public, so GitHub-hosted standard runners cost
+# nothing and minutes are not the reason. A full matrix build takes tens of minutes
+# and produces unsigned artifacts nobody consumes automatically, so it runs only on
+# an explicit dispatch from the Actions tab — never automatically on a push or tag.
+#
+# Keep it that way when signing secrets land: no fork-reachable trigger
+# (pull_request_target and friends) may be added, or a fork's PR could read them.
 on:
   workflow_dispatch: {}
 
@@ -99,6 +103,13 @@ jobs:
           for f in "$SRC"/*; do b="$(basename "$f")"; if [[ -f "$f" && "$b" != llama-server && "$b" != *.dylib ]] && file "$f" | grep -q "Mach-O.*executable"; then rm -f "$f"; fi; done
           cp -R "$SRC"/. "$RES"/
 
+      # TinySegmenter's modified BSD requires its notice to accompany a binary
+      # redistribution, so the notices ride inside the .app rather than only in
+      # the repo. scripts/build-mac-signed.sh stages them at the same point.
+      - name: Stage license notices (macOS)
+        if: runner.os == 'macOS'
+        run: cp LICENSE THIRD_PARTY_NOTICES.md "build/bin/snz-studio.app/Contents/Resources/"
+
       - name: Package .dmg (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -132,6 +143,15 @@ jobs:
           cp "$SRC/llama-server.exe" build/bin/
           find "$SRC" -name '*.dll' -exec cp {} build/bin/ \;
 
+      # Same obligation as the macOS step above. Folding these into the NSIS
+      # installer itself needs the build/windows/installer template changes the
+      # sidecar step already defers, so until then they ship beside the exe and
+      # reach a recipient through the artifact zip (TASK-26).
+      - name: Stage license notices (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cp LICENSE THIRD_PARTY_NOTICES.md build/bin/
+
       # --- Signing & notarization (TODO: needs user-provided secrets) -----------
       #
       # macOS (Developer ID):
@@ -163,4 +183,6 @@ jobs:
           path: |
             build/bin/*.dmg
             build/bin/*.exe
+            build/bin/LICENSE
+            build/bin/THIRD_PARTY_NOTICES.md
           if-no-files-found: warn

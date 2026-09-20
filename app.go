@@ -230,8 +230,8 @@ func randomToken() (string, error) {
 // native error dialog — naming the failure and the data directory so they can
 // inspect or relocate it — before exiting, instead of aborting the process
 // silently as log.Fatalf did. dataDir may be empty if resolution itself failed.
-// A retry-without-restart flow is a follow-up (tracked in docs/HANDOFF.md); this only
-// removes the silent-crash behaviour. Callers must return after invoking it.
+// A retry-without-restart flow is a follow-up; this only removes the
+// silent-crash behaviour. Callers must return after invoking it.
 func (a *App) fatalStartup(title string, cause error, dataDir string) {
 	log.Printf("startup fatal: %s: %v", title, cause)
 	message := fmt.Sprintf("%v", cause)
