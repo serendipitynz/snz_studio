@@ -64,9 +64,8 @@ func TestBuildTurnBackgroundBudget(t *testing.T) {
 	if len(background.References) >= 1+len(documents)+len(memories) {
 		t.Fatalf("budget did not cut anything: %d references", len(background.References))
 	}
-	body := background.Prompt[strings.Index(background.Prompt, "\n\n")+2:]
-	if runeLen(body) > turnBackgroundTotalChars+3*2 { // section separators are not counted
-		t.Fatalf("material is %d runes, over the %d budget", runeLen(body), turnBackgroundTotalChars)
+	if runeLen(background.Prompt) > turnBackgroundTotalChars {
+		t.Fatalf("section is %d runes, over the %d budget", runeLen(background.Prompt), turnBackgroundTotalChars)
 	}
 
 	wantOrder := []string{"project:proj_1", "document:doc_1", "document:doc_2", "memory:mem_0"}

@@ -17,7 +17,8 @@ import (
 // a participant speaks in role and needs a fact or two, not a briefing. The total
 // cap is a third of the history; the per-item sizes add up to about 2,300 when
 // every item is at its limit, so the cap then drops the last memory or two. The
-// total is what the window pays for, so it wins over the counts.
+// total is what the window pays for, so it wins over the counts; it is measured
+// on the section as written into the prompt, framing and separators included.
 const (
 	turnBackgroundDocumentLimit     = 2
 	turnBackgroundChunksPerDocument = 2
@@ -139,34 +140,35 @@ func buildTurnBackground(project *model.Project, documentRefs []model.RetrievedD
 		})
 	}
 
+	// The budget is the whole section as it lands in the prompt — header and
+	// separators included — since that is what the window pays for.
+	const separator = "\n\n"
 	sections := make([]string, 0, len(items))
 	references := make([]model.SearchReference, 0, len(items))
-	used := 0
+	used := runeLen(turnBackgroundHeader)
 	for _, item := range items {
-		if used+runeLen(item.text) > turnBackgroundTotalChars {
+		if used+runeLen(separator)+runeLen(item.text) > turnBackgroundTotalChars {
 			break
 		}
-		used += runeLen(item.text)
+		used += runeLen(separator) + runeLen(item.text)
 		sections = append(sections, item.text)
 		references = append(references, item.reference)
 	}
 	if len(sections) == 0 {
 		return &TurnBackground{References: references}
 	}
-
-	// The framing states what the material is for before the scene and the role
-	// arrive: the model reads the system prompt top to bottom, and material with no
-	// framing reads as the persona (a reference document answered as an assistant
-	// would) — the drift this section exists to avoid.
-	header := strings.Join([]string{
-		"【背景資料】",
-		"以下はこの会話が属するプロジェクトの資料である。資料は話者の役割・口調・立場を変えない。会話の流れで必要になったときだけ、自分の役割のまま自然に使う。資料を要約したり、アシスタントとして解説したりしない。",
-	}, "\n")
 	return &TurnBackground{
-		Prompt:     header + "\n\n" + strings.Join(sections, "\n\n"),
+		Prompt:     turnBackgroundHeader + separator + strings.Join(sections, separator),
 		References: references,
 	}
 }
+
+// turnBackgroundHeader states what the material is for before the scene and the
+// role arrive: the model reads the system prompt top to bottom, and material with
+// no framing reads as the persona (a reference document answered as an assistant
+// would) — the drift this section exists to avoid.
+const turnBackgroundHeader = "【背景資料】\n" +
+	"以下はこの会話が属するプロジェクトの資料である。資料は話者の役割・口調・立場を変えない。会話の流れで必要になったときだけ、自分の役割のまま自然に使う。資料を要約したり、アシスタントとして解説したりしない。"
 
 // formatTurnDocument renders one retrieved document as matched passages only.
 // Neither the full-document expansion nor the retrieval-mode line of
