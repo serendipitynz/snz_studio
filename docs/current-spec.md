@@ -184,7 +184,7 @@ Current limits, accepted as behavior:
 The multi-agent flow is separate from the single-assistant flow: it shares the LLM client, the
 persistence layer and the retrieval service, and does not use the chat summary or the rest of the
 single-assistant prompt context (project system prompt, unconditional procedural memories, quote mode,
-referenced chats). Background material is retrieved once per turn with a query made of the latest
+referenced chats). Project material is retrieved once per turn with a query made of the latest
 utterance, the two before it and the head of the scene (the scene alone on the opening turn), capped
 at 2 documents × 2 passages, 3 memories and 2,000 characters in total. The references used are stored
 with the participant's message and shown under it as on the single-assistant chat screen. A failed

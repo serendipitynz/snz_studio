@@ -223,7 +223,7 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
   **Why**: 別々に保存すると、参照の保存だけ失敗したターンが「失敗」として返る一方で発言は transcript に残り、
   round_robin がその話者を飛ばす。
 - **検索失敗**: ドキュメント検索・メモリ検索がエラーを返したら、ターンはプロジェクト資料なしで続行し、ログ
-  （`[turn] background unavailable`）に残す。その発言に参照は保存しない。**Why**: 自動進行中に検索が壊れると毎ターン止まる。
+  （`[turn] project material unavailable`）に残す。その発言に参照は保存しない。**Why**: 自動進行中に検索が壊れると毎ターン止まる。
   埋め込みエンドポイントの失敗はここに含めない: `EmbeddingClient` は自身を無効化してキーワード検索で続行する
   （単独 chat と同じ縮退）ので、プロジェクト資料も参照も通常どおり付く。
 
