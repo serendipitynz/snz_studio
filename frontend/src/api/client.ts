@@ -25,6 +25,9 @@ export interface DocumentRecord {
   tags: string[];
   derivedText: string;
   contentText: string;
+  // Common project material: a multi-agent turn reaches this document even when
+  // its speaker does not receive the project material (design §4.4).
+  sharedWithAll: boolean;
   filePath: string | null;
   mimeType: string | null;
   createdAt: string;
@@ -40,6 +43,7 @@ export interface MemoryRecord {
   sourceChatId: string | null;
   source: MemorySource;
   locked: boolean;
+  sharedWithAll: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -345,6 +349,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ locked })
     }),
+  updateMemorySharedWithAll: (memoryId: string, sharedWithAll: boolean) =>
+    request<{ memory: MemoryRecord }>(`/api/memories/${memoryId}/shared`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sharedWithAll })
+    }),
   deleteMemory: (memoryId: string) =>
     request<{ ok: boolean; memory: MemoryRecord }>(`/api/memories/${memoryId}`, {
       method: "DELETE"
@@ -369,6 +379,12 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category })
+    }),
+  updateDocumentSharedWithAll: (documentId: string, sharedWithAll: boolean) =>
+    request<{ document: DocumentRecord }>(`/api/documents/${documentId}/shared`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sharedWithAll })
     }),
   deleteDocument: (documentId: string) =>
     request<{ ok: boolean; document: DocumentRecord }>(`/api/documents/${documentId}`, {
