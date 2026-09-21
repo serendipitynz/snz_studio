@@ -70,7 +70,7 @@ The layering is kept at this granularity:
 - LLM integration layer: `internal/service/llmclient.go`
 - multi-agent turn layer: `internal/service/turnengine.go` (independent of the single-assistant
   `chat.go`; they share the LLM client, the repositories and retrieval — a turn takes the project's
-  documents and memories as background material through `turncontext.go`)
+  documents and memories as project material through `turncontext.go`)
 
 ## Data model
 
