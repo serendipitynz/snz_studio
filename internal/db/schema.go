@@ -324,6 +324,28 @@ var migrations = []migration{
 			ALTER TABLE participants RENAME COLUMN receives_background TO receives_project_material;
 		`,
 	},
+	{
+		// shared_with_all marks a row as common project material: material every
+		// participant reads, whether or not the speaker receives the project
+		// material (design §4.4, TASK-31).
+		//
+		// Documents default to 0 so the feature ships without moving anything a
+		// roster deliberately hid: TASK-20's flag is the only thing that has ever
+		// gated them, and a default of 1 would hand every document to the players
+		// the moment the column exists.
+		//
+		// Memories start from their source instead, because source records where a
+		// memory came from rather than guessing it: 'multi_agent' means it was
+		// saved from an utterance of the conversation (TASK-19), which every
+		// participant heard, so it is already shared. 'manual' and 'chat' were
+		// never spoken in the conversation and stay closed.
+		id: "013_shared_project_material",
+		sql: `
+			ALTER TABLE documents ADD COLUMN shared_with_all INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE memories ADD COLUMN shared_with_all INTEGER NOT NULL DEFAULT 0;
+			UPDATE memories SET shared_with_all = 1 WHERE source = 'multi_agent';
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in
