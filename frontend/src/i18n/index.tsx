@@ -287,7 +287,7 @@ const en = {
   "participants.rolePromptPlaceholder": "Persona, stance, tone and rules for this speaker",
   "participants.receivesBackground": "Give this speaker the project material",
   "participants.receivesBackgroundHint":
-    "On by default. Turned off, this participant's turns carry none of the project's documents or memories — nothing is even searched for. Use it when one speaker knows what the others must not, such as a game master holding the scenario.",
+    "On by default. Turned off, this participant's turns carry none of the project's description, documents or memories — nothing is even searched for. Use it when one speaker knows what the others must not, such as a game master holding the scenario.",
   "participants.baseUrl": "Endpoint",
   "participants.baseUrlPlaceholder": "http://127.0.0.1:1234/v1",
   "participants.baseUrlHint": "Leave blank to use the workspace endpoint.",
@@ -626,7 +626,7 @@ const ja: Record<MessageKey, string> = {
   "participants.rolePromptPlaceholder": "人格・立場・口調・行動規則",
   "participants.receivesBackground": "背景資料を渡す",
   "participants.receivesBackgroundHint":
-    "既定は ON。OFF にすると、この参加者のターンではプロジェクトのドキュメント・メモリを一切渡さず、検索も行いません。TRPG の GM のように、1 人だけがシナリオを知っている編成に使います。",
+    "既定は ON。OFF にすると、この参加者のターンではプロジェクトの説明・ドキュメント・メモリを一切渡さず、検索も行いません。TRPG の GM のように、1 人だけがシナリオを知っている編成に使います。",
   "participants.baseUrl": "接続先",
   "participants.baseUrlPlaceholder": "http://127.0.0.1:1234/v1",
   "participants.baseUrlHint": "空欄ならワークスペース設定の接続先を使います。",

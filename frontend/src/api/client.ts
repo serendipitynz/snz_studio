@@ -106,7 +106,11 @@ export type PresetGroup = "discussion" | "drama" | "hosted" | "pair";
 export interface MultiAgentPresetParticipant {
   displayName: string;
   rolePrompt: string;
-  receivesBackground: boolean;
+  // Optional, mirroring the Go *bool: a hand-written preset may leave it out,
+  // and PresetPicker reaches this type by casting unvalidated JSON, so a
+  // required boolean here would promise a value that is not there. The server
+  // fills the default (true) when it applies the preset.
+  receivesBackground?: boolean;
 }
 
 export interface MultiAgentPreset {
