@@ -49,11 +49,12 @@ type TurnMaterial struct {
 // assembly fails (§4.4), and that path is otherwise unreachable.
 type TurnMaterialAssembler interface {
 	// AssembleTurnMaterial takes the speaker because the material is per
-	// participant: a speaker whose ReceivesProjectMaterial is false gets none of it
-	// (a game master who sees the scenario while the players do not). Every
-	// speaker that does receive it gets the same material; narrowing it to a
-	// subset of the documents would need a different shape and is not what the
-	// flag expresses.
+	// participant: a speaker whose ReceivesProjectMaterial is false gets only the
+	// common project material — the documents and memories marked "share with
+	// everyone" (a game master who sees the scenario while the players see the
+	// rules and the world). Every speaker that does receive it gets the same
+	// material; narrowing it to a per-participant subset would need a different
+	// shape and is not what the flag expresses.
 	AssembleTurnMaterial(chat *model.Chat, speaker *model.Participant, messages []model.Message) (*TurnMaterial, error)
 }
 
@@ -66,16 +67,18 @@ type TurnMaterialAssembler interface {
 // not receive, and a system prompt has no way to make the scene that follows
 // override them.
 //
-// A speaker that does not receive the material is answered before anything is
-// read or searched, rather than by discarding the result afterwards: a turn that
-// must not know the scenario should not pay for retrieving it, and the empty
-// TurnMaterial is what keeps the prompt and the stored references empty
-// together.
+// A speaker that does not receive the material is narrowed to the common project
+// material rather than cut off from retrieval: what it may not see is excluded in
+// SQL, before ranking, so the budget is spent on rows it is allowed to have
+// instead of being eaten by ones that would then be dropped. The project
+// description is left out of that turn as well — a project's description is
+// written for the human and can name the very thing the roster is hiding, and
+// nothing marks part of it as common.
+//
+// The budget (the constants above) is the same either way: the prompt has the
+// same shape and the history the same length, so the window pays the same and a
+// second set of numbers would have nothing to justify it.
 func (s *ContextService) AssembleTurnMaterial(chat *model.Chat, speaker *model.Participant, messages []model.Message) (*TurnMaterial, error) {
-	if !speaker.ReceivesProjectMaterial {
-		return &TurnMaterial{}, nil
-	}
-
 	project, err := s.projects.GetProject(chat.ProjectID)
 	if err != nil {
 		return nil, err
@@ -84,21 +87,30 @@ func (s *ContextService) AssembleTurnMaterial(chat *model.Chat, speaker *model.P
 		return nil, fmt.Errorf("project %s not found", chat.ProjectID)
 	}
 
+	scope := ScopeAll
+	if !speaker.ReceivesProjectMaterial {
+		scope = ScopeSharedWithAll
+	}
+
 	var (
 		documentRefs []model.RetrievedDocumentReference
 		memoryRefs   []model.SearchReference
 	)
 	if query := buildTurnMaterialQuery(messages, chat.ScenePrompt); query != "" {
-		documentRefs, err = s.retrieval.SearchDocuments(project.ID, query, turnMaterialDocumentLimit, turnMaterialChunksPerDocument)
+		documentRefs, err = s.retrieval.SearchDocuments(project.ID, query, turnMaterialDocumentLimit, turnMaterialChunksPerDocument, scope)
 		if err != nil {
 			return nil, err
 		}
-		memoryRefs, err = s.retrieval.SearchMemories(project.ID, query, turnMaterialMemoryLimit)
+		memoryRefs, err = s.retrieval.SearchMemories(project.ID, query, turnMaterialMemoryLimit, scope)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return buildTurnMaterial(project, documentRefs, memoryRefs), nil
+	materialProject := project
+	if scope == ScopeSharedWithAll {
+		materialProject = nil
+	}
+	return buildTurnMaterial(materialProject, documentRefs, memoryRefs), nil
 }
 
 // buildTurnMaterialQuery is the one deterministic retrieval query of a turn:
@@ -128,9 +140,16 @@ type turnMaterialItem struct {
 // documents, memories — and stops at the first item that would push the total
 // over the budget. The references are collected from the same loop, which is
 // what keeps the stored list equal to the prompt's contents.
+//
+// A nil project means the turn carries no project description: see
+// AssembleTurnMaterial on the common-material scope.
 func buildTurnMaterial(project *model.Project, documentRefs []model.RetrievedDocumentReference, memoryRefs []model.SearchReference) *TurnMaterial {
 	items := make([]turnMaterialItem, 0, 1+len(documentRefs)+len(memoryRefs))
-	if description := strings.TrimSpace(project.Description); description != "" {
+	var description string
+	if project != nil {
+		description = strings.TrimSpace(project.Description)
+	}
+	if description != "" {
 		excerpt := util.Truncate(description, turnMaterialDescriptionChars)
 		items = append(items, turnMaterialItem{
 			text: fmt.Sprintf("[プロジェクト] %s\n%s", project.Title, excerpt),

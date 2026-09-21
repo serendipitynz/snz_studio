@@ -90,6 +90,7 @@ type turnGraph struct {
 	documents    *repository.DocumentRepository
 	memories     *repository.MemoryRepository
 	cfg          *config.Config
+	material     *ContextService
 	engine       *TurnEngine
 }
 
@@ -122,6 +123,7 @@ func newTurnGraphWithConfig(t *testing.T, d *sql.DB, cfg *config.Config) *turnGr
 		documents:    documents,
 		memories:     memories,
 		cfg:          cfg,
+		material:     material,
 		engine:       NewTurnEngine(chats, participants, NewLLMClient(cfg), cfg, material),
 	}
 }
