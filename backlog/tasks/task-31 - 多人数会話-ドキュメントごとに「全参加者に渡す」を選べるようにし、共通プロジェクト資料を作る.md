@@ -1,10 +1,10 @@
 ---
 id: TASK-31
 title: '多人数会話: ドキュメントごとに「全参加者に渡す」を選べるようにし、共通プロジェクト資料を作る'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-21 11:11'
-updated_date: '2026-09-21 20:17'
+updated_date: '2026-09-21 20:52'
 labels: []
 milestone: m-1
 dependencies:
