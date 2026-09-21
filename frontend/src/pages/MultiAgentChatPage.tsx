@@ -1,6 +1,6 @@
 import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, ChatRecord, ChatSummary, MessageRecord, Participant, Project, TurnRule } from "../api/client";
+import { api, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
 import { predictNextSpeaker } from "../api/turnOrder";
 import { ExportChatButton } from "../components/ExportChatButton";
@@ -16,6 +16,7 @@ import {
   Composer,
   ComposerBox,
   ErrorText,
+  Field,
   FloatingScrollButton,
   IconButton,
   InspectorPane,
@@ -24,6 +25,8 @@ import {
   MessageBubble,
   MessageScroller,
   MetaText,
+  ModalCard,
+  ModalOverlay,
   PaneHeader,
   Row,
   SectionTitle,
@@ -60,7 +63,17 @@ interface TurnDonePayload {
   participants?: Participant[];
 }
 
+// The save dialog's contents: which utterance is being saved and what the user
+// has made of the draft so far (design §4.4).
+interface MemoryDraft {
+  message: MessageRecord;
+  content: string;
+  kind: MemoryKind;
+  locked: boolean;
+}
+
 const ROSTER_STORAGE_KEY = "snz.multiAgent.rosterCollapsed";
+const MEMORY_SAVED_NOTICE_MS = 5000;
 
 // MultiAgentChatPage is the spectator view and progression control of
 // docs/multi-agent-chat-design.md §6. Auto-advance is this loop calling the
@@ -85,6 +98,20 @@ export function MultiAgentChatPage() {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [memoryDraft, setMemoryDraft] = useState<MemoryDraft | null>(null);
+  const [memoryPreparing, setMemoryPreparing] = useState(false);
+  const [memorySaving, setMemorySaving] = useState(false);
+  const [memoryError, setMemoryError] = useState("");
+  const [memorySavedTitle, setMemorySavedTitle] = useState("");
+  // The button that opened the save dialog, so closing it (save, cancel or
+  // Escape) puts keyboard focus back where the user was in the transcript
+  // instead of dropping it at the top of the document.
+  const memoryOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const memoryDialogRef = useRef<HTMLDivElement | null>(null);
+  // Open/closed is tracked apart from the draft: the draft changes on every
+  // keystroke, and an effect keyed on it would run its close-time cleanup —
+  // focusing the opener — in the middle of typing.
+  const memoryDialogOpen = memoryDraft !== null;
   const [isRosterCollapsed, setIsRosterCollapsed] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -134,6 +161,60 @@ export function MultiAgentChatPage() {
       autoRunningRef.current = false;
     };
   }, []);
+
+  // Escape closes the save dialog, as it does the confirm dialog: the overlay
+  // is otherwise the one thing on screen the keyboard cannot dismiss. Tab is
+  // kept inside the dialog, because the overlay hides the transcript's controls
+  // without taking them out of the tab order. Closing hands focus back to the
+  // button that opened the dialog.
+  useEffect(() => {
+    if (!memoryDialogOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMemoryDraft(null);
+        return;
+      }
+      if (event.key !== "Tab" || !memoryDialogRef.current) {
+        return;
+      }
+
+      const focusable = Array.from(
+        memoryDialogRef.current.querySelectorAll<HTMLElement>("select, textarea, input, button:not([disabled])")
+      );
+      if (focusable.length === 0) {
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const outside = !memoryDialogRef.current.contains(active);
+      if (event.shiftKey && (active === first || outside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || outside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      memoryOpenerRef.current?.focus();
+    };
+  }, [memoryDialogOpen]);
+
+  useEffect(() => {
+    if (!memorySavedTitle) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setMemorySavedTitle(""), MEMORY_SAVED_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [memorySavedTitle]);
 
   useEffect(() => {
     const node = messageScrollerRef.current;
@@ -292,6 +373,50 @@ export function MultiAgentChatPage() {
     }
   }
 
+  // The dialog opens on the server's draft rather than on the message alone
+  // because the default kind comes from the extraction rules, which live only
+  // on the server (design §4.4).
+  async function handleOpenMemoryDialog(message: MessageRecord, opener: HTMLButtonElement) {
+    memoryOpenerRef.current = opener;
+    setMemoryPreparing(true);
+    setMemoryError("");
+    try {
+      const response = await api.getMessageMemoryDraft(message.id);
+      setMemoryDraft({ message, content: response.draft.content, kind: response.draft.kind, locked: true });
+    } catch (nextError) {
+      setMemoryError(nextError instanceof Error ? nextError.message : t("multiAgent.saveMemoryDraftError"));
+    } finally {
+      setMemoryPreparing(false);
+    }
+  }
+
+  async function handleSaveMemory(event: FormEvent) {
+    event.preventDefault();
+    if (!memoryDraft) {
+      return;
+    }
+    const content = memoryDraft.content.trim();
+    if (!content) {
+      return;
+    }
+
+    setMemorySaving(true);
+    setMemoryError("");
+    try {
+      const response = await api.saveMessageMemory(memoryDraft.message.id, {
+        content,
+        kind: memoryDraft.kind,
+        locked: memoryDraft.locked
+      });
+      setMemoryDraft(null);
+      setMemorySavedTitle(response.memory.title);
+    } catch (nextError) {
+      setMemoryError(nextError instanceof Error ? nextError.message : t("multiAgent.saveMemoryError"));
+    } finally {
+      setMemorySaving(false);
+    }
+  }
+
   function handleMessageScroll(event: UIEvent<HTMLDivElement>) {
     const node = event.currentTarget;
     setShowScrollToBottom(node.scrollHeight - node.scrollTop - node.clientHeight > 24);
@@ -327,6 +452,10 @@ export function MultiAgentChatPage() {
   }
 
   const stopPending = !autoRunning && runningSpeaker !== null;
+  const chatTitle = state.chat.title.trim() || t("sidebar.untitled");
+  // A temporary multi-agent chat reads project material but never writes it
+  // back, so the one write path is closed while the flag is on (design §4.4).
+  const memorySaveBlocked = state.chat.isTemporary;
 
   return (
     <WorkspaceShell $columns={isRosterCollapsed ? "280px minmax(0, 1fr)" : undefined}>
@@ -340,7 +469,7 @@ export function MultiAgentChatPage() {
       <MainPane>
         <PaneHeader>
           <Row style={{ alignItems: "center" }}>
-            <SectionTitle>{state.chat.title.trim() || t("sidebar.untitled")}</SectionTitle>
+            <SectionTitle>{state.chat.isTemporary ? `⏱️ ${chatTitle}` : chatTitle}</SectionTitle>
             <Badge tone="warm">{t("multiAgent.badge")}</Badge>
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
@@ -370,6 +499,7 @@ export function MultiAgentChatPage() {
             <Stack>
               {error ? <ErrorText>{error}</ErrorText> : null}
               {turnError ? <ErrorText>{turnError}</ErrorText> : null}
+              {memoryError && !memoryDraft ? <ErrorText>{memoryError}</ErrorText> : null}
               {state.messages.length === 0 && !runningSpeaker ? <Subtle>{t("multiAgent.spectatorEmpty")}</Subtle> : null}
 
               {state.messages.map((message) => (
@@ -385,9 +515,30 @@ export function MultiAgentChatPage() {
                       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{message.content}</div>
                     )}
                     <MessageReferences references={message.references} />
-                    <MetaText style={{ textAlign: "right", opacity: 0.68 }}>
-                      {new Date(message.createdAt).toLocaleTimeString()}
-                    </MetaText>
+                    <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
+                      {/* Same bare 24px icon button as the single-assistant page's review and
+                          copy actions, so the per-message actions read alike across chat kinds. */}
+                      <IconButton
+                        type="button"
+                        aria-label={t("multiAgent.saveMemory")}
+                        title={memorySaveBlocked ? t("multiAgent.temporaryNoSave") : t("multiAgent.saveMemoryTitle")}
+                        disabled={memorySaveBlocked || memoryPreparing || memorySaving}
+                        onClick={(event) => void handleOpenMemoryDialog(message, event.currentTarget)}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          opacity: memorySaveBlocked ? 0.4 : 0.82
+                        }}
+                      >
+                        <MemoryStickIcon />
+                      </IconButton>
+                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.68 }}>
+                        {new Date(message.createdAt).toLocaleTimeString()}
+                      </MetaText>
+                    </Row>
                   </Stack>
                 </MessageBubble>
               ))}
@@ -460,6 +611,8 @@ export function MultiAgentChatPage() {
                 ) : null}
                 {autoRunning ? <MetaText>{t("multiAgent.autoRunning")}</MetaText> : null}
                 {stopPending ? <MetaText>{t("multiAgent.stopPending")}</MetaText> : null}
+                {memorySavedTitle ? <MetaText>{t("multiAgent.saveMemorySaved", { title: memorySavedTitle })}</MetaText> : null}
+                {memorySaveBlocked ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
                 <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoBoundaryNote")}</MetaText>
                 {manualRule ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoManualNote")}</MetaText> : null}
                 {roster.length < 2 ? (
@@ -501,6 +654,68 @@ export function MultiAgentChatPage() {
           disabled={autoRunning || runningSpeaker !== null}
         />
       </InspectorPane>
+
+      {memoryDraft ? (
+        <ModalOverlay>
+          <ModalCard
+            as="form"
+            ref={memoryDialogRef}
+            role="dialog"
+            aria-modal="true"
+            onSubmit={handleSaveMemory}
+            style={{ width: "min(640px, 100%)" }}
+          >
+            <Stack>
+              <SectionTitle>{t("multiAgent.saveMemoryTitle")}</SectionTitle>
+              <Subtle>{t("multiAgent.saveMemoryFrom", { name: speakerLabel(memoryDraft.message) })}</Subtle>
+              <Field>
+                {t("project.kind")}
+                <Select
+                  value={memoryDraft.kind}
+                  onChange={(event) =>
+                    setMemoryDraft((current) => (current ? { ...current, kind: event.target.value as MemoryKind } : current))
+                  }
+                >
+                  <option value="semantic">{t("project.kindSemantic")}</option>
+                  <option value="procedural">{t("project.kindProcedural")}</option>
+                  <option value="episodic">{t("project.kindEpisodic")}</option>
+                </Select>
+              </Field>
+              <Field>
+                {t("project.content")}
+                <Textarea
+                  autoFocus
+                  value={memoryDraft.content}
+                  onChange={(event) =>
+                    setMemoryDraft((current) => (current ? { ...current, content: event.target.value } : current))
+                  }
+                  style={{ minHeight: 160 }}
+                />
+              </Field>
+              <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={memoryDraft.locked}
+                  onChange={(event) =>
+                    setMemoryDraft((current) => (current ? { ...current, locked: event.target.checked } : current))
+                  }
+                />
+                <span>{t("project.lockHint")}</span>
+              </label>
+              <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.saveMemoryNote")}</MetaText>
+              {memoryError ? <ErrorText>{memoryError}</ErrorText> : null}
+              <Row style={{ justifyContent: "flex-end" }}>
+                <Button type="button" variant="ghost" onClick={() => setMemoryDraft(null)} disabled={memorySaving}>
+                  {t("common.cancel")}
+                </Button>
+                <Button type="submit" disabled={memorySaving || !memoryDraft.content.trim()}>
+                  {memorySaving ? t("multiAgent.saveMemorySaving") : t("multiAgent.saveMemoryConfirm")}
+                </Button>
+              </Row>
+            </Stack>
+          </ModalCard>
+        </ModalOverlay>
+      ) : null}
     </WorkspaceShell>
   );
 }
@@ -521,6 +736,36 @@ function PanelOpenIcon() {
       <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
       <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
       <path d="M7.75 8 10.25 5.75v4.5L7.75 8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+// Lucide "memory-stick" (ISC, see THIRD_PARTY_NOTICES.md), sized to the 16px
+// grid the other per-message icons use.
+function MemoryStickIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 12v-2" />
+      <path d="M12 18v-2" />
+      <path d="M16 12v-2" />
+      <path d="M16 18v-2" />
+      <path d="M2 11h1.5" />
+      <path d="M20 18v-2" />
+      <path d="M20.5 11H22" />
+      <path d="M4 18v-2" />
+      <path d="M8 12v-2" />
+      <path d="M8 18v-2" />
+      <rect x="2" y="6" width="20" height="10" rx="2" />
     </svg>
   );
 }

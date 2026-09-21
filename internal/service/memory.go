@@ -117,6 +117,13 @@ func GenerateMemoryTitle(content, kind string) string {
 	return generateMemoryTitle(content, kind)
 }
 
+// InferMemoryKind is inferKindFromText for the route that prefills the kind of
+// a memory the user is about to confirm (the multi-agent save dialog), so the
+// dialog's default agrees with what automatic extraction would have chosen.
+func InferMemoryKind(content string) string {
+	return inferKindFromText(content)
+}
+
 func inferKindFromText(input string) string {
 	for _, cue := range durableCues {
 		if cue.regex.MatchString(input) {

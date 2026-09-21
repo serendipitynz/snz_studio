@@ -143,23 +143,14 @@ export function ProjectDetailPage() {
     return presetChoice.selection;
   }
 
-  // isTemporary only suppresses memory writes, and a multi-agent chat never
-  // writes memories — sending it would record a setting that does nothing.
-  function temporaryInput(): { isTemporary: boolean } | Record<string, never> {
-    if (newChatKind === "multi_agent") {
-      return {};
-    }
-    return { isTemporary: newChatIsTemporary };
-  }
-
   async function handleCreateChat(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     try {
       const response = await api.createChat(projectId, {
         title: chatTitle,
+        isTemporary: newChatIsTemporary,
         kind: newChatKind,
-        ...temporaryInput(),
         ...presetInput()
       });
       navigate(`/chats/${response.chat.id}`);
@@ -507,16 +498,7 @@ export function ProjectDetailPage() {
                     </Field>
                     <Field>
                       {t("multiAgent.chatType")}
-                      <Select
-                        value={newChatKind}
-                        onChange={(event) => {
-                          const kind = event.target.value as ChatKind;
-                          setNewChatKind(kind);
-                          if (kind === "multi_agent") {
-                            setNewChatIsTemporary(false);
-                          }
-                        }}
-                      >
+                      <Select value={newChatKind} onChange={(event) => setNewChatKind(event.target.value as ChatKind)}>
                         <option value="assistant">{t("multiAgent.kindAssistant")}</option>
                         <option value="multi_agent">{t("multiAgent.kindMultiAgent")}</option>
                       </Select>
@@ -526,12 +508,11 @@ export function ProjectDetailPage() {
                       <input
                         type="checkbox"
                         checked={newChatIsTemporary}
-                        disabled={newChatKind === "multi_agent"}
                         onChange={(event) => setNewChatIsTemporary(event.target.checked)}
                       />
                       <span>{t("project.temporaryChat")}</span>
                     </label>
-                    {newChatKind === "multi_agent" ? <Subtle>{t("project.temporaryChatMultiAgentNote")}</Subtle> : null}
+                    <Subtle>{t("project.temporaryChatNote")}</Subtle>
                     <Button type="submit" disabled={busy}>
                       {t("project.openChat")}
                     </Button>

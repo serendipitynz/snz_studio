@@ -281,6 +281,8 @@ message, which is still useful for checking which references were selected.
 - `PATCH / DELETE /api/participants/:participantId`
 - `POST /api/chats/:chatId/turns/stream` (runs one turn over SSE; a duplicate call while one is
   running returns 409)
+- `GET /api/messages/:messageId/memory-draft` / `POST /api/messages/:messageId/memory` (save one
+  multi-agent utterance as a project memory; a multi-agent chat never extracts memories on its own)
 
 ## Future extension points
 

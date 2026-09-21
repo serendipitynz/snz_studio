@@ -87,8 +87,8 @@ const en = {
   "project.chatTitle": "Chat title",
   "project.chatTitlePlaceholder": "Architecture review",
   "project.temporaryChat": "Temporary chat",
-  "project.temporaryChatMultiAgentNote":
-    "Multi-agent conversations never write project memories, so this setting has no effect on them.",
+  "project.temporaryChatNote":
+    "A temporary chat keeps its messages and summary but never writes project memories. In a multi-agent conversation, saving a message to memory is disabled too.",
   "project.openChat": "Open chat",
   "project.createChatError": "Failed to create chat",
   "project.documents": "Documents",
@@ -265,6 +265,18 @@ const en = {
   "multiAgent.speakerHuman": "You",
   "multiAgent.speakerAssistant": "Assistant",
   "multiAgent.speakerRemoved": "{name} (removed)",
+  "multiAgent.saveMemory": "Save to memory",
+  "multiAgent.saveMemoryTitle": "Save this message as a project memory",
+  "multiAgent.saveMemoryFrom": "From: {name}",
+  "multiAgent.saveMemoryNote":
+    "A multi-agent conversation never extracts memories on its own — only what you save here becomes a project memory.",
+  "multiAgent.saveMemoryConfirm": "Save",
+  "multiAgent.saveMemorySaving": "Saving…",
+  "multiAgent.saveMemoryDraftError": "Failed to prepare the memory",
+  "multiAgent.saveMemoryError": "Failed to save the memory",
+  "multiAgent.saveMemorySaved": "Saved to project memory: {title}",
+  "multiAgent.temporaryNoSave":
+    "This is a temporary chat: it reads project documents and memories, but its messages cannot be saved to memory.",
 
   "participants.title": "Organisation",
   "participants.roster": "Roster",
@@ -413,8 +425,8 @@ const ja: Record<MessageKey, string> = {
   "project.chatTitle": "チャットタイトル",
   "project.chatTitlePlaceholder": "アーキテクチャレビュー",
   "project.temporaryChat": "一時チャット",
-  "project.temporaryChatMultiAgentNote":
-    "多人数会話はプロジェクトのメモリを書き込まないため、一時チャットの設定は不要です。",
+  "project.temporaryChatNote":
+    "一時チャットはメッセージと要約を保持しますが、プロジェクトメモリは作成しません。多人数会話では発言のメモリ保存も無効になります。",
   "project.openChat": "チャットを開く",
   "project.createChatError": "チャットの作成に失敗しました",
   "project.documents": "ドキュメント",
@@ -591,6 +603,16 @@ const ja: Record<MessageKey, string> = {
   "multiAgent.speakerHuman": "ユーザー",
   "multiAgent.speakerAssistant": "アシスタント",
   "multiAgent.speakerRemoved": "{name}（除籍済み）",
+  "multiAgent.saveMemory": "メモリに保存",
+  "multiAgent.saveMemoryTitle": "この発言をプロジェクトのメモリに保存",
+  "multiAgent.saveMemoryFrom": "発言者: {name}",
+  "multiAgent.saveMemoryNote": "多人数会話は自動でメモリを抽出しません。ここで保存した内容だけがプロジェクトのメモリになります。",
+  "multiAgent.saveMemoryConfirm": "保存",
+  "multiAgent.saveMemorySaving": "保存中…",
+  "multiAgent.saveMemoryDraftError": "メモリの下書きを用意できませんでした",
+  "multiAgent.saveMemoryError": "メモリの保存に失敗しました",
+  "multiAgent.saveMemorySaved": "プロジェクトのメモリに保存しました: {title}",
+  "multiAgent.temporaryNoSave": "一時チャットのため、プロジェクトの資料・メモリは読みますが、発言をメモリに保存できません。",
 
   "participants.title": "編成",
   "participants.roster": "編成",

@@ -258,6 +258,8 @@ Dashboard の `Configuration` から接続先、モデル、`LLM Response Format
 - `GET / POST /api/chats/:chatId/participants`
 - `PATCH / DELETE /api/participants/:participantId`
 - `POST /api/chats/:chatId/turns/stream`（1 ターン実行・SSE。実行中の重複呼び出しは 409）
+- `GET /api/messages/:messageId/memory-draft` / `POST /api/messages/:messageId/memory`（多人数会話の発言 1 件を
+  プロジェクトのメモリとして保存。多人数会話は自動でメモリを抽出しない）
 
 ## 今後の拡張ポイント
 

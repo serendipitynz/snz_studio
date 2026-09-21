@@ -1,7 +1,7 @@
 export type DocumentType = "markdown" | "text" | "image";
 export type DocumentCategory = "world" | "character" | "rule" | "plot" | "timeline" | "index" | "story" | "misc";
 export type MemoryKind = "semantic" | "procedural" | "episodic";
-export type MemorySource = "manual" | "chat" | "organized";
+export type MemorySource = "manual" | "chat" | "organized" | "multi_agent";
 export type MessageRole = "user" | "assistant" | "system";
 
 export interface Project {
@@ -316,6 +316,16 @@ export const api = {
     }),
   createMemory: (projectId: string, input: { content: string; kind: MemoryKind; locked?: boolean }) =>
     request<{ memory: MemoryRecord }>(`/api/projects/${projectId}/memories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }),
+  // The save-to-memory pair of a multi-agent chat (design §4.4): the draft is
+  // what the dialog opens with, the save stores what the user made of it.
+  getMessageMemoryDraft: (messageId: string) =>
+    request<{ draft: { content: string; kind: MemoryKind } }>(`/api/messages/${messageId}/memory-draft`),
+  saveMessageMemory: (messageId: string, input: { content: string; kind: MemoryKind; locked?: boolean }) =>
+    request<{ memory: MemoryRecord }>(`/api/messages/${messageId}/memory`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
