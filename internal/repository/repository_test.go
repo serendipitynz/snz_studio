@@ -847,7 +847,7 @@ func TestParticipantRepository(t *testing.T) {
 
 	// Turn rule and scene prompt update independently.
 	manual := model.TurnRuleManual
-	settings, err := chats.UpdateMultiAgentSettings(chat.ID, &manual, nil)
+	settings, err := chats.UpdateMultiAgentSettings(chat.ID, &manual, nil, nil)
 	if err != nil || settings == nil {
 		t.Fatalf("UpdateMultiAgentSettings = %v, %v", settings, err)
 	}
@@ -855,14 +855,14 @@ func TestParticipantRepository(t *testing.T) {
 		t.Errorf("turn rule update clobbered the scene prompt: %+v", settings)
 	}
 	scene := "論題: 猫"
-	settings, err = chats.UpdateMultiAgentSettings(chat.ID, nil, &scene)
+	settings, err = chats.UpdateMultiAgentSettings(chat.ID, nil, &scene, nil)
 	if err != nil || settings == nil {
 		t.Fatalf("UpdateMultiAgentSettings(scene) = %v, %v", settings, err)
 	}
 	if settings.TurnRule != model.TurnRuleManual || settings.ScenePrompt != scene {
 		t.Errorf("scene prompt update = %+v", settings)
 	}
-	if nilc, err := chats.UpdateMultiAgentSettings("nope", &manual, nil); err != nil || nilc != nil {
+	if nilc, err := chats.UpdateMultiAgentSettings("nope", &manual, nil, nil); err != nil || nilc != nil {
 		t.Errorf("UpdateMultiAgentSettings(missing) = %v, %v", nilc, err)
 	}
 

@@ -197,18 +197,19 @@ func TestMultiAgentMigrationOnExistingDB(t *testing.T) {
 	}
 
 	var (
-		title       string
-		kind        string
-		turnRule    string
-		scenePrompt string
+		title         string
+		kind          string
+		turnRule      string
+		scenePrompt   string
+		facilitatorID string
 	)
-	if err := d.QueryRow("SELECT title, kind, turn_rule, scene_prompt FROM chats WHERE id = 'c1'").
-		Scan(&title, &kind, &turnRule, &scenePrompt); err != nil {
+	if err := d.QueryRow("SELECT title, kind, turn_rule, scene_prompt, facilitator_participant_id FROM chats WHERE id = 'c1'").
+		Scan(&title, &kind, &turnRule, &scenePrompt, &facilitatorID); err != nil {
 		t.Fatalf("read migrated chat: %v", err)
 	}
-	if title != "old chat" || kind != "assistant" || turnRule != "round_robin" || scenePrompt != "" {
-		t.Errorf("migrated chat = (%q, %q, %q, %q), want the row unchanged and defaulted to assistant",
-			title, kind, turnRule, scenePrompt)
+	if title != "old chat" || kind != "assistant" || turnRule != "round_robin" || scenePrompt != "" || facilitatorID != "" {
+		t.Errorf("migrated chat = (%q, %q, %q, %q, %q), want the row unchanged and defaulted to assistant",
+			title, kind, turnRule, scenePrompt, facilitatorID)
 	}
 
 	var (
