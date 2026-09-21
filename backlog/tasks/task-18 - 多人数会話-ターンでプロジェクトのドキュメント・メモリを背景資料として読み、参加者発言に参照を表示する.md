@@ -1,10 +1,10 @@
 ---
 id: TASK-18
 title: '多人数会話: ターンでプロジェクトのドキュメント・メモリを背景資料として読み、参加者発言に参照を表示する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-19 23:58'
-updated_date: '2026-09-21 04:54'
+updated_date: '2026-09-21 06:19'
 labels: []
 milestone: m-1
 dependencies: []
@@ -99,7 +99,7 @@ system prompt は 1 本の文字列で、後段の場面設定・ロールが前
 - [x] #1 多人数会話のターンで、プロジェクト説明・ドキュメント抜粋・関連メモリが「背景資料」として system prompt の場面設定より前に入る。プロジェクトのシステムプロンプト・手続きメモリの無条件注入・引用モード指示・他チャット参照解決は入らない
 - [x] #2 検索クエリは 最新発言 + 直前数発言 + 場面設定の先頭 の順の連結で、開幕ターンは場面設定のみ。全文展開と明示参照の拡張 chunk 経路は使われない
 - [x] #3 追加文脈の量に上限 (件数と総文字数) があり、設定値と根拠がコードまたは設計書に記録されている
-- [ ] #4 参加者発言に使用した参照が保存され、多人数会話画面で単独チャットと同じ形式で表示される。prompt に入れた資料と表示される参照が一致する
+- [x] #4 参加者発言に使用した参照が保存され、多人数会話画面で単独チャットと同じ形式で表示される。prompt に入れた資料と表示される参照が一致する
 - [x] #5 参照保存の失敗が round-robin を誤って進めない (同一トランザクション、または区別したエラー)
 - [x] #6 設計書 docs/multi-agent-chat-design.md §4.4 が新しい方針に改訂されている
 - [x] #7 ドラマ系・議論系プリセットで、矛盾するシステムプロンプト・短い返答・引用語を含むセリフ・人間のロールプレイ介入を実機確認し、役割崩れが出ないことと結果がタスクに記録されている
@@ -146,4 +146,8 @@ system prompt は 1 本の文字列で、後段の場面設定・ロールが前
 - `go vet ./...` / `go test ./...` 全パス (新規: `TestBuildTurnBackgroundQuery`, `TestBuildTurnBackgroundBudget`, `TestBuildTurnBackgroundEmpty`, `TestTurnEngineBackgroundInPrompt`, `TestTurnEngineOpeningTurnSearchesScene`, `TestTurnEngineBackgroundFailureContinues`, `TestTurnEngineEmbeddingFailureDegrades`, `TestAddMessageWithReferencesIsAtomic`, `TestMultiAgentTurnCarriesReferences`)。
 - `npm run check:client` (tsc) / `npm run build:client` パス。
 - `gofmt -l internal/` は既存の `internal/search/model.go` だけを報告する (本タスクでは触っていない)。
+
+## マージ後 (2026-09-21)
+
+- AC #4 の WebView 上の表示は、所有者が実機で「使用した参照 (N)」の折りたたみが出ることを確認した。PR #22 (merge commit ac8f6ac) でマージ。
 <!-- SECTION:NOTES:END -->
