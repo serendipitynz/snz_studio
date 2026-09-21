@@ -1,10 +1,10 @@
 ---
 id: TASK-29
 title: '多人数会話: 発言ごとにコピーボタンを付ける'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-21 09:05'
-updated_date: '2026-09-21 09:28'
+updated_date: '2026-09-21 09:35'
 labels: []
 milestone: m-1
 dependencies: []
