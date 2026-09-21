@@ -3,7 +3,7 @@
 ステータス: **確定 / 実装済み**（2026-09-09 起票、2026-09-19 確定） / 背景: [multi-agent-chat-notes.md](./multi-agent-chat-notes.md)
 
 > 目的: 役割プロンプトとターン進行ルールを差し替え可能な多人数会話エンジンを snz_studio に組み込み、
-> LAN 上の複数 LM Studio エンドポイントを使った AI 同士の会話（ディベート・即興劇、将来 TRPG）を
+> LAN 上の複数 LM Studio エンドポイントを使った AI 同士の会話（ディベート・即興劇・TRPG）を
 > 既存の project / chat 体験の中で実現する。
 > 「確定 / 実装済み」とは、本文の記述が実装と一致し、以後は実装の変更に追随して改訂する段階を指す。
 > §7 の Phase A〜C は完了しており、本文はそのまま現在の仕様として読める。実装の入口は
@@ -19,7 +19,12 @@
 
 - 1 つの chat の中で、**接続先の異なる複数のモデルが役割を持って発言し合う**。発言はストリーミング表示され、既存の messages として永続化される。
 - ディベート・即興劇などの用途は**個別機能にしない**。エンジンは 1 つで、用途差はプリセット（§6、= データ）で表現する。
-- **非ゴール（今回やらない）**: TRPG の状態管理（キャラクターシート・ダイス・構造化出力による判定）、進行役モデルによる発言者指名、複数マシンの並列生成、retrieval（documents / memories）との統合。いずれも将来拡張（§7・§8）。
+- **TRPG の再現を用途の一つとして目標に含める**（2026-09-21、TASK-20）。ここで言う TRPG の再現とは、参加者の 1 人が GM として
+  シナリオ（ダンジョンの構造・NPC の真意・伏線）を知り、他の参加者がそれを知らないまま行動する会話が成り立つことを指す。
+  参加者ごとに背景資料を渡すかを選べること（§4.4）がその最小の道具立てである。
+  状態管理（キャラクターシート・ダイス・構造化出力による判定）は引き続き非ゴールで、§7「将来」に置く。
+- **非ゴール（今回やらない）**: TRPG の状態管理（キャラクターシート・ダイス・構造化出力による判定）、進行役モデルによる発言者指名、複数マシンの並列生成。いずれも将来拡張（§7・§8）。
+  retrieval（documents / memories）との統合は起票時の非ゴールだったが、TASK-18 で方針転換して §4.4 のとおり取り込んだ。
 
 AGENTS.md の Constraints（local-only / single-user / no heavy real-time architecture / no over-engineering）は維持する。LAN 上の LM Studio は「外部インフラ」に当たらない（既存の外部 LLM エンドポイント方式と同じ扱い）。
 
@@ -47,7 +52,7 @@ AGENTS.md の Constraints（local-only / single-user / no heavy real-time archit
 - **場面設定**（`scene_prompt`）とは、多人数会話の全参加者のシステムプロンプトに共通して前置される chat 単位の文字列（論題・シーン・世界観など）を指す。
 - **プリセット**とは、参加者一式・ターン進行ルール・場面設定の雛形をまとめた、多人数会話に適用できるデータを指す。適用できるのは新規作成時と、発言がまだ 1 件も無い多人数会話に対してである（§5）。
 
-## 3. スキーマ（migration 10）
+## 3. スキーマ（migration 10・11）
 
 ```sql
 ALTER TABLE chats ADD COLUMN kind TEXT NOT NULL DEFAULT 'assistant';       -- 'assistant' | 'multi_agent'
@@ -69,6 +74,14 @@ CREATE TABLE participants (
 ALTER TABLE messages ADD COLUMN participant_id TEXT; -- NULL = 従来の user / assistant 発言
 ```
 
+migration 11（2026-09-21、TASK-20）:
+
+```sql
+ALTER TABLE participants ADD COLUMN receives_background INTEGER NOT NULL DEFAULT 1; -- 1 = 背景資料を渡す
+```
+
+- **「背景資料を渡す」**（`receives_background`）とは、その参加者が話者になるターンで背景資料（§4.4）を組み立てて system prompt に入れ、
+  参照として保存することを指す。既定は 1 で、`DEFAULT 1` により migration 11 より前からある参加者も渡す側になる。
 - 参加者の発言は `role = 'assistant'` + `participant_id` で保存する。表示名・モデル名は participants を引く（`model_name` 列には従来どおり実際に使ったモデルも記録する）。
 - 人間の介入発言（論題の追加投入・野次など）は従来どおり `role = 'user'`・`participant_id IS NULL`。
 - 既存 chat は `kind = 'assistant'` のまま一切影響を受けない。
@@ -179,8 +192,18 @@ OpenAI 互換 API には「多者会話」のロールが無いため、発言�
   **Why**: 履歴は直近 30 発言を要約せず渡す（§4.3）ので約 6,000 字を占め、背景資料はその 1/3 以下に抑えて
   会話がウィンドウの主役であり続けるようにする。件数は単独 assistant の既定（4 件 × 3 chunk・メモリ 4 件）の半分。
   項目ごとの上限を全部使うと約 2,300 字になり、総量の上限が末尾のメモリを落とす。総量がウィンドウの支払いなので、件数より優先する。
-- **組み立ての単位**: ターンごとに 1 回、プロジェクト単位。組み立て関数は話者を引数に取るが、本実装では全参加者に同じ資料を渡す
-  （話者ごとの絞り込みは TASK-20 以降）。
+- **組み立ての単位**: ターンごとに 1 回、プロジェクト単位。組み立て関数は話者を引数に取り、渡す相手かどうかをそこで判定する。
+  渡す参加者どうしには同じ資料を渡す（ドキュメントの部分集合を参加者ごとに変える仕組みは入れていない）。
+- **参加者ごとの可否**（2026-09-21、TASK-20）: 参加者は「背景資料を渡す」の真偽値（`receives_background`、§3）を持ち、
+  渡さない参加者が話者のターンでは、検索そのものを行わず、system prompt に背景資料を置かず、参照も保存しない。
+  判定は `AssembleTurnBackground` の先頭で行い、プロジェクトの取得より前に空の `TurnBackground` を返す。
+  **Why**: 知ってはいけないターンが検索の費用を払う理由が無く、prompt と参照を同じ 1 か所で同時に空にできる。
+  TRPG の GM（§0）のように、1 人だけがシナリオを知る編成がこれで成り立つ。
+- **既知の制約**: **背景資料は既定で全参加者に見える**。参加者の追加時の既定値は「渡す」で、migration 11 より前からある参加者も
+  `DEFAULT 1` で渡す側になる。したがって隠し情報を作るには、隠す相手を明示的に「渡さない」にする操作が要る。
+  また、渡す参加者どうしでは資料を分けられないので、「設計者は要件と設計書、レビュアーはそれに加えて規約」のように
+  参加者ごとに異なる部分集合を読ませる用途は真偽値では表現できない。必要になった時点で、参加者 → ドキュメント ID の集合を
+  持たせる拡張を別に切る（メモリを参加者ごとに絞る必要も、その時点で判断する）。
 - **参照の保存と表示**: prompt に入れた項目と保存する参照は同じ最終選択から作る（`TurnBackground`）。参加者発言は
   `role = assistant` + `participant_id` なので `assistant_message_references` をそのまま使い、多人数会話画面は
   単独 chat と同じ `MessageReferences` で「使用した参照 (N)」を折りたたみ表示する。
@@ -223,8 +246,8 @@ OpenAI 互換 API には「多者会話」のロールが無いため、発言�
 | `POST /api/chats/{chatId}/preset` | 既存の多人数会話にプリセットを適用する。body は作成時と同じ `presetId` または `preset` を 1 つだけ。単独 assistant の chat は 400、未知の `presetId` は 404、`messages` が 1 件以上ある chat は 409。応答は適用後の `{ chat, participants }` |
 | `PATCH /api/chats/{chatId}` | 既存を拡張: `turnRule` / `scenePrompt` の更新を受け付ける |
 | `GET /api/chats/{chatId}/participants` | 参加者一覧 |
-| `POST /api/chats/{chatId}/participants` | 参加者追加 |
-| `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序） |
+| `POST /api/chats/{chatId}/participants` | 参加者追加。任意で `receivesBackground`（省略時は `true` = 渡す） |
+| `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序・`receivesBackground`） |
 | `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
 | `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。当該 chat のターンが実行中なら 409 |
 | `GET /api/messages/{messageId}/memory-draft` | 発言のメモリ保存の下書き `{ draft: { content, kind } }`（§4.4）。発言が無ければ 404、単独 assistant の chat は 400、一時チャットは 409 |
@@ -255,6 +278,9 @@ OpenAI 互換 API には「多者会話」のロールが無いため、発言�
 ## 6. フロントエンド
 
 - **編成パネル**: 参加者の CRUD、接続先 base URL 入力 + モデル選択（configuration/models 流用）+ 接続確認表示、ターン進行ルールと場面設定の編集。
+  参加者ごとの「背景資料を渡す」は役割プロンプトの下にチェックボックス 1 つで置き、他の項目と同じ保存ボタンでまとめて保存する
+  （どちらもその話者に何を与えるかの設定で、接続先・モデルはどこで実行するかの設定なので、前者の側に置く）。
+  既定が ON であることと、OFF ではドキュメント・メモリの検索ごと行わないことは、接続先・モデルと同じ `(?)` のツールチップに載せる。
   接続先・モデルを空欄にするとワークスペース設定を継承することは、各ラベル横の `(?)` のツールチップで示す。ホバーとフォーカスの
   両方で開き（ポインタ無しでも到達できる）、同じ文を `aria-label` にも持たせる。**Why**: プレースホルダーには置けない — パネル幅で
   文が切れるうえ、入力済みの参加者を見直すときには消えている。入力欄の下の常設の補足行も採らない — モデル側だけで 4 行を占有し、
@@ -276,6 +302,8 @@ OpenAI 互換 API には「多者会話」のロールが無いため、発言�
   `drama` 演技・雑談 / `hosted` 聞き手つきの対話 / `pair` 1 対 1）ごとに `optgroup` で並び、「プリセットの JSON を読み込む」で
   ローカルの JSON ファイルを選ぶと、その内容を `preset` としてインラインで送って適用できる（読み込んだファイルは一覧には残らない）。
   保存形式は同梱分が `internal/preset/bundled/*.json`（`go:embed`）、追加分が `presets/multi-agent/*.json`（形式の説明は同ディレクトリの README）。決めた理由は §8「実装で解消した判断」。
+  プリセットの `participants[]` は任意で `receivesBackground` を持てる（省略時は `true`）。GM だけがシナリオを読む編成は
+  プリセットの側で表現できるべきで、適用のたびに編成パネルで設定し直すものではない。
 
 ## 7. 段階分け
 
