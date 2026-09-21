@@ -165,11 +165,13 @@ A turn:
 2. picks the speaker (round-robin: the next roster entry after the last participant message; manual:
    the nominated participant)
 3. checks the participant's endpoint and loads the model
-4. builds the prompt from the participant's point of view: system = scene + role prompt + role
+4. builds the prompt from the participant's point of view: system = background material (project
+   description, matched document passages, matched memories; see below) + scene + role prompt + role
    reminder; history mapped to `assistant` for the participant's own past messages and `user` for
    everyone else's, prefixed with the speaker's display name; the prompt ends on the message this
    participant has to answer
-5. streams the utterance and stores it as an `assistant` message carrying `participant_id`
+5. streams the utterance and stores it as an `assistant` message carrying `participant_id`, together
+   with the references the background material was built from (one transaction)
 
 Current limits, accepted as behavior:
 
@@ -178,9 +180,15 @@ Current limits, accepted as behavior:
   disconnects, so stopping auto-advance only takes effect at the turn boundary
 - recovery after a disconnect is re-reading the stored messages; missed deltas are not replayed
 
-The multi-agent flow is separate from the single-assistant flow: it shares the LLM client and the
-persistence layer only, and does not use retrieval, memories or summaries. On a `multi_agent` chat the
-existing message routes store the user's message without generating a reply.
+The multi-agent flow is separate from the single-assistant flow: it shares the LLM client, the
+persistence layer and the retrieval service, and does not use the chat summary or the rest of the
+single-assistant prompt context (project system prompt, unconditional procedural memories, quote mode,
+referenced chats). Background material is retrieved once per turn with a query made of the latest
+utterance, the two before it and the head of the scene (the scene alone on the opening turn), capped
+at 2 documents × 2 passages, 3 memories and 2,000 characters in total. The references used are stored
+with the participant's message and shown under it as on the single-assistant chat screen. A failed
+search leaves the turn without material rather than failing it. On a `multi_agent` chat the existing
+message routes store the user's message without generating a reply.
 
 ## Context assembly
 

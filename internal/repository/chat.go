@@ -234,6 +234,14 @@ type AddMessageInput struct {
 
 // AddMessage inserts a message and bumps the chat's updated_at. Mirrors addMessage.
 func (r *ChatRepository) AddMessage(input AddMessageInput) (model.Message, error) {
+	return r.AddMessageWithReferences(input, nil)
+}
+
+// AddMessageWithReferences inserts a message together with its references in one
+// transaction, so either both are stored or neither is. A multi-agent turn needs
+// that: its speaker order is read from the stored messages, so an utterance whose
+// references failed to store must not remain as a turn that happened.
+func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, references []ReferenceInput) (model.Message, error) {
 	now := util.NowISO()
 	m := model.Message{
 		ID:              util.NewID("msg"),
@@ -258,6 +266,9 @@ func (r *ChatRepository) AddMessage(input AddMessageInput) (model.Message, error
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatID, m.Role, m.Content, m.CreatedAt,
 		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID)); err != nil {
+		return model.Message{}, err
+	}
+	if err := insertReferences(tx, m.ID, references); err != nil {
 		return model.Message{}, err
 	}
 	if _, err := tx.Exec("UPDATE chats SET updated_at = ? WHERE id = ?", util.NowISO(), m.ChatID); err != nil {
@@ -447,6 +458,13 @@ func (r *ChatRepository) ReplaceAssistantReferences(assistantMessageID string, r
 	if _, err := tx.Exec("DELETE FROM assistant_message_references WHERE assistant_message_id = ?", assistantMessageID); err != nil {
 		return err
 	}
+	if err := insertReferences(tx, assistantMessageID, references); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func insertReferences(tx *sql.Tx, assistantMessageID string, references []ReferenceInput) error {
 	for _, ref := range references {
 		if _, err := tx.Exec(`
 			INSERT INTO assistant_message_references (id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at)
@@ -455,7 +473,7 @@ func (r *ChatRepository) ReplaceAssistantReferences(assistantMessageID string, r
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // GetMessagesWithReferences returns a chat's messages, each with its references

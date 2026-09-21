@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -86,6 +87,8 @@ type turnGraph struct {
 	projects     *repository.ProjectRepository
 	chats        *repository.ChatRepository
 	participants *repository.ParticipantRepository
+	documents    *repository.DocumentRepository
+	memories     *repository.MemoryRepository
 	cfg          *config.Config
 	engine       *TurnEngine
 }
@@ -97,15 +100,29 @@ func newTurnGraph(t *testing.T) *turnGraph {
 		Editable:     config.Editable{LLMBaseURL: "http://unused.invalid/v1", LLMModel: "default-model"},
 		LLMTimeoutMs: 5000,
 	})
+	return newTurnGraphWithConfig(t, d, cfg)
+}
+
+// newTurnGraphWithConfig wires the engine the way NewServer does, with the
+// ContextService as the background assembler over a retrieval that follows cfg's
+// embedding settings (FTS-only when no embedding model is configured).
+func newTurnGraphWithConfig(t *testing.T, d *sql.DB, cfg *config.Config) *turnGraph {
+	t.Helper()
 	projects := repository.NewProjectRepository(d)
 	chats := repository.NewChatRepository(d)
 	participants := repository.NewParticipantRepository(d)
+	documents := repository.NewDocumentRepository(d)
+	memories := repository.NewMemoryRepository(d)
+	retrieval := NewRetrievalService(d, NewEmbeddingClient(cfg))
+	background := NewContextService(projects, chats, documents, memories, retrieval)
 	return &turnGraph{
 		projects:     projects,
 		chats:        chats,
 		participants: participants,
+		documents:    documents,
+		memories:     memories,
 		cfg:          cfg,
-		engine:       NewTurnEngine(chats, participants, NewLLMClient(cfg), cfg),
+		engine:       NewTurnEngine(chats, participants, NewLLMClient(cfg), cfg, background),
 	}
 }
 
@@ -113,12 +130,23 @@ func newTurnGraph(t *testing.T) *turnGraph {
 // participant per display name, all pointing at baseURL.
 func (g *turnGraph) newMultiAgentChat(t *testing.T, turnRule, scenePrompt, baseURL string, names ...string) (model.Chat, []model.Participant) {
 	t.Helper()
-	project, err := g.projects.CreateProject(repository.CreateProjectInput{Title: "Debate"})
+	project := g.newProject(t, repository.CreateProjectInput{Title: "Debate"})
+	return g.newMultiAgentChatInProject(t, project.ID, turnRule, scenePrompt, baseURL, names...)
+}
+
+func (g *turnGraph) newProject(t *testing.T, input repository.CreateProjectInput) model.Project {
+	t.Helper()
+	project, err := g.projects.CreateProject(input)
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
+	return project
+}
+
+func (g *turnGraph) newMultiAgentChatInProject(t *testing.T, projectID, turnRule, scenePrompt, baseURL string, names ...string) (model.Chat, []model.Participant) {
+	t.Helper()
 	chat, err := g.chats.CreateChat(repository.CreateChatInput{
-		ProjectID:   project.ID,
+		ProjectID:   projectID,
 		Kind:        model.ChatKindMultiAgent,
 		TurnRule:    turnRule,
 		ScenePrompt: scenePrompt,

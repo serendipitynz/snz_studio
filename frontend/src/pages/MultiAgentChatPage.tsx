@@ -5,6 +5,7 @@ import { streamSSE } from "../api/sse";
 import { predictNextSpeaker } from "../api/turnOrder";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
+import { MessageReferences } from "../components/MessageReferences";
 import { ParticipantPanel } from "../components/ParticipantPanel";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { useLanguage } from "../i18n";
@@ -383,6 +384,7 @@ export function MultiAgentChatPage() {
                     ) : (
                       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{message.content}</div>
                     )}
+                    <MessageReferences references={message.references} />
                     <MetaText style={{ textAlign: "right", opacity: 0.68 }}>
                       {new Date(message.createdAt).toLocaleTimeString()}
                     </MetaText>

@@ -13,6 +13,7 @@ import type { ReviewReference } from "../api/client";
 import { useConfirm } from "../components/ConfirmDialog";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
+import { MessageReferences } from "../components/MessageReferences";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { useLanguage } from "../i18n";
 import {
@@ -720,22 +721,7 @@ export function ChatPage() {
                     {message.references.length || message.role === "assistant" ? (
                       <Row style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          {message.references.length ? (
-                            <details>
-                              <summary>{t("chat.referencesUsed", { count: message.references.length })}</summary>
-                              <List style={{ marginTop: 10 }}>
-                                {message.references.map((reference) => (
-                                  <Item key={reference.id}>
-                                    <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                                      <strong>{reference.label}</strong>
-                                      <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
-                                    </Row>
-                                    <Subtle>{reference.excerpt || t("chat.noExcerpt")}</Subtle>
-                                  </Item>
-                                ))}
-                              </List>
-                            </details>
-                          ) : null}
+                          <MessageReferences references={message.references} />
                         </div>
                         {message.role === "assistant" ? (
                           <Stack style={{ gap: 2, alignItems: "flex-end" }}>

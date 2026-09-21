@@ -4,7 +4,7 @@ title: '多人数会話: 人間が明示的にメモリを保存できるよう�
 status: To Do
 assignee: []
 created_date: '2026-09-19 23:58'
-updated_date: '2026-09-19 23:58'
+updated_date: '2026-09-21 01:14'
 labels: []
 milestone: m-1
 dependencies:
@@ -17,6 +17,7 @@ references:
   - frontend/src/pages/MultiAgentChatPage.tsx
   - frontend/src/pages/ProjectDetailPage.tsx
   - docs/current-spec.ja.md
+  - docs/multi-agent-chat-design.md
 ordinal: 19000
 ---
 
@@ -54,6 +55,13 @@ TASK-18 で多人数会話がプロジェクトのドキュメント・メモリ
 TASK-17 で無効化した作成フォームの「一時チャット」チェックボックスは、このタスクで意味を持つ
 (読むが書かない) ようになるので、多人数会話でも再有効化し、説明文を単独チャットと同じ趣旨に戻す。
 `docs/current-spec.ja.md` §4.4 に多人数会話での一時チャットの意味を追記する。
+
+## 設計書への記録
+
+TASK-18 が改訂する `docs/multi-agent-chat-design.md` §4.4 に、読む方向 (ドキュメント・メモリ → 会話) に加えて
+書く方向 (会話 → 人間が選んだ発言 → プロジェクトのメモリ → 後続のチャット・多人数会話) を追記し、
+自動抽出を行わない理由 (上の 2 点) をそこに残す。複数の発言にまたがる結論を要約して保存の下書きにする経路は
+別タスク (本タスクに依存) で扱う。
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -63,4 +71,5 @@ TASK-17 で無効化した作成フォームの「一時チャット」チェッ
 - [ ] #3 多人数会話でも自動抽出・「覚えて」抽出は動かない (参加者・人間の発言いずれからも自動保存されない)
 - [ ] #4 isTemporary な多人数会話では保存操作が無効化され、理由が表示される
 - [ ] #5 作成フォームの「一時チャット」チェックボックスが多人数会話でも有効に戻り、説明文と docs/current-spec.ja.md §4.4 が更新されている
+- [ ] #6 docs/multi-agent-chat-design.md §4.4 に、会話からメモリへ書く経路と自動抽出を行わない理由が記録されている
 <!-- AC:END -->
