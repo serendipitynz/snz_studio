@@ -147,6 +147,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
 
   const roster = props.participants.filter((participant) => participant.deletedAt === null);
   const removed = props.participants.filter((participant) => participant.deletedAt !== null);
+  const facilitatorOnRoster = roster.some((participant) => participant.id === props.chat.facilitatorId);
 
   async function probeEndpoint(baseUrl: string) {
     const key = baseUrl.trim();
@@ -278,6 +279,16 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     }
   }
 
+  async function handleChangeFacilitator(facilitatorId: string) {
+    setError("");
+    try {
+      const response = await api.updateChatMultiAgentSettings(props.chat.id, { facilitatorId });
+      props.onChatChange(response.chat);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : t("participants.settingsSaveError"));
+    }
+  }
+
   async function handleSaveScenePrompt(scenePrompt: string) {
     setError("");
     try {
@@ -331,8 +342,33 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
             >
               <option value="round_robin">{t("participants.turnRuleRoundRobin")}</option>
               <option value="manual">{t("participants.turnRuleManual")}</option>
+              <option value="facilitator_alternating">{t("participants.turnRuleFacilitator")}</option>
             </Select>
           </Field>
+          {props.chat.turnRule === "facilitator_alternating" ? (
+            <Field>
+              {t("participants.facilitator")}
+              {/* The value is matched against the roster rather than taken from
+                  the chat as stored: a facilitator that has been removed is an
+                  id the select has no option for, and showing it as unset is
+                  what the turn then actually does. */}
+              <Select
+                value={facilitatorOnRoster ? props.chat.facilitatorId : ""}
+                disabled={props.disabled}
+                onChange={(event) => void handleChangeFacilitator(event.target.value)}
+              >
+                <option value="">{t("participants.facilitatorUnset")}</option>
+                {roster.map((participant) => (
+                  <option key={participant.id} value={participant.id}>
+                    {participant.displayName}
+                  </option>
+                ))}
+              </Select>
+              <Subtle style={{ margin: 0 }}>
+                {facilitatorOnRoster ? t("participants.facilitatorNote") : t("participants.facilitatorMissing")}
+              </Subtle>
+            </Field>
+          ) : null}
           <ScenePromptField
             value={props.chat.scenePrompt}
             disabled={props.disabled}
