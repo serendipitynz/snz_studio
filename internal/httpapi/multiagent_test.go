@@ -347,7 +347,7 @@ func TestMultiAgentChatSettings(t *testing.T) {
 	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats", map[string]any{"kind": "swarm"}),
 		http.StatusBadRequest, `kind must be "assistant" or "multi_agent"`)
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"turnRule": "auction"}),
-		http.StatusBadRequest, `turnRule must be "round_robin" or "manual"`)
+		http.StatusBadRequest, `turnRule must be "round_robin", "manual" or "facilitator_alternating"`)
 
 	rec := doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"scenePrompt": "論題: ローカル LLM の是非"})
 	wantStatus(t, rec, http.StatusOK)
@@ -370,9 +370,122 @@ func TestMultiAgentChatSettings(t *testing.T) {
 
 	assistantChatID := createChat(t, h, projectID)
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+assistantChatID, map[string]any{"turnRule": "manual"}),
-		http.StatusBadRequest, "turnRule and scenePrompt apply to multi-agent chats only")
+		http.StatusBadRequest, "turnRule, scenePrompt and facilitatorId apply to multi-agent chats only")
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/chat_missing", map[string]any{"title": "x"}),
 		http.StatusNotFound, "chat not found")
+}
+
+// TestMultiAgentFacilitatorSetting covers TASK-21 AC #4 on the API side: the
+// panel sets the rule and the facilitator through PATCH /api/chats/{chatId},
+// and a facilitator that is not on this chat's roster is refused rather than
+// stored for the engine to find later.
+func TestMultiAgentFacilitatorSetting(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Facilitator Project")
+	chatID := createMultiAgentChat(t, h, projectID, "")
+	gmID := addParticipant(t, h, chatID, "GM", "")
+	playerID := addParticipant(t, h, chatID, "Player", "")
+
+	var chat struct {
+		TurnRule      string `json:"turnRule"`
+		FacilitatorID string `json:"facilitatorId"`
+	}
+	rec := doJSON(t, h, "PATCH", "/api/chats/"+chatID,
+		map[string]any{"turnRule": "facilitator_alternating", "facilitatorId": gmID})
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.TurnRule != "facilitator_alternating" || chat.FacilitatorID != gmID {
+		t.Fatalf("after setting the facilitator = %+v, want the rule and GM stored", chat)
+	}
+
+	// Switching back to round_robin keeps the choice, so switching forth again
+	// needs no re-pick.
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"turnRule": "round_robin"}), http.StatusOK)
+	rec = doJSON(t, h, "GET", "/api/chats/"+chatID, nil)
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.TurnRule != "round_robin" || chat.FacilitatorID != gmID {
+		t.Fatalf("after switching the rule = %+v, want the facilitator kept", chat)
+	}
+
+	const notOnRoster = "facilitatorId must name a participant on this chat's roster"
+	otherChatID := createMultiAgentChat(t, h, projectID, "")
+	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+otherChatID, map[string]any{"facilitatorId": gmID}),
+		http.StatusBadRequest, notOnRoster)
+	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"facilitatorId": "participant_missing"}),
+		http.StatusBadRequest, notOnRoster)
+	wantStatus(t, doJSON(t, h, "DELETE", "/api/participants/"+playerID, nil), http.StatusOK)
+	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"facilitatorId": playerID}),
+		http.StatusBadRequest, notOnRoster)
+
+	// An empty value is the panel clearing the choice.
+	rec = doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"facilitatorId": ""})
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.FacilitatorID != "" {
+		t.Fatalf("facilitatorId = %q after clearing it", chat.FacilitatorID)
+	}
+
+	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+createChat(t, h, projectID), map[string]any{"facilitatorId": gmID}),
+		http.StatusBadRequest, "turnRule, scenePrompt and facilitatorId apply to multi-agent chats only")
+}
+
+// TestMultiAgentPresetFacilitator covers TASK-21 AC #5: the bundled TRPG preset
+// arrives with its rule and its facilitator resolved to the participant the
+// preset marked, and a preset without one clears the setting rather than
+// leaving it pointing at a roster that has been replaced.
+func TestMultiAgentPresetFacilitator(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "TRPG Project")
+
+	rec := doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "presetId": "trpg-table"})
+	wantStatus(t, rec, http.StatusCreated)
+	var chat struct {
+		ID            string `json:"id"`
+		TurnRule      string `json:"turnRule"`
+		FacilitatorID string `json:"facilitatorId"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.TurnRule != "facilitator_alternating" {
+		t.Fatalf("preset chat turnRule = %q", chat.TurnRule)
+	}
+	assertFacilitatorIs(t, h, chat.ID, chat.FacilitatorID, "GM")
+
+	// Applied to an existing chat, the same preset resolves the mark against the
+	// roster it just created.
+	appliedID := createEmptyMultiAgentChat(t, h, projectID, "")
+	rec = doJSON(t, h, "POST", "/api/chats/"+appliedID+"/preset", map[string]any{"presetId": "trpg-table"})
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	assertFacilitatorIs(t, h, appliedID, chat.FacilitatorID, "GM")
+
+	rec = doJSON(t, h, "POST", "/api/chats/"+appliedID+"/preset", map[string]any{"presetId": "debate"})
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.FacilitatorID != "" {
+		t.Fatalf("facilitatorId = %q after a preset that marks none", chat.FacilitatorID)
+	}
+}
+
+func assertFacilitatorIs(t *testing.T, h http.Handler, chatID, facilitatorID, displayName string) {
+	t.Helper()
+	rec := doJSON(t, h, "GET", "/api/chats/"+chatID+"/participants", nil)
+	wantStatus(t, rec, http.StatusOK)
+	var participants []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "participants", &participants)
+	for _, participant := range participants {
+		if participant.ID == facilitatorID {
+			if participant.DisplayName != displayName {
+				t.Fatalf("facilitator is %q, want %q", participant.DisplayName, displayName)
+			}
+			return
+		}
+	}
+	t.Fatalf("facilitatorId %q is on no participant of the chat", facilitatorID)
 }
 
 // TestMultiAgentMessagesAreStoredNotAnswered covers AC #2: in a multi-agent chat

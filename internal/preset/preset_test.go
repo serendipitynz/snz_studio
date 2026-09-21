@@ -77,11 +77,14 @@ func TestParse(t *testing.T) {
 	}
 
 	cases := map[string]string{
-		"not json":        `{`,
-		"no title":        `{"participants":[{"displayName":"甲"},{"displayName":"乙"}]}`,
-		"one participant": `{"title":"x","participants":[{"displayName":"甲"}]}`,
-		"blank name":      `{"title":"x","participants":[{"displayName":"甲"},{"displayName":"  "}]}`,
-		"bad turn rule":   `{"title":"x","turnRule":"auction","participants":[{"displayName":"甲"},{"displayName":"乙"}]}`,
+		"not json":                               `{`,
+		"no title":                               `{"participants":[{"displayName":"甲"},{"displayName":"乙"}]}`,
+		"one participant":                        `{"title":"x","participants":[{"displayName":"甲"}]}`,
+		"blank name":                             `{"title":"x","participants":[{"displayName":"甲"},{"displayName":"  "}]}`,
+		"bad turn rule":                          `{"title":"x","turnRule":"auction","participants":[{"displayName":"甲"},{"displayName":"乙"}]}`,
+		"facilitator rule without a facilitator": `{"title":"x","turnRule":"facilitator_alternating","participants":[{"displayName":"甲"},{"displayName":"乙"}]}`,
+		"two facilitators":                       `{"title":"x","turnRule":"facilitator_alternating","participants":[{"displayName":"甲","facilitator":true},{"displayName":"乙","facilitator":true}]}`,
+		"facilitator under another rule":         `{"title":"x","participants":[{"displayName":"甲","facilitator":true},{"displayName":"乙"}]}`,
 	}
 	for name, raw := range cases {
 		_, err := Parse([]byte(raw))
@@ -90,6 +93,44 @@ func TestParse(t *testing.T) {
 		}
 		if err != nil && !strings.HasPrefix(err.Error(), ErrInvalid.Error()+": ") {
 			t.Errorf("%s: err = %q, want the reason after the sentinel", name, err)
+		}
+	}
+}
+
+// TestParseFacilitator covers TASK-21 AC #5: the facilitator is preset data,
+// marked on the roster entry because the participant id the chat stores does not
+// exist until the preset is applied.
+func TestParseFacilitator(t *testing.T) {
+	p, err := Parse([]byte(`{
+		"title": "卓",
+		"turnRule": "facilitator_alternating",
+		"participants": [
+			{ "displayName": "プレイヤー" },
+			{ "displayName": "GM", "facilitator": true }
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if p.Participants[0].Facilitator || !p.Participants[1].Facilitator {
+		t.Fatalf("facilitator marked on %+v", p.Participants)
+	}
+
+	trpg, ok := Find("trpg-table")
+	if !ok {
+		t.Fatal("bundled presets lack the TRPG table")
+	}
+	if trpg.TurnRule != "facilitator_alternating" {
+		t.Fatalf("trpg-table turnRule = %q", trpg.TurnRule)
+	}
+	for _, participant := range trpg.Participants {
+		if participant.Facilitator != (participant.DisplayName == "GM") {
+			t.Errorf("trpg-table: %q facilitator = %v", participant.DisplayName, participant.Facilitator)
+		}
+		// The line-up only works as a TRPG table if the GM is the one holding the
+		// scenario, so the two flags have to agree.
+		if *participant.ReceivesProjectMaterial != (participant.DisplayName == "GM") {
+			t.Errorf("trpg-table: %q receivesProjectMaterial = %v", participant.DisplayName, *participant.ReceivesProjectMaterial)
 		}
 	}
 }
@@ -119,11 +160,17 @@ func TestParseReceivesProjectMaterial(t *testing.T) {
 		}
 	}
 
-	// Every bundled preset predates the field, so none of them may end up
-	// cutting a speaker off from the project's material by accident.
+	// Withholding the project material is what makes a hidden scenario possible,
+	// so a bundled preset may do it — but only the presets built around one, and
+	// never as the side effect of a copied roster entry.
+	withholds := map[string]bool{"trpg-table": true}
 	for _, bundledPreset := range Bundled() {
 		for _, participant := range bundledPreset.Participants {
-			if participant.ReceivesProjectMaterial == nil || !*participant.ReceivesProjectMaterial {
+			if participant.ReceivesProjectMaterial == nil {
+				t.Errorf("bundled %s: participant %q left receivesProjectMaterial nil; Validate must fill the default", bundledPreset.ID, participant.DisplayName)
+				continue
+			}
+			if !*participant.ReceivesProjectMaterial && !withholds[bundledPreset.ID] {
 				t.Errorf("bundled %s: participant %q does not receive the project material", bundledPreset.ID, participant.DisplayName)
 			}
 		}
