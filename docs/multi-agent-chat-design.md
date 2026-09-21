@@ -23,7 +23,8 @@
   シナリオ（ダンジョンの構造・NPC の真意・伏線）を知り、他の参加者がそれを知らないまま行動する会話が成り立つことを指す。
   参加者ごとにプロジェクト資料を渡すかを選べること（§4.4）がその最小の道具立てである。
   状態管理（キャラクターシート・ダイス・構造化出力による判定）は引き続き非ゴールで、§7「将来」に置く。
-- **非ゴール（今回やらない）**: TRPG の状態管理（キャラクターシート・ダイス・構造化出力による判定）、進行役モデルによる発言者指名、複数マシンの並列生成。いずれも将来拡張（§7・§8）。
+- **非ゴール（今回やらない）**: TRPG の状態管理（キャラクターシート・ダイス・構造化出力による判定）、進行役による指名（進行役がモデル出力で次の話者を選ぶこと）、複数マシンの並列生成。いずれも将来拡張（§7・§8）。
+  決定的に進行役を挟むターン進行ルール（`facilitator_alternating`、§4.5）は 2026-09-22 の TASK-21 で入れた。モデル出力を読まないので、上の非ゴールには当たらない。
   retrieval（documents / memories）との統合は起票時の非ゴールだったが、TASK-18 で方針転換して §4.4 のとおり取り込んだ。
 
 AGENTS.md の Constraints（local-only / single-user / no heavy real-time architecture / no over-engineering）は維持する。LAN 上の LM Studio は「外部インフラ」に当たらない（既存の外部 LLM エンドポイント方式と同じ扱い）。
@@ -45,9 +46,15 @@ AGENTS.md の Constraints（local-only / single-user / no heavy real-time archit
 - **役割プロンプト**は、参加者ごとにモデルへ system メッセージとして渡す、人格・立場・口調・行動規則を指示する文字列。
 - **多人数会話**とは、参加者を 2 つ以上持ち、発言生成をターンエンジンが担う chat を指す。既存の単独 assistant の chat と同じ `chats` テーブルに保存し、種別列 `kind` で区別する。
 - **ターン**は、ターン進行ルールで選ばれた 1 人の参加者が、モデル呼び出し 1 回分の発言を生成し `messages` に保存されること。
-- **ターン進行ルール**（`turn_rule`）は、次に発言する参加者を決める規則。初期実装は 2 種:
+- **ターン進行ルール**（`turn_rule`）は、次に発言する参加者を決める規則。現在 3 種:
   - `round_robin`: 参加者の登録順（`sort_order`）を循環。直近の参加者発言から次を導くため、サーバー側に進行状態を持たない。
   - `manual`: リクエストで参加者を指名。
+  - `facilitator_alternating`（2026-09-22、TASK-21）: 進行役と進行役以外の参加者が 1 発言ずつ交互に話し、
+    進行役以外は `sort_order` 順に循環する。これも保存済みの発言だけから導く（§4.5）。
+- **進行役**とは、`facilitator_alternating` において他の参加者 1 人ごとに必ず 1 回発言する位置に置かれる、
+  名簿上の参加者 1 人を指す。chat が `facilitator_participant_id`（§3）で 1 人を指名する。
+  §7「将来」の**進行役による指名**（進行役がモデル出力で次の話者を選ぶ規則）とは別物で、
+  `facilitator_alternating` は決定的であり、モデルの出力を読まない。
 - **ターンエンジン**（`TurnEngine`）とは、ターン進行ルールに従い参加者のモデル呼び出しと発言保存を繰り返す Go サービスを指す。
 - **場面設定**（`scene_prompt`）とは、多人数会話の全参加者のシステムプロンプトに共通して前置される chat 単位の文字列（論題・シーン・世界観など）を指す。
 - **プリセット**とは、参加者一式・ターン進行ルール・場面設定の雛形をまとめた、多人数会話に適用できるデータを指す。適用できるのは新規作成時と、発言がまだ 1 件も無い多人数会話に対してである（§5）。
@@ -80,6 +87,18 @@ migration 11（2026-09-21、TASK-20）と、その列を改称した migration 1
 ALTER TABLE participants ADD COLUMN receives_background INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE participants RENAME COLUMN receives_background TO receives_project_material; -- 1 = プロジェクト資料を渡す
 ```
+
+migration 14（2026-09-22、TASK-21）:
+
+```sql
+ALTER TABLE chats ADD COLUMN facilitator_participant_id TEXT NOT NULL DEFAULT ''; -- '' = 未指定
+```
+
+- `facilitator_participant_id` は `facilitator_alternating` が挟む進行役（§2）の participant id。
+  ターン進行ルールの付随設定であって 2 本目の規則列ではないので、`round_robin` に戻しても値は残り、
+  戻し直すときに選び直さずに済む。
+- 外部キーは張らない。指した参加者は除籍できるため、**指し先の消えた id と未指定は同じ場合**として扱い、
+  どちらもターンは `round_robin` の導出に落ちる（§4.5）。除籍時にこの列を消す処理は持たない。
 
 migration の id（`011_participant_receives_background`）は改称しない。id は `schema_migrations` に記録される値なので、
 変えると導入済みのデータベースが 11 を再実行し、既にある列に対して `ADD COLUMN` を当てて失敗する。
@@ -138,7 +157,7 @@ SSE の書き込み失敗も無視される（[handlers.go](../internal/httpapi/
    二重に発言させる。自動進行はフロント側のループなので（§4.1）、「1 ターン進める」の連打や
    自動進行と手動指名の競合で現実に重なる。単一ユーザー・単一プロセスなので `sync.Mutex` の
    `TryLock` 相当で足り、DB 側の予約列は要らない。
-1. ターン進行ルールで発言者を決定（`round_robin`: `participant_id` を持つ直近メッセージ → 編成（`deleted_at IS NULL`）の `sort_order` 順の次。直近発言の参加者が除籍済みで巡回位置が定まらないときは編成の先頭から。`manual`: リクエストの `participantId` 必須）。
+1. ターン進行ルールで発言者を決定（`round_robin`: `participant_id` を持つ直近メッセージ → 編成（`deleted_at IS NULL`）の `sort_order` 順の次。直近発言の参加者が除籍済みで巡回位置が定まらないときは編成の先頭から。`manual`: リクエストの `participantId` 必須。`facilitator_alternating`: §4.5）。
 2. `EnsureModelLoaded` / `CheckConnection` で接続先を確認。確認もエラー文も `resolveTarget` で解決した後の
    接続先・モデル（= 手順 4 が実際に使う組み合わせ）で行う。**Why**: 参加者は接続先とモデルを空欄にすると
    ワークスペース設定をフィールドごとに独立して継承するので、参加者の生の値で確認すると、継承した側が
@@ -278,6 +297,39 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
 - ファシリテーター参加者による自律的なメモリ書き込みと、参加者が「これは記録に値する」と提案する仕組みは入れない
   （帰属と方針の問題に対して初期価値が小さい）。複数の発言にまたがる結論を要約して保存の下書きにする経路は別タスク。
 
+### 4.5 進行役を挟むターン規則（`facilitator_alternating`）
+
+2026-09-22（TASK-21）に足した 3 つ目のターン進行ルール。進行役（§2）と進行役以外の参加者が
+1 発言ずつ交互に話し、進行役以外は編成の `sort_order` 順に循環する。TRPG のように、GM が毎ターン
+状況を描写して次のプレイヤーへ渡す進行を、`manual` の手動指名なしで自動進行（§4.1）に乗せるためのもの。
+
+次の話者は `round_robin` と同じく**保存済みの発言だけ**から導く（サーバー側に進行状態を持たない、§2）。
+手順は上から順に:
+
+1. 編成に進行役が居なければ、`round_robin` の導出に落とす（後述）。
+2. transcript の**末尾のメッセージ**が `participant_id` を持たない（人間の介入発言、および多人数会話に
+   なる前のアシスタント発言）とき、および発言が 1 件も無いとき → 進行役。
+3. 末尾が進行役以外の参加者の発言 → 進行役。
+4. 末尾が進行役の発言 → 進行役を除いた編成を `sort_order` 順に見て、**進行役以外で最後に発言した参加者の次**。
+   その参加者が除籍済みで位置が定まらないとき、および進行役以外の発言がまだ無いときは、進行役を除いた編成の先頭。
+
+**人間の介入発言の次は進行役**（手順 2）。**Why**: `round_robin` は `participant_id` を持つ直近メッセージ
+だけを読むので介入を素通りするが、卓に投げられた言葉を受けるのは進行役の役である。進行役以外の巡回位置は
+介入で狂わない — 手順 4 は進行役以外の発言だけを見るので、介入を挟んでも次のプレイヤーは変わらない。
+開幕ターン（発言 0 件）も同じく進行役にするのは、場面を開くのが進行役の役だからである。
+
+**進行役が編成に居ないときは `round_robin` に落とす**（手順 1）。規則だけ選んで進行役を指定していない場合と、
+指定した参加者を除籍した場合の両方が該当する。**Why**: 規則は chat に残り続ける設定なので、除籍はいつでも
+この状態を作れる。ターンをエラーにすると自動進行がその場で止まり、原因は画面の文言でしか伝わらない。
+落とせば会話は進み、編成パネルは「進行役が編成にいない」ことを、直せる場所と同じ画面に出せる（§6）。
+除籍時に `facilitator_participant_id` を消さないのは、指し先の消えた id と未指定がエンジンにとって同じ場合で、
+消す処理を足しても増えるのは書き込みだけだからである。ただし**編成パネルからの指定は編成の参加者に限り**、
+除籍済みの参加者を新たに指定することはできない（§5、400）。除籍が残した値を許容することは、
+新しくそれを書けることを意味しない。
+
+**参加者が 1 人だけ（進行役のみ）の編成**では進行役が続けて話す。多人数会話は参加者 2 人以上（§2）なので
+通常は到達せず、観戦ビューはそもそも編成が 2 人未満のあいだターンを実行させない（§6）。
+
 ## 5. HTTP API
 
 | ルート | 内容 |
@@ -285,7 +337,7 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
 | `POST /api/projects/{projectId}/chats` | 既存を拡張: `kind: "multi_agent"` を受け付ける。任意で `presetId`（同梱プリセットの id）または `preset`（プリセットの JSON オブジェクトそのもの）を 1 つだけ受け付け、そのプリセットを適用する。両方指定・`kind` が `assistant` のときの指定は 400、未知の `presetId` は 404 |
 | `GET /api/multi-agent-presets` | 同梱プリセットの一覧（`id` / `title` / `description` / `group` / `turnRule` / `scenePrompt` / `participants[]`） |
 | `POST /api/chats/{chatId}/preset` | 既存の多人数会話にプリセットを適用する。body は作成時と同じ `presetId` または `preset` を 1 つだけ。単独 assistant の chat は 400、未知の `presetId` は 404、`messages` が 1 件以上ある chat は 409。応答は適用後の `{ chat, participants }` |
-| `PATCH /api/chats/{chatId}` | 既存を拡張: `turnRule` / `scenePrompt` の更新を受け付ける |
+| `PATCH /api/chats/{chatId}` | 既存を拡張: `turnRule` / `scenePrompt` / `facilitatorId` の更新を受け付ける。`turnRule` は `round_robin` / `manual` / `facilitator_alternating` のいずれか。`facilitatorId` は空文字（指定の解除）か、その chat の編成に居る参加者の id。それ以外は 400 |
 | `GET /api/chats/{chatId}/participants` | 参加者一覧 |
 | `POST /api/chats/{chatId}/participants` | 参加者追加。任意で `receivesProjectMaterial`（省略時は `true` = 渡す） |
 | `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序・`receivesProjectMaterial`） |
@@ -301,7 +353,11 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
 接続先ごとのモデル列挙は既存 `POST /api/configuration/models` を流用する。
 
 **プリセットの適用**とは、chat の `turnRule` / `scenePrompt` をプリセットのものにし、`participants[]` を登録順（= round_robin の巡回順）に
-参加者として作ることを指す。chat の title が空ならプリセットの `title` を使う。参加者の接続先・モデルは空で作られ、
+参加者として作り、`facilitator: true` を付けた参加者があればその id を chat の進行役に設定することを指す。
+プリセットが進行役を持たないときは進行役を空にする（既存 chat への適用では、置き換える前の編成の id が残らないようにするため）。
+プリセット側が participant id ではなく名簿の要素に印を付けるのは、id が適用の瞬間まで存在しないためである。
+`turnRule` が `facilitator_alternating` のプリセットは `facilitator: true` をちょうど 1 件持つことを検証する（持たない・複数は 400）。
+他のルールのプリセットに印を付けるのも 400 とする（保存されても誰も読まない値になるため）。chat の title が空ならプリセットの `title` を使う。参加者の接続先・モデルは空で作られ、
 ターン実行時はワークスペース既定のエンドポイントに落ちる（参加者ごとに変えるのは編成パネル）。
 適用後の chat はプリセットとの結びつきを持たない（以後の編集はすべて編成パネル）。新規作成時に参加者の作成が途中で失敗したら chat ごと削除して返す
 （repository 層にトランザクションが無く、編成が欠けた多人数会話を残さないため）。
@@ -321,6 +377,11 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
 ## 6. フロントエンド
 
 - **編成パネル**: 参加者の CRUD、接続先 base URL 入力 + モデル選択（configuration/models 流用）+ 接続確認表示、ターン進行ルールと場面設定の編集。
+  ターン進行ルールで `facilitator_alternating` を選んだときだけ、その下に**進行役**の選択（編成の参加者から 1 人、または「未選択」）と
+  1 行の説明を出す。選択の値は chat が持つ id をそのまま映さず編成と突き合わせ、除籍済みの id は「未選択」として表示する。
+  **Why**: 選択肢に無い id を選択状態として見せると、ターンが実際に行うこと（`round_robin` への縮退、§4.5）と画面が食い違う。
+  進行役が編成に居ないあいだは、説明文をその旨に差し替え、観戦ビューの進行コントロールにも同じことを 1 行出す
+  （編成パネルは折り畳めるので、進行が変わっていることに気付ける場所は観戦ビュー側にも要る）。
   参加者ごとの「プロジェクト資料を渡す」は役割プロンプトの下にチェックボックス 1 つで置き、他の項目と同じ保存ボタンでまとめて保存する
   （どちらもその話者に何を与えるかの設定で、接続先・モデルはどこで実行するかの設定なので、前者の側に置く）。
   既定が ON であることと、OFF ではドキュメント・メモリの検索ごと行わないことは、接続先・モデルと同じ `(?)` のツールチップに載せる。
@@ -334,6 +395,8 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
   アイコンボタンと、真のときだけ出るバッジを置く。ドキュメント詳細モーダルにはチェックボックスと 1 行の説明も置く。
   下書き + 保存ボタンにしないのは、切り替える値が真偽値 1 つで、カテゴリのように候補から選ぶものではないため。
 - **観戦ビュー**: ChatPage のストリーミング表示を踏襲し、発言者の表示名・モデル名を発言に付す。進行コントロールは「1 ターン進める」「自動進行の開始 / 停止」（= フロントのループ、§4.1）「（manual 時）次の発言者の指名」。
+  生成中の話者名は `frontend/src/api/turnOrder.ts` がエンジンと同じ規則で先に導出する（`facilitator_alternating` を含む）。
+  導出に使うのは、クライアントが既に持っている編成・transcript・chat の進行役だけである。
 - **markdown エクスポート**: 観戦ビューのヘッダから `GET /api/chats/{chatId}/export/markdown` を呼び、見出し（chat タイトル・
   プロジェクト名・出力日時）、場面設定、ターン進行ルール、編成、話者名つきの発言を 1 枚の markdown として保存する。
   生成は `internal/service/export.go`。ルートは chat 単位で単独アシスタントの chat にも効き、その場合は場面設定・
@@ -349,7 +412,8 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
   ローカルの JSON ファイルを選ぶと、その内容を `preset` としてインラインで送って適用できる（読み込んだファイルは一覧には残らない）。
   保存形式は同梱分が `internal/preset/bundled/*.json`（`go:embed`）、追加分が `presets/multi-agent/*.json`（形式の説明は同ディレクトリの README）。決めた理由は §8「実装で解消した判断」。
   プリセットの `participants[]` は任意で `receivesProjectMaterial` を持てる（省略時は `true`）。GM だけがシナリオを読む編成は
-  プリセットの側で表現できるべきで、適用のたびに編成パネルで設定し直すものではない。
+  プリセットの側で表現できるべきで、適用のたびに編成パネルで設定し直すものではない。同じ理由で `facilitator`（真偽値、省略時は偽）も持てる。
+  同梱の `trpg-table`（GM + プレイヤー 2 名）が両方を使い、`facilitator_alternating` で GM だけがプロジェクト資料を読む卓になる。
 
 ## 7. 段階分け
 
@@ -358,10 +422,11 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
 | A | migration 10 + repository + ターンエンジン + API（§3〜§5） | curl だけで多人数会話を作成し、ターンを進めて SSE で発言が流れる |
 | B | 編成パネル + 観戦ビュー（§6） | UI から編成〜自動進行まで操作できる |
 | C | プリセット同梱（+ JSON ファイルからの適用）+ 役割リマインドのチューニング + 履歴窓の拡大 | プリセット選択で即開始できる。長い会話で役割が崩れない |
-| 将来 | TRPG 対応（chat 単位の JSON 状態の保持と注入・コードによるダイス・構造化出力での判定宣言）、進行役モデルによる発言者指名（`turn_rule` の追加値）、retrieval 統合、生成中断のための呼び出し元 `context` の伝播（§4.1） | — |
+| 将来 | TRPG 対応（chat 単位の JSON 状態の保持と注入・コードによるダイス・構造化出力での判定宣言）、進行役による指名（進行役がモデル出力で次の話者を選ぶ `turn_rule` の追加値。決定的に交互に挟む `facilitator_alternating`（§4.5）は実装済み）、retrieval 統合、生成中断のための呼び出し元 `context` の伝播（§4.1） | — |
 
-Phase A〜C は完了している（A: migration 10 + ターンエンジン + API、B: 編成パネル + 観戦ビュー、C: 同梱プリセット 7 件
-+ `presets/multi-agent/` の 17 件 + 役割リマインドと履歴窓のチューニング）。「将来」に挙げた項目は未着手で、
+Phase A〜C は完了している（A: migration 10 + ターンエンジン + API、B: 編成パネル + 観戦ビュー、C: 同梱プリセット 8 件
++ `presets/multi-agent/` の 17 件 + 役割リマインドと履歴窓のチューニング）。「将来」の行のうち、
+決定的に進行役を挟む `facilitator_alternating`（§4.5）だけが TASK-21 で入っている。残りは未着手で、
 着手時に判断する論点は §8.2 にある。
 
 ## 8. 実装で解消した判断と、将来拡張で判断する事項
@@ -408,6 +473,12 @@ Phase A〜C は完了している（A: migration 10 + ターンエンジン + AP
   並列の箇条書きに足すと、project 配下に別系統のデータがあるように読める。
   同じ区分（chat の種別として書く）を [AGENTS.ja.md](../AGENTS.ja.md)・[README](../README.md)（[ja](../README.ja.md)）・
   [current-spec](./current-spec.md)（[ja](./current-spec.ja.md)）にも通した。
+
+- **進行役を挟むターン規則の、進行役不在時と人間の介入発言後の扱い → `round_robin` への縮退と、進行役が応じる**
+  （2026-09-22、TASK-21、ユーザー判断）: 起票時に着手時判断として残っていた 2 点。決めた内容と理由は §4.5 にある。
+  実装は `selectSpeaker`（[turnengine.go](../internal/service/turnengine.go)）と
+  [turnOrder.ts](../frontend/src/api/turnOrder.ts) の両方に同じ導出として置き、
+  画面は進行役が編成に居ないことを編成パネルと観戦ビューの双方に出す（§6）。
 
 ### 8.2 将来拡張で判断する事項
 
