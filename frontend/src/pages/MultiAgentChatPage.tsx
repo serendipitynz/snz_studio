@@ -107,6 +107,11 @@ export function MultiAgentChatPage() {
   // Escape) puts keyboard focus back where the user was in the transcript
   // instead of dropping it at the top of the document.
   const memoryOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const memoryDialogRef = useRef<HTMLDivElement | null>(null);
+  // Open/closed is tracked apart from the draft: the draft changes on every
+  // keystroke, and an effect keyed on it would run its close-time cleanup —
+  // focusing the opener — in the middle of typing.
+  const memoryDialogOpen = memoryDraft !== null;
   const [isRosterCollapsed, setIsRosterCollapsed] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -158,15 +163,40 @@ export function MultiAgentChatPage() {
   }, []);
 
   // Escape closes the save dialog, as it does the confirm dialog: the overlay
-  // is otherwise the one thing on screen the keyboard cannot dismiss.
+  // is otherwise the one thing on screen the keyboard cannot dismiss. Tab is
+  // kept inside the dialog, because the overlay hides the transcript's controls
+  // without taking them out of the tab order. Closing hands focus back to the
+  // button that opened the dialog.
   useEffect(() => {
-    if (!memoryDraft) {
+    if (!memoryDialogOpen) {
       return;
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setMemoryDraft(null);
+        return;
+      }
+      if (event.key !== "Tab" || !memoryDialogRef.current) {
+        return;
+      }
+
+      const focusable = Array.from(
+        memoryDialogRef.current.querySelectorAll<HTMLElement>("select, textarea, input, button:not([disabled])")
+      );
+      if (focusable.length === 0) {
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const outside = !memoryDialogRef.current.contains(active);
+      if (event.shiftKey && (active === first || outside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || outside)) {
+        event.preventDefault();
+        first.focus();
       }
     }
 
@@ -175,7 +205,7 @@ export function MultiAgentChatPage() {
       document.removeEventListener("keydown", handleKeyDown);
       memoryOpenerRef.current?.focus();
     };
-  }, [memoryDraft]);
+  }, [memoryDialogOpen]);
 
   useEffect(() => {
     if (!memorySavedTitle) {
@@ -618,7 +648,14 @@ export function MultiAgentChatPage() {
 
       {memoryDraft ? (
         <ModalOverlay>
-          <ModalCard as="form" role="dialog" aria-modal="true" onSubmit={handleSaveMemory} style={{ width: "min(640px, 100%)" }}>
+          <ModalCard
+            as="form"
+            ref={memoryDialogRef}
+            role="dialog"
+            aria-modal="true"
+            onSubmit={handleSaveMemory}
+            style={{ width: "min(640px, 100%)" }}
+          >
             <Stack>
               <SectionTitle>{t("multiAgent.saveMemoryTitle")}</SectionTitle>
               <Subtle>{t("multiAgent.saveMemoryFrom", { name: speakerLabel(memoryDraft.message) })}</Subtle>
