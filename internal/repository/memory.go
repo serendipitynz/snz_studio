@@ -156,7 +156,8 @@ func (r *MemoryRepository) CreateMemory(input CreateMemoryInput) (model.Memory, 
 }
 
 // UpdateMemoryInput carries the fields for UpdateMemory. Locked is optional: nil
-// keeps the current value (COALESCE).
+// keeps the current value (COALESCE). There is no SharedWithAll field because
+// UpdateMemory always clears it — see below.
 type UpdateMemoryInput struct {
 	MemoryID string
 	Kind     string
@@ -167,6 +168,13 @@ type UpdateMemoryInput struct {
 
 // UpdateMemory updates a memory and replaces its FTS row, returning (nil, nil) if
 // the memory does not exist. Mirrors updateMemory.
+//
+// It also takes the memory out of the common project material. Its only caller is
+// the organizer, which rewrites a memory's content by folding other memories into
+// it — including ones nobody shared. Keeping the flag would let an unlocked
+// shared memory come back holding a withheld one's contents and still reach the
+// speakers it was hiding from (design §4.4). Clearing it loses a sharing decision
+// the human can restore with one click, where the leak cannot be taken back.
 func (r *MemoryRepository) UpdateMemory(input UpdateMemoryInput) (*model.Memory, error) {
 	var projectID string
 	err := r.db.QueryRow("SELECT project_id FROM memories WHERE id = ?", input.MemoryID).Scan(&projectID)
@@ -191,7 +199,7 @@ func (r *MemoryRepository) UpdateMemory(input UpdateMemoryInput) (*model.Memory,
 	defer tx.Rollback()
 	if _, err := tx.Exec(`
 		UPDATE memories
-		SET kind = ?, title = ?, content = ?, locked = COALESCE(?, locked), updated_at = ?
+		SET kind = ?, title = ?, content = ?, locked = COALESCE(?, locked), shared_with_all = 0, updated_at = ?
 		WHERE id = ?`,
 		input.Kind, title, content, lockedArg, util.NowISO(), input.MemoryID); err != nil {
 		return nil, err

@@ -406,6 +406,45 @@ func TestAssembleTurnMaterialNarrowsToCommonMaterial(t *testing.T) {
 	}
 }
 
+// TestAssembleTurnMaterialDropsRewrittenMemory is the turn-level half of the
+// organizer hole: a shared memory the organizer rewrites — folding in memories
+// nobody shared — must stop reaching a speaker that receives only the common
+// project material, until the human shares it again.
+func TestAssembleTurnMaterialDropsRewrittenMemory(t *testing.T) {
+	g := newTurnGraph(t)
+	fx := newMaterialFixture(t, g)
+	_, signal := newCommonMaterial(t, g, fx.project.ID)
+
+	chat := &model.Chat{ID: "chat_1", ProjectID: fx.project.ID, ScenePrompt: "場面: 港町の酒場。"}
+	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
+	speaker := &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}
+
+	before, err := g.material.AssembleTurnMaterial(chat, speaker, messages)
+	if err != nil {
+		t.Fatalf("AssembleTurnMaterial before: %v", err)
+	}
+	if !strings.Contains(before.Prompt, "霧笛の合図") {
+		t.Fatalf("the shared memory should reach the speaker to begin with:\n%s", before.Prompt)
+	}
+
+	if _, err := g.memories.UpdateMemory(repository.UpdateMemoryInput{
+		MemoryID: signal.ID,
+		Kind:     signal.Kind,
+		Title:    signal.Title,
+		Content:  "オルガの霧笛は港の全員が意味を知る合図である。三度目は密輸船への合図でもある。",
+	}); err != nil {
+		t.Fatalf("UpdateMemory: %v", err)
+	}
+
+	after, err := g.material.AssembleTurnMaterial(chat, speaker, messages)
+	if err != nil {
+		t.Fatalf("AssembleTurnMaterial after: %v", err)
+	}
+	if strings.Contains(after.Prompt, "霧笛の合図") || strings.Contains(after.Prompt, "密輸船") {
+		t.Fatalf("a rewritten memory must leave the common project material:\n%s", after.Prompt)
+	}
+}
+
 // TestAssembleTurnMaterialEmptyWhenNothingShared is TASK-31 AC #1's other half:
 // the column ships defaulted to false, so until the human shares something, a
 // speaker that receives no project material gets exactly what TASK-20 gave it.
