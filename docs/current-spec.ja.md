@@ -165,6 +165,11 @@ temporary chat では:
 - summary は保存する
 - 他 chat から明示参照できる
 
+多人数会話（§4.6）では自動抽出も `覚えて` トリガーも元々動きません。多人数会話の一時チャットは、
+プロジェクトのドキュメント・メモリを背景資料として読みますが、発言のメモリ保存（§6.5）を受け付けません
+（画面では保存ボタンが無効になり理由が表示され、API は 409 を返します）。作成フォームの「一時チャット」は
+どちらの種別でも指定できます。
+
 ### 4.5 Memories
 
 memory は raw message ではなく、durable な前提の保管場所です。
@@ -177,7 +182,7 @@ kind:
 
 metadata:
 
-- `source`: `manual` / `chat` / `organized`
+- `source`: `manual` / `chat` / `organized` / `multi_agent`（多人数会話の発言から人間が保存したもの、§6.5）
 - `locked`: organizer からの update/remove を防ぐ
 
 意味:
@@ -364,6 +369,19 @@ memory organizer は手動実行です。
 - `locked = true` は organizer が触らない
 - ただしユーザーは手動で lock/unlock/delete できる
 
+### 6.5 多人数会話からの発言のメモリ保存
+
+多人数会話では自動抽出（§6.2）と remember trigger（§6.3）を動かしません（参加者のセリフも人間の介入発言も
+ロールプレイになり得るため。理由の詳細は `docs/multi-agent-chat-design.md` §4.4）。代わりに、
+transcript の任意の発言（参加者・人間どちらでも）から人間が明示的に保存します。
+
+- 発言の「メモリに保存」からダイアログを開く
+- 初期値は発言本文と、本文から推定した kind（単独 chat の自動抽出と同じ規則）
+- content と kind を編集し、lock の有無を選んで保存する
+- title は自動生成、既定で `locked = true`
+- `source = multi_agent`、`source_chat_id` は会話の id。埋め込み同期と organizer の対象になる
+- 一時チャットでは保存できない（§4.4）
+
 ## 7. Streaming
 
 assistant 生成は streaming 対応です。
@@ -520,6 +538,7 @@ assistant footer:
 - 進行中ターンの stream 表示
 - 「1 ターン進める」/「自動進行の開始・停止」/（`manual` のとき）次の発言者の指名
 - 人間として会話に発言する composer
+- 発言ごとの「メモリに保存」（§6.5）。一時チャットでは無効になり、理由を composer の注記に出す
 
 右:
 

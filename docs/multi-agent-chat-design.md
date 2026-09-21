@@ -192,6 +192,28 @@ OpenAI 互換 API には「多者会話」のロールが無いため、発言�
   埋め込みエンドポイントの失敗はここに含めない: `EmbeddingClient` は自身を無効化してキーワード検索で続行する
   （単独 chat と同じ縮退）ので、背景資料も参照も通常どおり付く。
 
+読む方向（ドキュメント・メモリ → 会話）に対し、書く方向（会話 → プロジェクトのメモリ → 後続のチャット・多人数会話）は
+**発言のメモリ保存**だけにする（2026-09-21、TASK-19）。「発言のメモリ保存」とは、多人数会話の発言 1 件（参加者・人間どちらでも）を
+人間が選び、内容と kind を編集してプロジェクトのメモリとして保存する操作を指す
+（[multiagent_memory.go](../internal/httpapi/multiagent_memory.go)）。
+
+- **自動抽出を行わない**。単独 assistant の規則抽出（`MaybeStoreFromUserMessage`）と「覚えて」抽出
+  （`MaybeStoreFromExplicitRequest`）は多人数会話に持ち込まない。**Why**: (1) 人間の介入発言もロールプレイになり得る。
+  「I am the rightful king」は semantic の cue `i am` を通り、演出指示の「常に」は procedural として保存される。抽出器に
+  虚構と事実の区別は無い。(2) 「覚えて」抽出は直近メッセージを role でしか区別せず、フォールバックで最新の assistant
+  メッセージ（= 参加者のセリフ）を優先して保存する。人間の発言からだけ呼んでも参加者のセリフがメモリになる。
+  ターンエンジンと `storeHumanMessage` はどちらも `MemoryService` を呼ばない。
+- **保存の下書き**とは、保存ダイアログが開くときの初期値（発言本文そのまま + `inferKindFromText` で推定した kind）を指す。
+  kind の推定はサーバで行い（`GET /api/messages/{messageId}/memory-draft`）、cue 表をフロントに複製しない。
+- 保存（`POST /api/messages/{messageId}/memory`）は手動追加・自動抽出と同じ `MemoryRepository.CreateMemory` +
+  埋め込み同期を通るので、検索・organizer の対象になる。`source` は `multi_agent`（chat kind と同じ綴り）、
+  `source_chat_id` は会話の id。`locked` の既定は手動追加と同じ `true`（文言を人間が決めたので organizer に書き換えさせない）。
+- **一時チャット**（`is_temporary`）の多人数会話は資料・メモリを読むが、発言のメモリ保存を受け付けない（下書き・保存とも 409）。
+  画面では保存ボタンを無効にし、理由を composer の注記に出す。一時チャットの意味を「読むが書かない」に揃えるため、
+  作成フォームのチェックボックスは多人数会話でも有効（TASK-17 の無効化を戻した）。
+- ファシリテーター参加者による自律的なメモリ書き込みと、参加者が「これは記録に値する」と提案する仕組みは入れない
+  （帰属と方針の問題に対して初期価値が小さい）。複数の発言にまたがる結論を要約して保存の下書きにする経路は別タスク。
+
 ## 5. HTTP API
 
 | ルート | 内容 |
@@ -205,6 +227,8 @@ OpenAI 互換 API には「多者会話」のロールが無いため、発言�
 | `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序） |
 | `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
 | `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。当該 chat のターンが実行中なら 409 |
+| `GET /api/messages/{messageId}/memory-draft` | 発言のメモリ保存の下書き `{ draft: { content, kind } }`（§4.4）。発言が無ければ 404、単独 assistant の chat は 400、一時チャットは 409 |
+| `POST /api/messages/{messageId}/memory` | 発言のメモリ保存。body: `{ content, kind?, locked? }`（`kind` 省略時は推定、`locked` 既定 `true`）。拒否は下書きと同じ。応答は `{ memory }`（`source = multi_agent`） |
 
 参加者の更新・削除を chat 配下に入れ子にせずフラットな ID にしているのは既存ルートの形に合わせたもので、
 同一 chat 検証の要否もそこから決まる（§3 末尾）。
