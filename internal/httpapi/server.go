@@ -237,6 +237,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/chats/{chatId}/turns/stream", s.handleRunTurnStream)
 	mux.HandleFunc("GET /api/multi-agent-presets", s.handleListMultiAgentPresets)
 	mux.HandleFunc("POST /api/chats/{chatId}/preset", s.handleApplyMultiAgentPreset)
+	mux.HandleFunc("GET /api/messages/{messageId}/memory-draft", s.handleGetMessageMemoryDraft)
+	mux.HandleFunc("POST /api/messages/{messageId}/memory", s.handleSaveMessageMemory)
 
 	// Messages / review
 	mux.HandleFunc("POST /api/messages/{messageId}/review", s.handleReviewMessage)
