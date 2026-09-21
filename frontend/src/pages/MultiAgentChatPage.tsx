@@ -515,18 +515,27 @@ export function MultiAgentChatPage() {
                       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{message.content}</div>
                     )}
                     <MessageReferences references={message.references} />
-                    <Row style={{ justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                      <Button
+                    <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
+                      {/* Same bare 24px icon button as the single-assistant page's review and
+                          copy actions, so the per-message actions read alike across chat kinds. */}
+                      <IconButton
                         type="button"
-                        variant="ghost"
-                        style={{ padding: "6px 10px", fontSize: "0.85rem" }}
+                        aria-label={t("multiAgent.saveMemory")}
                         title={memorySaveBlocked ? t("multiAgent.temporaryNoSave") : t("multiAgent.saveMemoryTitle")}
                         disabled={memorySaveBlocked || memoryPreparing || memorySaving}
                         onClick={(event) => void handleOpenMemoryDialog(message, event.currentTarget)}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          opacity: memorySaveBlocked ? 0.4 : 0.82
+                        }}
                       >
-                        {t("multiAgent.saveMemory")}
-                      </Button>
-                      <MetaText style={{ textAlign: "right", opacity: 0.68 }}>
+                        <MemoryStickIcon />
+                      </IconButton>
+                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.68 }}>
                         {new Date(message.createdAt).toLocaleTimeString()}
                       </MetaText>
                     </Row>
@@ -727,6 +736,36 @@ function PanelOpenIcon() {
       <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
       <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
       <path d="M7.75 8 10.25 5.75v4.5L7.75 8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+// Lucide "memory-stick" (ISC, see THIRD_PARTY_NOTICES.md), sized to the 16px
+// grid the other per-message icons use.
+function MemoryStickIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 12v-2" />
+      <path d="M12 18v-2" />
+      <path d="M16 12v-2" />
+      <path d="M16 18v-2" />
+      <path d="M2 11h1.5" />
+      <path d="M20 18v-2" />
+      <path d="M20.5 11H22" />
+      <path d="M4 18v-2" />
+      <path d="M8 12v-2" />
+      <path d="M8 18v-2" />
+      <rect x="2" y="6" width="20" height="10" rx="2" />
     </svg>
   );
 }
