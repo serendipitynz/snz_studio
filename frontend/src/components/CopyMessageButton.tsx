@@ -56,8 +56,25 @@ export function CopyMessageButton({ content, onError }: CopyMessageButtonProps) 
         opacity: copied ? 1 : 0.82
       }}
     >
-      <CopyIcon />
+      {/* The icon carries the feedback, not the title swap: a native tooltip is
+          dismissed by the click and does not come back within the 1400ms, so
+          the title alone was never visible in the WebView. */}
+      {copied ? <CopiedIcon /> : <CopyIcon />}
     </IconButton>
+  );
+}
+
+function CopiedIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="m3.25 8.5 3.25 3.25 6.25-7"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
