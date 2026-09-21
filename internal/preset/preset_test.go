@@ -93,3 +93,39 @@ func TestParse(t *testing.T) {
 		}
 	}
 }
+
+// TestParseReceivesBackground covers TASK-20 AC #3: the field is preset data,
+// and a preset written before it existed keeps handing its whole roster the
+// project's material.
+func TestParseReceivesBackground(t *testing.T) {
+	p, err := Parse([]byte(`{
+		"title": "ダンジョン探索",
+		"participants": [
+			{ "displayName": "GM" },
+			{ "displayName": "戦士", "receivesBackground": false },
+			{ "displayName": "盗賊", "receivesBackground": true }
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := []bool{true, false, true}
+	for i, participant := range p.Participants {
+		if participant.ReceivesBackground == nil {
+			t.Fatalf("participants[%d].receivesBackground left nil; Validate must fill the default", i)
+		}
+		if *participant.ReceivesBackground != want[i] {
+			t.Errorf("participants[%d] (%s).receivesBackground = %v, want %v", i, participant.DisplayName, *participant.ReceivesBackground, want[i])
+		}
+	}
+
+	// Every bundled preset predates the field, so none of them may end up
+	// cutting a speaker off from the project's material by accident.
+	for _, bundledPreset := range Bundled() {
+		for _, participant := range bundledPreset.Participants {
+			if participant.ReceivesBackground == nil || !*participant.ReceivesBackground {
+				t.Errorf("bundled %s: participant %q does not receive the background", bundledPreset.ID, participant.DisplayName)
+			}
+		}
+	}
+}

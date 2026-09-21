@@ -33,12 +33,18 @@ var Groups = []string{"discussion", "drama", "hosted", "pair"}
 // it to 400 with errors.Is, so the wrapped message must say what is wrong.
 var ErrInvalid = errors.New("preset: invalid preset")
 
-// Participant is one roster entry of a preset. Only the display name and the
-// role prompt are preset data: the endpoint and model are chosen at use time,
-// and an empty pair falls back to the workspace endpoint when a turn runs.
+// Participant is one roster entry of a preset. The endpoint and model are not
+// preset data: they are chosen at use time, and an empty pair falls back to the
+// workspace endpoint when a turn runs.
+//
+// ReceivesBackground is a pointer so an omitted field can mean the default
+// (true) rather than false — every preset written before the field existed must
+// keep handing its whole roster the project's material. Validate fills it in, so
+// a parsed preset never carries nil.
 type Participant struct {
-	DisplayName string `json:"displayName"`
-	RolePrompt  string `json:"rolePrompt"`
+	DisplayName        string `json:"displayName"`
+	RolePrompt         string `json:"rolePrompt"`
+	ReceivesBackground *bool  `json:"receivesBackground"`
 }
 
 // MultiAgentPreset is the shape of one preset JSON. ID and Group only mean
@@ -89,7 +95,9 @@ func Parse(raw []byte) (*MultiAgentPreset, error) {
 // Validate trims the fields and checks what applying the preset needs: a title
 // (it becomes the chat title when none is given), a known turn rule (an empty
 // one reads as round_robin, the chat default) and a roster of at least two named
-// participants, which is what makes a chat multi-agent (§2).
+// participants, which is what makes a chat multi-agent (§2). It also fills the
+// omitted defaults, so what applies a preset reads the values rather than
+// repeating the rules: the turn rule and each participant's receivesBackground.
 func (p *MultiAgentPreset) Validate() error {
 	p.ID = strings.TrimSpace(p.ID)
 	p.Title = strings.TrimSpace(p.Title)
@@ -115,6 +123,10 @@ func (p *MultiAgentPreset) Validate() error {
 		p.Participants[i].RolePrompt = strings.TrimSpace(p.Participants[i].RolePrompt)
 		if p.Participants[i].DisplayName == "" {
 			return fmt.Errorf("%w: participants[%d].displayName is required", ErrInvalid, i)
+		}
+		if p.Participants[i].ReceivesBackground == nil {
+			receives := true
+			p.Participants[i].ReceivesBackground = &receives
 		}
 	}
 	return nil

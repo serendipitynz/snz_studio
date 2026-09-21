@@ -450,3 +450,15 @@ func bodyBool(m map[string]any, key string) (bool, bool) {
 	v, ok := m[key].(bool)
 	return v, ok
 }
+
+// bodyBoolPtr is bodyBool as the optional field of a PATCH: a pointer when the
+// field is present and a JSON boolean, nil otherwise. A value of another type is
+// read as absent rather than refused, which is bodyString's reading of a
+// mistyped field as well.
+func bodyBoolPtr(m map[string]any, key string) *bool {
+	v, ok := bodyBool(m, key)
+	if !ok {
+		return nil
+	}
+	return &v
+}
