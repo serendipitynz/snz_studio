@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { api, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
 import { predictNextSpeaker } from "../api/turnOrder";
+import { CopyMessageButton } from "../components/CopyMessageButton";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { MessageReferences } from "../components/MessageReferences";
@@ -516,6 +517,7 @@ export function MultiAgentChatPage() {
                     )}
                     <MessageReferences references={message.references} />
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
+                      <CopyMessageButton content={message.content} onError={setError} />
                       {/* Same bare 24px icon button as the single-assistant page's review and
                           copy actions, so the per-message actions read alike across chat kinds. */}
                       <IconButton
