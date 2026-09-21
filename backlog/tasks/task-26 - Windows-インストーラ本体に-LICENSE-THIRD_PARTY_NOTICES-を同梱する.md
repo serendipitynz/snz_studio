@@ -1,10 +1,10 @@
 ---
 id: TASK-26
 title: Windows インストーラ本体に LICENSE / THIRD_PARTY_NOTICES を同梱する
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-20 11:47'
-updated_date: '2026-09-20 23:49'
+updated_date: '2026-09-21 00:40'
 labels: []
 milestone: m-1
 dependencies: []
