@@ -103,6 +103,10 @@ export function MultiAgentChatPage() {
   const [memorySaving, setMemorySaving] = useState(false);
   const [memoryError, setMemoryError] = useState("");
   const [memorySavedTitle, setMemorySavedTitle] = useState("");
+  // The button that opened the save dialog, so closing it (save, cancel or
+  // Escape) puts keyboard focus back where the user was in the transcript
+  // instead of dropping it at the top of the document.
+  const memoryOpenerRef = useRef<HTMLButtonElement | null>(null);
   const [isRosterCollapsed, setIsRosterCollapsed] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -167,7 +171,10 @@ export function MultiAgentChatPage() {
     }
 
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      memoryOpenerRef.current?.focus();
+    };
   }, [memoryDraft]);
 
   useEffect(() => {
@@ -339,7 +346,8 @@ export function MultiAgentChatPage() {
   // The dialog opens on the server's draft rather than on the message alone
   // because the default kind comes from the extraction rules, which live only
   // on the server (design §4.4).
-  async function handleOpenMemoryDialog(message: MessageRecord) {
+  async function handleOpenMemoryDialog(message: MessageRecord, opener: HTMLButtonElement) {
+    memoryOpenerRef.current = opener;
     setMemoryPreparing(true);
     setMemoryError("");
     try {
@@ -484,7 +492,7 @@ export function MultiAgentChatPage() {
                         style={{ padding: "6px 10px", fontSize: "0.85rem" }}
                         title={memorySaveBlocked ? t("multiAgent.temporaryNoSave") : t("multiAgent.saveMemoryTitle")}
                         disabled={memorySaveBlocked || memoryPreparing || memorySaving}
-                        onClick={() => void handleOpenMemoryDialog(message)}
+                        onClick={(event) => void handleOpenMemoryDialog(message, event.currentTarget)}
                       >
                         {t("multiAgent.saveMemory")}
                       </Button>
@@ -630,6 +638,7 @@ export function MultiAgentChatPage() {
               <Field>
                 {t("project.content")}
                 <Textarea
+                  autoFocus
                   value={memoryDraft.content}
                   onChange={(event) =>
                     setMemoryDraft((current) => (current ? { ...current, content: event.target.value } : current))
