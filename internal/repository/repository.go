@@ -57,6 +57,17 @@ func trimmedPtrArg(p *string) any {
 	return strings.TrimSpace(*p)
 }
 
+// boolPtrArg binds an optional boolean the way the create paths store one: as
+// the 0/1 integer the columns hold, since SQLite has no boolean type and every
+// other write in this package goes through boolToInt. A nil pointer is SQL NULL,
+// which is what leaves a COALESCE'd column unchanged.
+func boolPtrArg(p *bool) any {
+	if p == nil {
+		return nil
+	}
+	return boolToInt(*p)
+}
+
 func strPtr(n sql.NullString) *string {
 	if n.Valid {
 		v := n.String

@@ -308,6 +308,12 @@ var migrations = []migration{
 			ALTER TABLE messages ADD COLUMN participant_id TEXT;
 		`,
 	},
+	{
+		id: "011_participant_receives_background",
+		sql: `
+			ALTER TABLE participants ADD COLUMN receives_background INTEGER NOT NULL DEFAULT 1;
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in
