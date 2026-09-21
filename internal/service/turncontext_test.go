@@ -328,32 +328,151 @@ func TestTurnEngineEmbeddingFailureDegrades(t *testing.T) {
 	}
 }
 
-// TestAssembleTurnMaterialSkipsSpeaker covers the "no search is run" half of
-// TASK-20 AC #2. The ContextService is built with no repositories and no
-// retrieval at all, so anything the assembler reads or searches would panic on a
-// nil dependency: returning an empty result proves the speaker's flag is
-// answered before any of them is touched.
-func TestAssembleTurnMaterialSkipsSpeaker(t *testing.T) {
-	chat := &model.Chat{ID: "chat_1", ProjectID: "proj_1", ScenePrompt: "場面: 港町の酒場。"}
+// shareWithAll marks a document and a memory as common project material, the
+// subset a speaker reaches whether or not it receives the project material.
+func shareWithAll(t *testing.T, g *turnGraph, documentID, memoryID string) {
+	t.Helper()
+	if _, err := g.documents.UpdateDocumentSharedWithAll(documentID, true); err != nil {
+		t.Fatalf("UpdateDocumentSharedWithAll: %v", err)
+	}
+	if _, err := g.memories.SetMemorySharedWithAll(memoryID, true); err != nil {
+		t.Fatalf("SetMemorySharedWithAll: %v", err)
+	}
+}
+
+// newCommonMaterial adds a document and a memory that match the same
+// conversation the fixture's own rows match, and puts them in the common project
+// material. Matching the same query is the point: it is what makes a speaker
+// that receives only the common material distinguishable from one whose search
+// simply found nothing.
+func newCommonMaterial(t *testing.T, g *turnGraph, projectID string) (model.DocumentRecord, model.Memory) {
+	t.Helper()
+	document, err := g.documents.CreateDocument(repository.CreateDocumentInput{
+		ProjectID:   projectID,
+		Type:        "text",
+		Title:       "港の掟",
+		ContentText: "オルガの霧笛が三度鳴ったら、港の者は残らず船を舫う。",
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument harbour rules: %v", err)
+	}
+	memory, err := g.memories.CreateMemory(repository.CreateMemoryInput{
+		ProjectID: projectID,
+		Kind:      "semantic",
+		Title:     "霧笛の合図",
+		Content:   "オルガの霧笛は港の全員が意味を知る合図である。",
+		Source:    "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemory signal: %v", err)
+	}
+	shareWithAll(t, g, document.ID, memory.ID)
+	return document, memory
+}
+
+// TestAssembleTurnMaterialNarrowsToCommonMaterial covers TASK-31 AC #2 and AC #8
+// at the assembler: a speaker that does not receive the project material still
+// searches, but only over the rows marked "share with everyone". The project
+// description stays out with the rest — nothing marks part of a description as
+// common, and it can name the very thing the roster is hiding.
+func TestAssembleTurnMaterialNarrowsToCommonMaterial(t *testing.T) {
+	g := newTurnGraph(t)
+	fx := newMaterialFixture(t, g)
+	rules, signal := newCommonMaterial(t, g, fx.project.ID)
+
+	chat := &model.Chat{ID: "chat_1", ProjectID: fx.project.ID, ScenePrompt: "場面: 港町の酒場。"}
 	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
 
-	material, err := (&ContextService{}).AssembleTurnMaterial(chat, &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}, messages)
+	material, err := g.material.AssembleTurnMaterial(chat, &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}, messages)
+	if err != nil {
+		t.Fatalf("AssembleTurnMaterial: %v", err)
+	}
+	for _, want := range []string{"港の掟", "霧笛の合図"} {
+		if !strings.Contains(material.Prompt, want) {
+			t.Fatalf("the common project material is missing %q:\n%s", want, material.Prompt)
+		}
+	}
+	for _, unwanted := range []string{"灯台守の記録", "オルガの過去", "霧の港町ハーバーン"} {
+		if strings.Contains(material.Prompt, unwanted) {
+			t.Fatalf("%q is not common material but reached the speaker:\n%s", unwanted, material.Prompt)
+		}
+	}
+	got := map[string]bool{}
+	for _, ref := range material.References {
+		got[ref.SourceID] = true
+	}
+	if len(got) != 2 || !got[rules.ID] || !got[signal.ID] {
+		t.Fatalf("stored references = %+v, want exactly the two common rows", material.References)
+	}
+}
+
+// TestAssembleTurnMaterialDropsRewrittenMemory is the turn-level half of the
+// organizer hole: a shared memory the organizer rewrites — folding in memories
+// nobody shared — must stop reaching a speaker that receives only the common
+// project material, until the human shares it again.
+func TestAssembleTurnMaterialDropsRewrittenMemory(t *testing.T) {
+	g := newTurnGraph(t)
+	fx := newMaterialFixture(t, g)
+	_, signal := newCommonMaterial(t, g, fx.project.ID)
+
+	chat := &model.Chat{ID: "chat_1", ProjectID: fx.project.ID, ScenePrompt: "場面: 港町の酒場。"}
+	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
+	speaker := &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}
+
+	before, err := g.material.AssembleTurnMaterial(chat, speaker, messages)
+	if err != nil {
+		t.Fatalf("AssembleTurnMaterial before: %v", err)
+	}
+	if !strings.Contains(before.Prompt, "霧笛の合図") {
+		t.Fatalf("the shared memory should reach the speaker to begin with:\n%s", before.Prompt)
+	}
+
+	if _, err := g.memories.UpdateMemory(repository.UpdateMemoryInput{
+		MemoryID: signal.ID,
+		Kind:     signal.Kind,
+		Title:    signal.Title,
+		Content:  "オルガの霧笛は港の全員が意味を知る合図である。三度目は密輸船への合図でもある。",
+	}); err != nil {
+		t.Fatalf("UpdateMemory: %v", err)
+	}
+
+	after, err := g.material.AssembleTurnMaterial(chat, speaker, messages)
+	if err != nil {
+		t.Fatalf("AssembleTurnMaterial after: %v", err)
+	}
+	if strings.Contains(after.Prompt, "霧笛の合図") || strings.Contains(after.Prompt, "密輸船") {
+		t.Fatalf("a rewritten memory must leave the common project material:\n%s", after.Prompt)
+	}
+}
+
+// TestAssembleTurnMaterialEmptyWhenNothingShared is TASK-31 AC #1's other half:
+// the column ships defaulted to false, so until the human shares something, a
+// speaker that receives no project material gets exactly what TASK-20 gave it.
+func TestAssembleTurnMaterialEmptyWhenNothingShared(t *testing.T) {
+	g := newTurnGraph(t)
+	fx := newMaterialFixture(t, g)
+
+	chat := &model.Chat{ID: "chat_1", ProjectID: fx.project.ID, ScenePrompt: "場面: 港町の酒場。"}
+	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
+
+	material, err := g.material.AssembleTurnMaterial(chat, &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}, messages)
 	if err != nil {
 		t.Fatalf("AssembleTurnMaterial: %v", err)
 	}
 	if material.Prompt != "" || len(material.References) != 0 {
-		t.Fatalf("a speaker that receives no project material must get nothing, got %+v", material)
+		t.Fatalf("nothing is shared yet, so the speaker must get nothing, got %+v", material)
 	}
 }
 
-// TestTurnEngineSkipsMaterialForSpeaker covers TASK-20 AC #2 through the
-// engine: the same project and the same conversation that give Alice her
-// material leave Bob's turn without it, in the prompt and in the stored
-// references alike.
-func TestTurnEngineSkipsMaterialForSpeaker(t *testing.T) {
+// TestTurnEngineNarrowsMaterialToCommonForSpeaker covers TASK-31 AC #2 and AC #3
+// through the engine: the same project and the same conversation give Alice
+// every document that matches, and give Bob only the one shared with everyone —
+// in the prompt and in the stored references alike.
+func TestTurnEngineNarrowsMaterialToCommonForSpeaker(t *testing.T) {
 	srv := newTurnLLMServer(t, "返答", nil)
 	g := newTurnGraph(t)
 	fx := newMaterialFixture(t, g)
+	rules, _ := newCommonMaterial(t, g, fx.project.ID)
 	chat, roster := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleManual, "場面: 港町の酒場。", srv.URL, "Alice", "Bob")
 
 	receives := false
@@ -380,13 +499,21 @@ func TestTurnEngineSkipsMaterialForSpeaker(t *testing.T) {
 	if !strings.Contains(alice, "[ドキュメント] 灯台守の記録") {
 		t.Fatalf("the receiving speaker lost its material:\n%s", alice)
 	}
-	if strings.Contains(bob, "プロジェクト資料") || strings.Contains(bob, "灯台守の記録") || strings.Contains(bob, "霧の港町ハーバーン") {
-		t.Fatalf("a speaker that receives no project material got it anyway:\n%s", bob)
+	if !strings.Contains(bob, "[ドキュメント] 港の掟") {
+		t.Fatalf("the common project material did not reach the other speaker:\n%s", bob)
 	}
-	if !strings.HasPrefix(bob, "場面: 港町の酒場。") {
-		t.Fatalf("that speaker's prompt should open with the scene:\n%s", bob)
+	for _, unwanted := range []string{"灯台守の記録", "オルガの過去", "霧の港町ハーバーン"} {
+		if strings.Contains(bob, unwanted) {
+			t.Fatalf("%q is not common material but reached that speaker:\n%s", unwanted, bob)
+		}
 	}
-	if refs := storedReferences(t, g, chat.ID); len(refs) != 0 {
-		t.Fatalf("stored %d references for a speaker that receives no project material, want none", len(refs))
+	refs := storedReferences(t, g, chat.ID)
+	for _, ref := range refs {
+		if ref.SourceType == "document" && ref.SourceID != rules.ID {
+			t.Fatalf("stored a document reference outside the common material: %+v", ref)
+		}
+	}
+	if len(refs) == 0 {
+		t.Fatal("the common material was in the prompt, so it must be in the stored references too")
 	}
 }

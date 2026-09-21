@@ -424,6 +424,54 @@ export function ProjectDetailPage() {
     }
   }
 
+  // The common project material is the one thing about a document or a memory the
+  // human toggles from the list, so it saves on the click rather than through a
+  // draft and a save button (design §4.4).
+  async function handleUpdateDocumentSharedWithAll(documentId: string, sharedWithAll: boolean) {
+    setBusy(true);
+    setError("");
+
+    try {
+      const response = await api.updateDocumentSharedWithAll(documentId, sharedWithAll);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              documents: current.documents.map((document) =>
+                document.id === response.document.id ? response.document : document
+              )
+            }
+          : current
+      );
+      setSelectedDocument((current) => (current?.id === response.document.id ? response.document : current));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : t("project.updateSharedWithAllError"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUpdateMemorySharedWithAll(memoryId: string, sharedWithAll: boolean) {
+    setBusy(true);
+    setError("");
+
+    try {
+      const response = await api.updateMemorySharedWithAll(memoryId, sharedWithAll);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              memories: current.memories.map((memory) => (memory.id === response.memory.id ? response.memory : memory))
+            }
+          : current
+      );
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : t("project.updateSharedWithAllError"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleDeleteChat(chatId: string) {
     setBusy(true);
     setError("");
@@ -570,60 +618,78 @@ export function ProjectDetailPage() {
                               <strong style={{ overflowWrap: "anywhere" }}>{document.title}</strong>
                               <Badge tone={categoryTone(document.category)}>{t(`category.${document.category}`)}</Badge>
                               <Badge tone={document.type === "image" ? "warm" : "accent"}>{document.type}</Badge>
+                              {document.sharedWithAll ? <Badge tone="accent">{t("project.sharedWithAll")}</Badge> : null}
                             </Row>
                             <Subtle>{describeDocument(t, document)}</Subtle>
                           </div>
 
-                          <div style={{ position: "relative" }}>
+                          <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
                             <IconButton
                               type="button"
-                              aria-label={t("project.deleteDocument")}
+                              disabled={busy}
+                              aria-label={
+                                document.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")
+                              }
+                              title={document.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setPendingDeleteDocumentId((current) => (current === document.id ? null : document.id));
+                                void handleUpdateDocumentSharedWithAll(document.id, !document.sharedWithAll);
                               }}
                             >
-                              <TrashIcon />
+                              {document.sharedWithAll ? <SharedIcon /> : <NotSharedIcon />}
                             </IconButton>
 
-                            {pendingDeleteDocumentId === document.id ? (
-                              <div
-                                onClick={(event) => event.stopPropagation()}
-                                style={{
-                                  position: "absolute",
-                                  right: 0,
-                                  top: 40,
-                                  width: 210,
-                                  zIndex: 2,
-                                  padding: 12,
-                                  borderRadius: 14,
-                                  border: `1px solid ${theme.lineStrong}`,
-                                  background: theme.surfaceCard,
-                                  boxShadow: theme.shadowPopover
+                            <div style={{ position: "relative" }}>
+                              <IconButton
+                                type="button"
+                                aria-label={t("project.deleteDocument")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setPendingDeleteDocumentId((current) => (current === document.id ? null : document.id));
                                 }}
                               >
-                                <Stack>
-                                  <Subtle>{t("project.deleteDocumentConfirm")}</Subtle>
-                                  <Row>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      onClick={() => setPendingDeleteDocumentId(null)}
-                                    >
-                                      {t("common.cancel")}
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="warm"
-                                      onClick={() => void handleDeleteDocument(document.id)}
-                                    >
-                                      {t("common.ok")}
-                                    </Button>
-                                  </Row>
-                                </Stack>
-                              </div>
-                            ) : null}
-                          </div>
+                                <TrashIcon />
+                              </IconButton>
+
+                              {pendingDeleteDocumentId === document.id ? (
+                                <div
+                                  onClick={(event) => event.stopPropagation()}
+                                  style={{
+                                    position: "absolute",
+                                    right: 0,
+                                    top: 40,
+                                    width: 210,
+                                    zIndex: 2,
+                                    padding: 12,
+                                    borderRadius: 14,
+                                    border: `1px solid ${theme.lineStrong}`,
+                                    background: theme.surfaceCard,
+                                    boxShadow: theme.shadowPopover
+                                  }}
+                                >
+                                  <Stack>
+                                    <Subtle>{t("project.deleteDocumentConfirm")}</Subtle>
+                                    <Row>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        onClick={() => setPendingDeleteDocumentId(null)}
+                                      >
+                                        {t("common.cancel")}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="warm"
+                                        onClick={() => void handleDeleteDocument(document.id)}
+                                      >
+                                        {t("common.ok")}
+                                      </Button>
+                                    </Row>
+                                  </Stack>
+                                </div>
+                              ) : null}
+                            </div>
+                          </Row>
                         </Row>
                       </Item>
                     ))}
@@ -774,6 +840,7 @@ export function ProjectDetailPage() {
                   <SectionTitle>{selectedDocument.title}</SectionTitle>
                   <Subtle>
                     {selectedDocument.type} · {t(`category.${selectedDocument.category}`)}
+                    {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
                   </Subtle>
                 </div>
                 <Button type="button" variant="ghost" onClick={() => setSelectedDocument(null)}>
@@ -808,6 +875,21 @@ export function ProjectDetailPage() {
                       {t("project.saveCategory")}
                     </Button>
                   </div>
+
+                  <Field>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedDocument.sharedWithAll}
+                        disabled={busy}
+                        onChange={(event) =>
+                          void handleUpdateDocumentSharedWithAll(selectedDocument.id, event.target.checked)
+                        }
+                      />
+                      {t("project.shareWithAll")}
+                    </label>
+                    <Subtle>{t("project.shareWithAllHint")}</Subtle>
+                  </Field>
                 </Stack>
               </Card>
 
@@ -999,61 +1081,71 @@ export function ProjectDetailPage() {
                       <List>
                         {groupedMemories[kind].map((memory) => (
                           <Item key={memory.id} style={{ position: "relative" }}>
-                            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <Row style={{ alignItems: "center" }}>
-                                  <strong>{memory.title}</strong>
-                                  <Badge tone="muted">{memory.source}</Badge>
-                                  {memory.locked ? <Badge tone="warm">{t("project.locked")}</Badge> : null}
-                                </Row>
-                              </div>
-                              <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                            {/* Title, actions and badges each get their own line. Sharing the
+                                first line between the title and three icon buttons left the
+                                title a few characters wide in the memory pane's narrow column
+                                (observed on a memory whose title is a long sentence). */}
+                            <strong style={{ display: "block", overflowWrap: "anywhere" }}>{memory.title}</strong>
+                            <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap" }}>
+                              <IconButton
+                                type="button"
+                                disabled={busy}
+                                aria-label={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
+                                title={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
+                                onClick={() => void handleUpdateMemorySharedWithAll(memory.id, !memory.sharedWithAll)}
+                              >
+                                {memory.sharedWithAll ? <SharedIcon /> : <NotSharedIcon />}
+                              </IconButton>
+                              <IconButton
+                                type="button"
+                                aria-label={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
+                                onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
+                              >
+                                {memory.locked ? <UnlockIcon /> : <LockIcon />}
+                              </IconButton>
+                              <div style={{ position: "relative" }}>
                                 <IconButton
                                   type="button"
-                                  aria-label={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
-                                  onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
+                                  aria-label={t("project.deleteMemory")}
+                                  onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
                                 >
-                                  {memory.locked ? <UnlockIcon /> : <LockIcon />}
+                                  <TrashIcon />
                                 </IconButton>
-                                <div style={{ position: "relative" }}>
-                                  <IconButton
-                                    type="button"
-                                    aria-label={t("project.deleteMemory")}
-                                    onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
-                                  >
-                                    <TrashIcon />
-                                  </IconButton>
 
-                                  {pendingDeleteMemoryId === memory.id ? (
-                                    <div
-                                      style={{
-                                        position: "absolute",
-                                        right: 0,
-                                        top: 40,
-                                        width: 210,
-                                        zIndex: 2,
-                                        padding: 12,
-                                        borderRadius: 14,
-                                        border: `1px solid ${theme.lineStrong}`,
-                                        background: theme.surfaceCard,
-                                        boxShadow: theme.shadowPopover
-                                      }}
-                                    >
-                                      <Stack>
-                                        <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
-                                        <Row>
-                                          <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
-                                            {t("common.cancel")}
-                                          </Button>
-                                          <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
-                                            {t("common.ok")}
-                                          </Button>
-                                        </Row>
-                                      </Stack>
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </Row>
+                                {pendingDeleteMemoryId === memory.id ? (
+                                  <div
+                                    style={{
+                                      position: "absolute",
+                                      right: 0,
+                                      top: 40,
+                                      width: 210,
+                                      zIndex: 2,
+                                      padding: 12,
+                                      borderRadius: 14,
+                                      border: `1px solid ${theme.lineStrong}`,
+                                      background: theme.surfaceCard,
+                                      boxShadow: theme.shadowPopover
+                                    }}
+                                  >
+                                    <Stack>
+                                      <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
+                                      <Row>
+                                        <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
+                                          {t("common.cancel")}
+                                        </Button>
+                                        <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
+                                          {t("common.ok")}
+                                        </Button>
+                                      </Row>
+                                    </Stack>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </Row>
+                            <Row style={{ alignItems: "center" }}>
+                              <Badge tone="muted">{memory.source}</Badge>
+                              {memory.locked ? <Badge tone="warm">{t("project.locked")}</Badge> : null}
+                              {memory.sharedWithAll ? <Badge tone="accent">{t("project.sharedWithAll")}</Badge> : null}
                             </Row>
                             <Subtle>{memory.content}</Subtle>
                           </Item>
@@ -1154,6 +1246,37 @@ function UnlockIcon() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path
         d="M10.25 7V5.75a2.25 2.25 0 0 0-4.36-.77M4.75 7h6.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-4.5A.75.75 0 0 1 4.75 7Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// SharedIcon / NotSharedIcon mark whether a document or memory is common project
+// material: several figures for "everyone reads it", one for "only the speakers
+// that receive the project material do".
+function SharedIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M6 7.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 0c-1.8 0-3.25 1.1-3.25 2.5v1.75h6.5V10c0-1.4-1.45-2.5-3.25-2.5Zm4.9-4a2 2 0 0 1 0 4m.35.6c1.35.35 2.25 1.2 2.25 2.25v1.4h-2.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function NotSharedIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 7.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 0c-1.95 0-3.5 1.2-3.5 2.7v1.55h7V10.2C11.5 8.7 9.95 7.5 8 7.5Z"
         stroke="currentColor"
         strokeWidth="1.3"
         strokeLinecap="round"

@@ -20,20 +20,26 @@ type Project struct {
 
 // DocumentRecord mirrors the DocumentRecord interface. Type and Category are
 // validated by the DB CHECK constraint / doccategory.IsValid respectively.
+//
+// SharedWithAll true puts the document in the common project material: a
+// multi-agent turn reaches it even when its speaker does not receive the project
+// material (docs/multi-agent-chat-design.md §4.4). It is an explicit value, never
+// derived from Category — see the design note, and the default is false.
 type DocumentRecord struct {
-	ID          string   `json:"id"`
-	ProjectID   string   `json:"projectId"`
-	Type        string   `json:"type"`
-	Category    string   `json:"category"`
-	Title       string   `json:"title"`
-	Note        string   `json:"note"`
-	Tags        []string `json:"tags"`
-	DerivedText string   `json:"derivedText"`
-	ContentText string   `json:"contentText"`
-	FilePath    *string  `json:"filePath"`
-	MimeType    *string  `json:"mimeType"`
-	CreatedAt   string   `json:"createdAt"`
-	UpdatedAt   string   `json:"updatedAt"`
+	ID            string   `json:"id"`
+	ProjectID     string   `json:"projectId"`
+	Type          string   `json:"type"`
+	Category      string   `json:"category"`
+	Title         string   `json:"title"`
+	Note          string   `json:"note"`
+	Tags          []string `json:"tags"`
+	DerivedText   string   `json:"derivedText"`
+	ContentText   string   `json:"contentText"`
+	SharedWithAll bool     `json:"sharedWithAll"`
+	FilePath      *string  `json:"filePath"`
+	MimeType      *string  `json:"mimeType"`
+	CreatedAt     string   `json:"createdAt"`
+	UpdatedAt     string   `json:"updatedAt"`
 }
 
 // Chat kinds and turn rules. The columns carry no CHECK constraint (the
@@ -111,17 +117,25 @@ type ChatSummary struct {
 }
 
 // Memory mirrors the Memory interface.
+//
+// SharedWithAll has the same meaning as on DocumentRecord (§4.4). Its default at
+// creation comes from Source, which records where the memory came from rather
+// than guessing it: a memory saved from an utterance of the conversation
+// ("multi_agent") was heard by every participant and is already shared, while a
+// manually added one or one extracted from a single-assistant chat was never
+// spoken there.
 type Memory struct {
-	ID           string  `json:"id"`
-	ProjectID    string  `json:"projectId"`
-	Kind         string  `json:"kind"`
-	Title        string  `json:"title"`
-	Content      string  `json:"content"`
-	SourceChatID *string `json:"sourceChatId"`
-	Source       string  `json:"source"`
-	Locked       bool    `json:"locked"`
-	CreatedAt    string  `json:"createdAt"`
-	UpdatedAt    string  `json:"updatedAt"`
+	ID            string  `json:"id"`
+	ProjectID     string  `json:"projectId"`
+	Kind          string  `json:"kind"`
+	Title         string  `json:"title"`
+	Content       string  `json:"content"`
+	SourceChatID  *string `json:"sourceChatId"`
+	Source        string  `json:"source"`
+	Locked        bool    `json:"locked"`
+	SharedWithAll bool    `json:"sharedWithAll"`
+	CreatedAt     string  `json:"createdAt"`
+	UpdatedAt     string  `json:"updatedAt"`
 }
 
 // AssistantMessageReference mirrors the AssistantMessageReference interface.

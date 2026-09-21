@@ -111,7 +111,7 @@ func TestSearchDocumentsFTSOnly(t *testing.T) {
 		t.Fatalf("CreateDocument character: %v", err)
 	}
 
-	refs, err := retrieval.SearchDocuments(project.ID, "竜の世界観について教えて", 4, 3)
+	refs, err := retrieval.SearchDocuments(project.ID, "竜の世界観について教えて", 4, 3, ScopeAll)
 	if err != nil {
 		t.Fatalf("SearchDocuments: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestSearchMemoriesFTSOnly(t *testing.T) {
 		t.Fatalf("CreateMemory: %v", err)
 	}
 
-	refs, err := retrieval.SearchMemories(project.ID, "舞台はどこ", 4)
+	refs, err := retrieval.SearchMemories(project.ID, "舞台はどこ", 4, ScopeAll)
 	if err != nil {
 		t.Fatalf("SearchMemories: %v", err)
 	}

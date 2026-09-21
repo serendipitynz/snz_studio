@@ -29,6 +29,27 @@ func NewRetrievalService(db *sql.DB, embeddings *EmbeddingClient) *RetrievalServ
 	return &RetrievalService{db: db, embeddings: embeddings}
 }
 
+// MaterialScope selects which of a project's documents and memories a search may
+// return. ScopeSharedWithAll is the common project material of a multi-agent turn
+// whose speaker does not receive the project material (design §4.4).
+type MaterialScope int
+
+const (
+	ScopeAll MaterialScope = iota
+	ScopeSharedWithAll
+)
+
+// sharedWithAllClause narrows a query to the common project material. It goes
+// into the SQL rather than filtering the results afterwards: a turn's budget is
+// small enough (2 documents, 3 memories) that rows the speaker may not see would
+// otherwise eat the whole selection and leave it with nothing.
+func (scope MaterialScope) sharedWithAllClause(alias string) string {
+	if scope != ScopeSharedWithAll {
+		return ""
+	}
+	return " AND " + alias + ".shared_with_all = 1"
+}
+
 func clampScore(value float64) float64 {
 	if value < 0 {
 		return 0
@@ -148,14 +169,15 @@ type memoryCandidateRow struct {
 	score    float64
 }
 
-// SearchDocuments mirrors searchDocuments(projectId, query, limit=4, chunksPerDocument=3).
-func (r *RetrievalService) SearchDocuments(projectID, query string, limit, chunksPerDocument int) ([]model.RetrievedDocumentReference, error) {
+// SearchDocuments mirrors searchDocuments(projectId, query, limit=4, chunksPerDocument=3),
+// narrowed to scope.
+func (r *RetrievalService) SearchDocuments(projectID, query string, limit, chunksPerDocument int, scope MaterialScope) ([]model.RetrievedDocumentReference, error) {
 	ftsQuery := search.ToFtsQuery(query)
 	intent := detectRetrievalIntent(query)
 
 	var candidateRows []documentCandidateRow
 	if ftsQuery != "" {
-		rows, err := r.fetchDocumentFtsCandidates(projectID, ftsQuery, limit, chunksPerDocument)
+		rows, err := r.fetchDocumentFtsCandidates(projectID, ftsQuery, limit, chunksPerDocument, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -178,7 +200,7 @@ func (r *RetrievalService) SearchDocuments(projectID, query string, limit, chunk
 	for _, item := range ranked {
 		seen[item.SourceID] = true
 	}
-	fallback, err := r.searchDocumentsBySemantic(projectID, queryEmbedding, limit, chunksPerDocument, seen, intent)
+	fallback, err := r.searchDocumentsBySemantic(projectID, queryEmbedding, limit, chunksPerDocument, seen, intent, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -245,8 +267,9 @@ func (r *RetrievalService) SearchChunksInDocument(documentID, query string, limi
 	return out, rows.Err()
 }
 
-// SearchMemories mirrors searchMemories(projectId, query, limit=4).
-func (r *RetrievalService) SearchMemories(projectID, query string, limit int) ([]model.SearchReference, error) {
+// SearchMemories mirrors searchMemories(projectId, query, limit=4), narrowed to
+// scope.
+func (r *RetrievalService) SearchMemories(projectID, query string, limit int, scope MaterialScope) ([]model.SearchReference, error) {
 	ftsQuery := search.ToFtsQuery(query)
 
 	var candidateRows []memoryCandidateRow
@@ -255,7 +278,7 @@ func (r *RetrievalService) SearchMemories(projectID, query string, limit int) ([
 		if candidateLimit < 8 {
 			candidateLimit = 8
 		}
-		rows, err := r.fetchMemoryFtsCandidates(projectID, ftsQuery, candidateLimit)
+		rows, err := r.fetchMemoryFtsCandidates(projectID, ftsQuery, candidateLimit, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -276,7 +299,7 @@ func (r *RetrievalService) SearchMemories(projectID, query string, limit int) ([
 	for _, item := range ranked {
 		seen[item.SourceID] = true
 	}
-	fallback, err := r.searchMemoriesBySemantic(projectID, queryEmbedding, limit, seen)
+	fallback, err := r.searchMemoriesBySemantic(projectID, queryEmbedding, limit, seen, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +313,7 @@ func sliceRefs(refs []model.SearchReference, limit int) []model.SearchReference 
 	return refs
 }
 
-func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string, limit, chunksPerDocument int) ([]documentCandidateRow, error) {
+func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string, limit, chunksPerDocument int, scope MaterialScope) ([]documentCandidateRow, error) {
 	candidateLimit := limit * chunksPerDocument * 4
 	if candidateLimit < 12 {
 		candidateLimit = 12
@@ -310,7 +333,8 @@ func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string
 		FROM document_chunks_fts
 		JOIN documents d ON d.id = document_chunks_fts.document_id
 		JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id
-		WHERE document_chunks_fts.project_id = ? AND document_chunks_fts MATCH ?
+		WHERE document_chunks_fts.project_id = ? AND document_chunks_fts MATCH ?`+
+		scope.sharedWithAllClause("d")+`
 		ORDER BY score DESC
 		LIMIT ?`, projectID, ftsQuery, candidateLimit)
 	if err != nil {
@@ -328,7 +352,7 @@ func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string
 	return out, rows.Err()
 }
 
-func (r *RetrievalService) fetchMemoryFtsCandidates(projectID, ftsQuery string, limit int) ([]memoryCandidateRow, error) {
+func (r *RetrievalService) fetchMemoryFtsCandidates(projectID, ftsQuery string, limit int, scope MaterialScope) ([]memoryCandidateRow, error) {
 	rows, err := r.db.Query(`
 		SELECT
 			m.id AS source_id,
@@ -337,7 +361,8 @@ func (r *RetrievalService) fetchMemoryFtsCandidates(projectID, ftsQuery string, 
 			bm25(memories_fts, 2.0, 6.0, 8.0) * -1 AS score
 		FROM memories_fts
 		JOIN memories m ON m.id = memories_fts.memory_id
-		WHERE memories_fts.project_id = ? AND memories_fts MATCH ?
+		WHERE memories_fts.project_id = ? AND memories_fts MATCH ?`+
+		scope.sharedWithAllClause("m")+`
 		ORDER BY score DESC
 		LIMIT ?`, projectID, ftsQuery, limit)
 	if err != nil {
@@ -551,7 +576,7 @@ func categoryOrMisc(category string) string {
 	return category
 }
 
-func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbedding []float64, limit, chunksPerDocument int, seen map[string]bool, intent string) ([]model.RetrievedDocumentReference, error) {
+func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbedding []float64, limit, chunksPerDocument int, seen map[string]bool, intent string, scope MaterialScope) ([]model.RetrievedDocumentReference, error) {
 	rows, err := r.db.Query(`
 		SELECT
 			e.document_id,
@@ -567,7 +592,8 @@ func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbe
 		FROM document_chunk_embeddings e
 		JOIN documents d ON d.id = e.document_id
 		JOIN document_chunks c ON c.id = e.chunk_id
-		WHERE e.project_id = ? AND e.model = ?`, projectID, r.embeddings.GetModel())
+		WHERE e.project_id = ? AND e.model = ?`+
+		scope.sharedWithAllClause("d"), projectID, r.embeddings.GetModel())
 	if err != nil {
 		return nil, err
 	}
@@ -756,7 +782,7 @@ func (r *RetrievalService) memorySemanticScores(queryEmbedding []float64, memory
 	return scores, rows.Err()
 }
 
-func (r *RetrievalService) searchMemoriesBySemantic(projectID string, queryEmbedding []float64, limit int, seen map[string]bool) ([]model.SearchReference, error) {
+func (r *RetrievalService) searchMemoriesBySemantic(projectID string, queryEmbedding []float64, limit int, seen map[string]bool, scope MaterialScope) ([]model.SearchReference, error) {
 	rows, err := r.db.Query(`
 		SELECT
 			e.memory_id,
@@ -765,7 +791,8 @@ func (r *RetrievalService) searchMemoriesBySemantic(projectID string, queryEmbed
 			m.content
 		FROM memory_embeddings e
 		JOIN memories m ON m.id = e.memory_id
-		WHERE e.project_id = ? AND e.model = ?`, projectID, r.embeddings.GetModel())
+		WHERE e.project_id = ? AND e.model = ?`+
+		scope.sharedWithAllClause("m"), projectID, r.embeddings.GetModel())
 	if err != nil {
 		return nil, err
 	}

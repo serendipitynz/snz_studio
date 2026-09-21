@@ -280,3 +280,64 @@ func TestReceivesProjectMaterialRename(t *testing.T) {
 		t.Errorf("values after the rename = %v, want gm=1 and pc=0", got)
 	}
 }
+
+// TestSharedProjectMaterialBackfill covers migration 013's two defaults on a
+// database that already has rows: every document stays out of the common project
+// material, and among memories only the ones saved from a multi-agent utterance
+// go into it (design §4.4, TASK-31).
+func TestSharedProjectMaterialBackfill(t *testing.T) {
+	d := openUnmigratedTemp(t)
+	applyThrough(t, d, "012_rename_receives_background")
+
+	mustExec(t, d, `INSERT INTO projects (id, title, created_at, updated_at)
+		VALUES ('p1', 'proj', '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO documents (id, project_id, type, title, created_at, updated_at)
+		VALUES ('d1', 'p1', 'text', 'ルール', '2026-01-01', '2026-01-01')`)
+	for _, m := range []struct{ id, source string }{
+		{"m_spoken", "multi_agent"},
+		{"m_manual", "manual"},
+		{"m_chat", "chat"},
+		{"m_organized", "organized"},
+	} {
+		mustExec(t, d, `INSERT INTO memories (id, project_id, kind, title, content, source, locked, created_at, updated_at)
+			VALUES (?, 'p1', 'semantic', 't', 'c', ?, 0, '2026-01-01', '2026-01-01')`, m.id, m.source)
+	}
+
+	if err := ApplyMigrations(d); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+
+	var documentShared int
+	if err := d.QueryRow("SELECT shared_with_all FROM documents WHERE id = 'd1'").Scan(&documentShared); err != nil {
+		t.Fatalf("read document flag: %v", err)
+	}
+	if documentShared != 0 {
+		t.Errorf("an existing document must stay out of the common project material, got %d", documentShared)
+	}
+
+	rows, err := d.Query("SELECT id, shared_with_all FROM memories")
+	if err != nil {
+		t.Fatalf("read memory flags: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]int{}
+	for rows.Next() {
+		var (
+			id     string
+			shared int
+		)
+		if err := rows.Scan(&id, &shared); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = shared
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"m_spoken": 1, "m_manual": 0, "m_chat": 0, "m_organized": 0}
+	for id, wantShared := range want {
+		if got[id] != wantShared {
+			t.Errorf("memory %s shared_with_all = %d, want %d", id, got[id], wantShared)
+		}
+	}
+}

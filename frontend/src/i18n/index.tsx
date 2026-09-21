@@ -127,6 +127,12 @@ const en = {
   "project.category": "Category",
   "project.saveCategory": "Save category",
   "project.updateCategoryError": "Failed to update document category",
+  "project.sharedWithAll": "shared with everyone",
+  "project.shareWithAll": "Share with every participant",
+  "project.shareWithAllHint":
+    "In a multi-agent conversation, this reaches every speaker, including the ones set not to receive the project material. Use it for the rules, the world and the glossary; leave it off for what only some speakers may know.",
+  "project.unshareWithAll": "Stop sharing with every participant",
+  "project.updateSharedWithAllError": "Failed to update who this is shared with",
   "project.derivedText": "Derived text",
   "project.editTitleModal": "Edit Project Title",
   "project.titleField": "Title",
@@ -287,7 +293,7 @@ const en = {
   "participants.rolePromptPlaceholder": "Persona, stance, tone and rules for this speaker",
   "participants.receivesProjectMaterial": "Give this speaker the project material",
   "participants.receivesProjectMaterialHint":
-    "On by default. Turned off, this participant's turns carry none of the project's description, documents or memories — nothing is even searched for. Use it when one speaker knows what the others must not, such as a game master holding the scenario.",
+    "On by default. Turned off, this participant's turns carry only what is shared with everyone — the documents and memories marked \"share with every participant\" — and never the project description or anything else. Use it when one speaker knows what the others must not, such as a game master holding the scenario while the players read the rules.",
   "participants.baseUrl": "Endpoint",
   "participants.baseUrlPlaceholder": "http://127.0.0.1:1234/v1",
   "participants.baseUrlHint": "Leave blank to use the workspace endpoint.",
@@ -468,6 +474,12 @@ const ja: Record<MessageKey, string> = {
   "project.category": "カテゴリ",
   "project.saveCategory": "カテゴリを保存",
   "project.updateCategoryError": "カテゴリの更新に失敗しました",
+  "project.sharedWithAll": "全参加者に渡す",
+  "project.shareWithAll": "全参加者に渡す",
+  "project.shareWithAllHint":
+    "多人数会話で、「プロジェクト資料を渡す」を OFF にした参加者にも渡ります。ルール・世界観・用語集のように全員が知っている前提のものに使い、一部の話者だけが知っていてよいものは OFF のままにします。",
+  "project.unshareWithAll": "全参加者に渡すのをやめる",
+  "project.updateSharedWithAllError": "共有範囲の更新に失敗しました",
   "project.derivedText": "抽出テキスト",
   "project.editTitleModal": "プロジェクト名を編集",
   "project.titleField": "タイトル",
@@ -626,7 +638,7 @@ const ja: Record<MessageKey, string> = {
   "participants.rolePromptPlaceholder": "人格・立場・口調・行動規則",
   "participants.receivesProjectMaterial": "プロジェクト資料を渡す",
   "participants.receivesProjectMaterialHint":
-    "既定は ON。OFF にすると、この参加者のターンではプロジェクトの説明・ドキュメント・メモリを一切渡さず、検索も行いません。TRPG の GM のように、1 人だけがシナリオを知っている編成に使います。",
+    "既定は ON。OFF にすると、この参加者のターンでは「全参加者に渡す」を付けたドキュメント・メモリだけを渡し、プロジェクトの説明やそれ以外の資料は渡しません。TRPG の GM のように、プレイヤーがルールを読みつつ 1 人だけがシナリオを知っている編成に使います。",
   "participants.baseUrl": "接続先",
   "participants.baseUrlPlaceholder": "http://127.0.0.1:1234/v1",
   "participants.baseUrlHint": "空欄ならワークスペース設定の接続先を使います。",

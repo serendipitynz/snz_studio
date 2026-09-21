@@ -345,11 +345,12 @@ func TestMemoriesCRUD(t *testing.T) {
 	wantStatus(t, rec, http.StatusCreated)
 	m := decodeJSONMap(t, rec)
 	var memory struct {
-		ID     string `json:"id"`
-		Title  string `json:"title"`
-		Kind   string `json:"kind"`
-		Source string `json:"source"`
-		Locked bool   `json:"locked"`
+		ID            string `json:"id"`
+		Title         string `json:"title"`
+		Kind          string `json:"kind"`
+		Source        string `json:"source"`
+		Locked        bool   `json:"locked"`
+		SharedWithAll bool   `json:"sharedWithAll"`
 	}
 	unmarshalField(t, m, "memory", &memory)
 	if memory.Title != "The hero is named Rin" {
@@ -358,6 +359,11 @@ func TestMemoriesCRUD(t *testing.T) {
 	if memory.Kind != "semantic" || memory.Source != "manual" || !memory.Locked {
 		t.Fatalf("memory defaults wrong: %+v", memory)
 	}
+	// A manually added memory was never spoken in a multi-agent conversation, so
+	// it starts outside the common project material (design §4.4).
+	if memory.SharedWithAll {
+		t.Fatalf("a manual memory must not start in the common project material: %+v", memory)
+	}
 
 	// Lock toggle: non-bool -> 400, valid -> 200, missing -> 404.
 	wantError(t, doJSON(t, h, "PATCH", "/api/memories/"+memory.ID+"/lock", map[string]any{"locked": "yes"}),
@@ -365,6 +371,18 @@ func TestMemoriesCRUD(t *testing.T) {
 	rec = doJSON(t, h, "PATCH", "/api/memories/"+memory.ID+"/lock", map[string]any{"locked": false})
 	wantStatus(t, rec, http.StatusOK)
 	wantError(t, doJSON(t, h, "PATCH", "/api/memories/mem_missing/lock", map[string]any{"locked": true}),
+		http.StatusNotFound, "memory not found")
+
+	// Common project material toggle: non-bool -> 400, valid -> 200, missing -> 404.
+	wantError(t, doJSON(t, h, "PATCH", "/api/memories/"+memory.ID+"/shared", map[string]any{"sharedWithAll": 1}),
+		http.StatusBadRequest, "sharedWithAll must be a boolean")
+	rec = doJSON(t, h, "PATCH", "/api/memories/"+memory.ID+"/shared", map[string]any{"sharedWithAll": true})
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "memory", &memory)
+	if !memory.SharedWithAll {
+		t.Fatalf("the memory should now be common project material: %+v", memory)
+	}
+	wantError(t, doJSON(t, h, "PATCH", "/api/memories/mem_missing/shared", map[string]any{"sharedWithAll": true}),
 		http.StatusNotFound, "memory not found")
 
 	// Delete + delete again.
@@ -457,16 +475,22 @@ func TestDocuments(t *testing.T) {
 	wantStatus(t, rec, http.StatusCreated)
 	m := decodeJSONMap(t, rec)
 	var textDoc struct {
-		ID          string  `json:"id"`
-		Type        string  `json:"type"`
-		Title       string  `json:"title"`
-		Category    string  `json:"category"`
-		ContentText string  `json:"contentText"`
-		FilePath    *string `json:"filePath"`
+		ID            string  `json:"id"`
+		Type          string  `json:"type"`
+		Title         string  `json:"title"`
+		Category      string  `json:"category"`
+		ContentText   string  `json:"contentText"`
+		SharedWithAll bool    `json:"sharedWithAll"`
+		FilePath      *string `json:"filePath"`
 	}
 	unmarshalField(t, m, "document", &textDoc)
 	if textDoc.Type != "text" || textDoc.Title != "Hello world" || textDoc.Category != "world" {
 		t.Fatalf("unexpected text document: %+v", textDoc)
+	}
+	// A "world" document is not shared with everyone on the way in: the category
+	// never decides that, not even one the caller supplied (design §4.4).
+	if textDoc.SharedWithAll {
+		t.Fatalf("a new document must not start in the common project material: %+v", textDoc)
 	}
 	if textDoc.ContentText != "Hello world\nSecond line" || textDoc.FilePath != nil {
 		t.Fatalf("text document content/file wrong: %+v", textDoc)
@@ -506,6 +530,18 @@ func TestDocuments(t *testing.T) {
 	rec = doJSON(t, h, "PATCH", "/api/documents/"+textDoc.ID+"/category", map[string]any{"category": "character"})
 	wantStatus(t, rec, http.StatusOK)
 	wantError(t, doJSON(t, h, "PATCH", "/api/documents/doc_missing/category", map[string]any{"category": "world"}),
+		http.StatusNotFound, "document not found")
+
+	// Common project material toggle: non-bool -> 400, valid -> 200, missing -> 404.
+	wantError(t, doJSON(t, h, "PATCH", "/api/documents/"+textDoc.ID+"/shared", map[string]any{"sharedWithAll": "yes"}),
+		http.StatusBadRequest, "sharedWithAll must be a boolean")
+	rec = doJSON(t, h, "PATCH", "/api/documents/"+textDoc.ID+"/shared", map[string]any{"sharedWithAll": true})
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "document", &textDoc)
+	if !textDoc.SharedWithAll {
+		t.Fatalf("the document should now be common project material: %+v", textDoc)
+	}
+	wantError(t, doJSON(t, h, "PATCH", "/api/documents/doc_missing/shared", map[string]any{"sharedWithAll": true}),
 		http.StatusNotFound, "document not found")
 
 	// Delete the image document; its on-disk file must be removed.

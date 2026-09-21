@@ -189,9 +189,12 @@ utterance, the two before it and the head of the scene (the scene alone on the o
 at 2 documents × 2 passages, 3 memories and 2,000 characters in total. The references used are stored
 with the participant's message and shown under it as on the single-assistant chat screen. A failed
 search leaves the turn without material rather than failing it. A participant that is not given the
-project material has none of this on its turns — nothing is searched for, nothing goes into the
-system prompt and no reference is stored — which is how one speaker holds a scenario the others must
-not know. It is on by default, so hidden information takes an explicit decision to withhold it. On a `multi_agent` chat the existing
+project material gets only the common project material on its turns — the documents and memories
+marked "share with every participant" — and never the project description; the narrowing happens in
+SQL, before ranking, so the turn's small budget is spent on rows it may have. That is how the players
+read the rules and the world while one speaker holds the scenario. Being given the material is on by
+default, and nothing is shared with everyone by default, so both sides of who reads what take an
+explicit decision. On a `multi_agent` chat the existing
 message routes store the user's message without generating a reply.
 
 ## Context assembly

@@ -10,13 +10,14 @@ import (
 )
 
 type listedMemory struct {
-	ID           string  `json:"id"`
-	Kind         string  `json:"kind"`
-	Title        string  `json:"title"`
-	Content      string  `json:"content"`
-	Source       string  `json:"source"`
-	SourceChatID *string `json:"sourceChatId"`
-	Locked       bool    `json:"locked"`
+	ID            string  `json:"id"`
+	Kind          string  `json:"kind"`
+	Title         string  `json:"title"`
+	Content       string  `json:"content"`
+	Source        string  `json:"source"`
+	SourceChatID  *string `json:"sourceChatId"`
+	Locked        bool    `json:"locked"`
+	SharedWithAll bool    `json:"sharedWithAll"`
 }
 
 func listProjectMemories(t *testing.T, h http.Handler, projectID string) []listedMemory {
@@ -81,6 +82,11 @@ func TestMultiAgentSaveMessageMemory(t *testing.T) {
 	}
 	if saved.Source != "multi_agent" || saved.SourceChatID == nil || *saved.SourceChatID != chatID || saved.Locked {
 		t.Fatalf("saved memory = %+v, want source multi_agent, sourceChatId %s, locked false", saved, chatID)
+	}
+	// Every participant heard the utterance this memory was made from, so it
+	// starts in the common project material (design §4.4, TASK-31).
+	if !saved.SharedWithAll {
+		t.Fatalf("saved memory = %+v, want it shared with every participant", saved)
 	}
 
 	// kind omitted -> inferred; locked omitted -> true, as for a manual memory.

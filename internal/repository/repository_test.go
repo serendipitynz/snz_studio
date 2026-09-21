@@ -373,6 +373,29 @@ func TestMemoryRepository(t *testing.T) {
 		t.Error("stale content still searchable after update")
 	}
 
+	// A rewrite takes the memory out of the common project material, whatever it
+	// was before: the organizer folds other memories in, and the content is no
+	// longer the content the human agreed to share (design §4.4).
+	m3, err := memories.CreateMemory(CreateMemoryInput{
+		ProjectID: proj.ID, Kind: "semantic", Title: "港の掟", Content: "霧笛が三度鳴ったら船を舫う",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := memories.SetMemorySharedWithAll(m3.ID, true)
+	if err != nil || shared == nil || !shared.SharedWithAll {
+		t.Fatalf("SetMemorySharedWithAll: %+v, %v", shared, err)
+	}
+	rewritten, err := memories.UpdateMemory(UpdateMemoryInput{
+		MemoryID: m3.ID, Kind: "semantic", Title: "港の掟", Content: "霧笛が三度鳴ったら船を舫う。合図を決めたのは灯台守である。",
+	})
+	if err != nil || rewritten == nil {
+		t.Fatalf("UpdateMemory rewrite: %v, %v", rewritten, err)
+	}
+	if rewritten.SharedWithAll {
+		t.Error("a rewritten memory must leave the common project material until it is shared again")
+	}
+
 	// Explicit unlock.
 	unlocked, err := memories.SetMemoryLocked(m2.ID, false)
 	if err != nil || unlocked == nil || unlocked.Locked {

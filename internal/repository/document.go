@@ -23,20 +23,22 @@ func NewDocumentRepository(db *sql.DB) *DocumentRepository {
 	return &DocumentRepository{db: db}
 }
 
-const documentColumns = `id, project_id, type, category, title, note, tags_json, derived_text, content_text, file_path, mime_type, created_at, updated_at`
+const documentColumns = `id, project_id, type, category, title, note, tags_json, derived_text, content_text, shared_with_all, file_path, mime_type, created_at, updated_at`
 
 func scanDocument(s scanner) (model.DocumentRecord, error) {
 	var (
-		d        model.DocumentRecord
-		category sql.NullString
-		tagsJSON string
-		filePath sql.NullString
-		mimeType sql.NullString
+		d             model.DocumentRecord
+		category      sql.NullString
+		tagsJSON      string
+		sharedWithAll int
+		filePath      sql.NullString
+		mimeType      sql.NullString
 	)
 	if err := s.Scan(&d.ID, &d.ProjectID, &d.Type, &category, &d.Title, &d.Note, &tagsJSON,
-		&d.DerivedText, &d.ContentText, &filePath, &mimeType, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		&d.DerivedText, &d.ContentText, &sharedWithAll, &filePath, &mimeType, &d.CreatedAt, &d.UpdatedAt); err != nil {
 		return d, err
 	}
+	d.SharedWithAll = sharedWithAll != 0
 	cat := "misc"
 	if category.Valid {
 		cat = category.String
@@ -97,6 +99,12 @@ func (r *DocumentRepository) GetDocument(documentID string) (*model.DocumentReco
 // CreateDocumentInput carries the fields for CreateDocument. Category may be
 // empty, in which case it is inferred. Tags is used as-is (the comma-string form
 // is parsed by callers via util.ParseTags).
+//
+// There is deliberately no SharedWithAll field: a new document is never common
+// project material, and nothing infers it — least of all Category, which at
+// creation is always doccategory.Infer's guess because the add flow has no
+// category input, and a guess must not decide who reads the document
+// (design §4.4). The human turns it on afterwards, from the document list.
 type CreateDocumentInput struct {
 	ProjectID   string
 	Type        string
@@ -158,6 +166,7 @@ func (r *DocumentRepository) CreateDocument(input CreateDocumentInput) (model.Do
 	}
 	defer tx.Rollback()
 
+	// shared_with_all is left to the column's default of 0 (see CreateDocumentInput).
 	if _, err := tx.Exec(`
 		INSERT INTO documents (
 			id, project_id, type, category, title, note, tags_json, derived_text, content_text, file_path, mime_type, created_at, updated_at
@@ -231,6 +240,23 @@ func (r *DocumentRepository) UpdateDocumentCategory(documentID, category string)
 		return nil, nil
 	}
 	if _, err := r.db.Exec("UPDATE documents SET category = ?, updated_at = ? WHERE id = ?", category, util.NowISO(), documentID); err != nil {
+		return nil, err
+	}
+	return r.GetDocument(documentID)
+}
+
+// UpdateDocumentSharedWithAll puts a document into the common project material or
+// takes it out, returning (nil, nil) if the document does not exist.
+func (r *DocumentRepository) UpdateDocumentSharedWithAll(documentID string, sharedWithAll bool) (*model.DocumentRecord, error) {
+	existing, err := r.GetDocument(documentID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, nil
+	}
+	if _, err := r.db.Exec("UPDATE documents SET shared_with_all = ?, updated_at = ? WHERE id = ?",
+		boolToInt(sharedWithAll), util.NowISO(), documentID); err != nil {
 		return nil, err
 	}
 	return r.GetDocument(documentID)

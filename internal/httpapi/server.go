@@ -212,11 +212,13 @@ func (s *Server) Handler() http.Handler {
 
 	// Memories
 	mux.HandleFunc("PATCH /api/memories/{memoryId}/lock", s.handleSetMemoryLock)
+	mux.HandleFunc("PATCH /api/memories/{memoryId}/shared", s.handleSetMemorySharedWithAll)
 	mux.HandleFunc("DELETE /api/memories/{memoryId}", s.handleDeleteMemory)
 
 	// Documents
 	mux.HandleFunc("DELETE /api/documents/{documentId}", s.handleDeleteDocument)
 	mux.HandleFunc("PATCH /api/documents/{documentId}/category", s.handleUpdateDocumentCategory)
+	mux.HandleFunc("PATCH /api/documents/{documentId}/shared", s.handleUpdateDocumentSharedWithAll)
 
 	// Chats
 	mux.HandleFunc("GET /api/chats/{chatId}", s.handleGetChat)
