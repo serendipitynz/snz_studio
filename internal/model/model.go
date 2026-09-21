@@ -85,22 +85,22 @@ type Message struct {
 // it was removed from the roster and the row survives only so past messages
 // keep resolving to a name (docs/multi-agent-chat-design.md §3).
 //
-// ReceivesBackground false excludes the participant's turns from the project's
-// background material: nothing is retrieved, nothing is added to the system
+// ReceivesProjectMaterial false excludes the participant's turns from the
+// project material: nothing is retrieved, nothing is added to the system
 // prompt and no reference is stored (§4.4). It defaults to true, so a roster is
 // one where everyone reads the same material until a participant is taken out of
 // it — a game master who knows the scenario the players must not.
 type Participant struct {
-	ID                 string  `json:"id"`
-	ChatID             string  `json:"chatId"`
-	DisplayName        string  `json:"displayName"`
-	RolePrompt         string  `json:"rolePrompt"`
-	BaseURL            string  `json:"baseUrl"`
-	ModelName          string  `json:"modelName"`
-	SortOrder          int     `json:"sortOrder"`
-	ReceivesBackground bool    `json:"receivesBackground"`
-	CreatedAt          string  `json:"createdAt"`
-	DeletedAt          *string `json:"deletedAt"`
+	ID                      string  `json:"id"`
+	ChatID                  string  `json:"chatId"`
+	DisplayName             string  `json:"displayName"`
+	RolePrompt              string  `json:"rolePrompt"`
+	BaseURL                 string  `json:"baseUrl"`
+	ModelName               string  `json:"modelName"`
+	SortOrder               int     `json:"sortOrder"`
+	ReceivesProjectMaterial bool    `json:"receivesProjectMaterial"`
+	CreatedAt               string  `json:"createdAt"`
+	DeletedAt               *string `json:"deletedAt"`
 }
 
 // ChatSummary mirrors the ChatSummary interface.

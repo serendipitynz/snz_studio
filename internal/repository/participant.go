@@ -23,7 +23,7 @@ func NewParticipantRepository(db *sql.DB) *ParticipantRepository {
 	return &ParticipantRepository{db: db}
 }
 
-const participantColumns = `id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_background, created_at, deleted_at`
+const participantColumns = `id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_project_material, created_at, deleted_at`
 
 // participantOrder is the cycle round_robin walks, so it must be total: equal
 // sort_order values (two participants added in the same batch, or a row whose
@@ -32,14 +32,14 @@ const participantOrder = `ORDER BY sort_order ASC, created_at ASC, id ASC`
 
 func scanParticipant(s scanner) (model.Participant, error) {
 	var (
-		p                  model.Participant
-		receivesBackground int
-		deletedAt          sql.NullString
+		p                       model.Participant
+		receivesProjectMaterial int
+		deletedAt               sql.NullString
 	)
-	if err := s.Scan(&p.ID, &p.ChatID, &p.DisplayName, &p.RolePrompt, &p.BaseURL, &p.ModelName, &p.SortOrder, &receivesBackground, &p.CreatedAt, &deletedAt); err != nil {
+	if err := s.Scan(&p.ID, &p.ChatID, &p.DisplayName, &p.RolePrompt, &p.BaseURL, &p.ModelName, &p.SortOrder, &receivesProjectMaterial, &p.CreatedAt, &deletedAt); err != nil {
 		return p, err
 	}
-	p.ReceivesBackground = receivesBackground != 0
+	p.ReceivesProjectMaterial = receivesProjectMaterial != 0
 	p.DeletedAt = strPtr(deletedAt)
 	return p, nil
 }
@@ -95,18 +95,18 @@ func (r *ParticipantRepository) GetParticipant(participantID string) (*model.Par
 }
 
 // CreateParticipantInput carries the fields for CreateParticipant.
-// ReceivesBackground is a pointer so that leaving it out means the column's
+// ReceivesProjectMaterial is a pointer so that leaving it out means the column's
 // default (true) rather than false: a participant is created reading the
 // project's material unless the caller says otherwise, and a caller that never
 // heard of the field must not silently create a participant that is cut off from
 // it.
 type CreateParticipantInput struct {
-	ChatID             string
-	DisplayName        string
-	RolePrompt         string
-	BaseURL            string
-	ModelName          string
-	ReceivesBackground *bool
+	ChatID                  string
+	DisplayName             string
+	RolePrompt              string
+	BaseURL                 string
+	ModelName               string
+	ReceivesProjectMaterial *bool
 }
 
 // CreateParticipant appends a participant to the chat's roster, assigning the
@@ -123,20 +123,20 @@ func (r *ParticipantRepository) CreateParticipant(input CreateParticipantInput) 
 	}
 
 	p := model.Participant{
-		ID:                 util.NewID("participant"),
-		ChatID:             input.ChatID,
-		DisplayName:        strings.TrimSpace(input.DisplayName),
-		RolePrompt:         strings.TrimSpace(input.RolePrompt),
-		BaseURL:            strings.TrimSpace(input.BaseURL),
-		ModelName:          strings.TrimSpace(input.ModelName),
-		SortOrder:          next,
-		ReceivesBackground: input.ReceivesBackground == nil || *input.ReceivesBackground,
-		CreatedAt:          util.NowISO(),
+		ID:                      util.NewID("participant"),
+		ChatID:                  input.ChatID,
+		DisplayName:             strings.TrimSpace(input.DisplayName),
+		RolePrompt:              strings.TrimSpace(input.RolePrompt),
+		BaseURL:                 strings.TrimSpace(input.BaseURL),
+		ModelName:               strings.TrimSpace(input.ModelName),
+		SortOrder:               next,
+		ReceivesProjectMaterial: input.ReceivesProjectMaterial == nil || *input.ReceivesProjectMaterial,
+		CreatedAt:               util.NowISO(),
 	}
 	if _, err := r.db.Exec(`
-		INSERT INTO participants (id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_background, created_at, deleted_at)
+		INSERT INTO participants (id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_project_material, created_at, deleted_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-		p.ID, p.ChatID, p.DisplayName, p.RolePrompt, p.BaseURL, p.ModelName, p.SortOrder, boolToInt(p.ReceivesBackground), p.CreatedAt); err != nil {
+		p.ID, p.ChatID, p.DisplayName, p.RolePrompt, p.BaseURL, p.ModelName, p.SortOrder, boolToInt(p.ReceivesProjectMaterial), p.CreatedAt); err != nil {
 		return model.Participant{}, err
 	}
 	return p, nil
@@ -145,13 +145,13 @@ func (r *ParticipantRepository) CreateParticipant(input CreateParticipantInput) 
 // UpdateParticipantInput carries the fields for UpdateParticipant. A nil field
 // is left untouched, matching the PATCH route that edits one setting at a time.
 type UpdateParticipantInput struct {
-	ParticipantID      string
-	DisplayName        *string
-	RolePrompt         *string
-	BaseURL            *string
-	ModelName          *string
-	SortOrder          *int
-	ReceivesBackground *bool
+	ParticipantID           string
+	DisplayName             *string
+	RolePrompt              *string
+	BaseURL                 *string
+	ModelName               *string
+	SortOrder               *int
+	ReceivesProjectMaterial *bool
 }
 
 // UpdateParticipant applies the given fields and returns the updated row, or
@@ -166,10 +166,10 @@ func (r *ParticipantRepository) UpdateParticipant(input UpdateParticipantInput) 
 		    base_url = COALESCE(?, base_url),
 		    model_name = COALESCE(?, model_name),
 		    sort_order = COALESCE(?, sort_order),
-		    receives_background = COALESCE(?, receives_background)
+		    receives_project_material = COALESCE(?, receives_project_material)
 		WHERE id = ?`,
 		trimmedPtrArg(input.DisplayName), trimmedPtrArg(input.RolePrompt), trimmedPtrArg(input.BaseURL),
-		trimmedPtrArg(input.ModelName), ptrArg(input.SortOrder), boolPtrArg(input.ReceivesBackground), input.ParticipantID)
+		trimmedPtrArg(input.ModelName), ptrArg(input.SortOrder), boolPtrArg(input.ReceivesProjectMaterial), input.ParticipantID)
 	if err != nil {
 		return nil, err
 	}

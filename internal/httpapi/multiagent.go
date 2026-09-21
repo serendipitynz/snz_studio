@@ -39,7 +39,7 @@ func (s *Server) handleListParticipants(w http.ResponseWriter, r *http.Request) 
 // display name is required: an empty baseUrl or modelName falls back to the
 // workspace's configured endpoint when the turn runs, which is what lets a
 // participant be created before its endpoint has been picked. An absent
-// receivesBackground leaves the participant reading the project's material,
+// receivesProjectMaterial leaves the participant reading the project's material,
 // which is the default a roster is built from (design §4.4).
 func (s *Server) handleCreateParticipant(w http.ResponseWriter, r *http.Request) {
 	chat, ok := s.requireMultiAgentChat(w, r.PathValue("chatId"))
@@ -57,12 +57,12 @@ func (s *Server) handleCreateParticipant(w http.ResponseWriter, r *http.Request)
 	}
 
 	participant, err := s.participants.CreateParticipant(repository.CreateParticipantInput{
-		ChatID:             chat.ID,
-		DisplayName:        displayName,
-		RolePrompt:         bodyString(m, "rolePrompt"),
-		BaseURL:            bodyString(m, "baseUrl"),
-		ModelName:          bodyString(m, "modelName"),
-		ReceivesBackground: bodyBoolPtr(m, "receivesBackground"),
+		ChatID:                  chat.ID,
+		DisplayName:             displayName,
+		RolePrompt:              bodyString(m, "rolePrompt"),
+		BaseURL:                 bodyString(m, "baseUrl"),
+		ModelName:               bodyString(m, "modelName"),
+		ReceivesProjectMaterial: bodyBoolPtr(m, "receivesProjectMaterial"),
 	})
 	if err != nil {
 		fail(w, err)
@@ -95,13 +95,13 @@ func (s *Server) handleUpdateParticipant(w http.ResponseWriter, r *http.Request)
 	}
 
 	participant, err := s.participants.UpdateParticipant(repository.UpdateParticipantInput{
-		ParticipantID:      r.PathValue("participantId"),
-		DisplayName:        displayName,
-		RolePrompt:         bodyStringPtr(m, "rolePrompt"),
-		BaseURL:            bodyStringPtr(m, "baseUrl"),
-		ModelName:          bodyStringPtr(m, "modelName"),
-		SortOrder:          sortOrder,
-		ReceivesBackground: bodyBoolPtr(m, "receivesBackground"),
+		ParticipantID:           r.PathValue("participantId"),
+		DisplayName:             displayName,
+		RolePrompt:              bodyStringPtr(m, "rolePrompt"),
+		BaseURL:                 bodyStringPtr(m, "baseUrl"),
+		ModelName:               bodyStringPtr(m, "modelName"),
+		SortOrder:               sortOrder,
+		ReceivesProjectMaterial: bodyBoolPtr(m, "receivesProjectMaterial"),
 	})
 	if err != nil {
 		fail(w, err)
@@ -299,15 +299,15 @@ func (s *Server) presetFromBody(w http.ResponseWriter, m map[string]any, kind st
 // createPresetParticipants creates the preset's participants in preset order,
 // which is the round_robin order (§2). Endpoint and model are left empty, so a
 // turn runs against the workspace endpoint until the organisation panel assigns
-// one. receivesBackground is preset data, because a preset is what expresses a
+// one. receivesProjectMaterial is preset data, because a preset is what expresses a
 // line-up where one speaker knows what the others must not.
 func (s *Server) createPresetParticipants(chatID string, p *preset.MultiAgentPreset) error {
 	for _, participant := range p.Participants {
 		if _, err := s.participants.CreateParticipant(repository.CreateParticipantInput{
-			ChatID:             chatID,
-			DisplayName:        participant.DisplayName,
-			RolePrompt:         participant.RolePrompt,
-			ReceivesBackground: participant.ReceivesBackground,
+			ChatID:                  chatID,
+			DisplayName:             participant.DisplayName,
+			RolePrompt:              participant.RolePrompt,
+			ReceivesProjectMaterial: participant.ReceivesProjectMaterial,
 		}); err != nil {
 			return err
 		}

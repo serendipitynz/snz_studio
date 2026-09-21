@@ -235,3 +235,48 @@ func TestMultiAgentMigrationOnExistingDB(t *testing.T) {
 		t.Errorf("participants not cascaded on chat delete: %d rows left", remaining)
 	}
 }
+
+// TestReceivesProjectMaterialRename covers TASK-32 AC #2: migration 012 renames
+// the column rather than replacing it, so a database that already ran 011 keeps
+// both the participants that receive the project material and the ones that were
+// deliberately cut off from it.
+func TestReceivesProjectMaterialRename(t *testing.T) {
+	d := openUnmigratedTemp(t)
+	applyThrough(t, d, "011_participant_receives_background")
+
+	mustExec(t, d, `INSERT INTO projects (id, title, created_at, updated_at)
+		VALUES ('p1', 'proj', '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO chats (id, project_id, title, is_temporary, created_at, updated_at)
+		VALUES ('c1', 'p1', 'trpg', 0, '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO participants (id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_background, created_at)
+		VALUES ('gm', 'c1', 'GM', 'r', '', '', 0, 1, '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO participants (id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_background, created_at)
+		VALUES ('pc', 'c1', '戦士', 'r', '', '', 1, 0, '2026-01-01')`)
+
+	if err := ApplyMigrations(d); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+
+	rows, err := d.Query("SELECT id, receives_project_material FROM participants ORDER BY sort_order")
+	if err != nil {
+		t.Fatalf("read renamed column: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]int{}
+	for rows.Next() {
+		var (
+			id       string
+			receives int
+		)
+		if err := rows.Scan(&id, &receives); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = receives
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if got["gm"] != 1 || got["pc"] != 0 {
+		t.Errorf("values after the rename = %v, want gm=1 and pc=0", got)
+	}
+}
