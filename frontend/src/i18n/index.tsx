@@ -87,8 +87,8 @@ const en = {
   "project.chatTitle": "Chat title",
   "project.chatTitlePlaceholder": "Architecture review",
   "project.temporaryChat": "Temporary chat",
-  "project.temporaryChatMultiAgentNote":
-    "Multi-agent conversations never write project memories, so this setting has no effect on them.",
+  "project.temporaryChatNote":
+    "A temporary chat keeps its messages and summary but never writes project memories. In a multi-agent conversation, saving a message to memory is disabled too.",
   "project.openChat": "Open chat",
   "project.createChatError": "Failed to create chat",
   "project.documents": "Documents",
@@ -425,8 +425,8 @@ const ja: Record<MessageKey, string> = {
   "project.chatTitle": "チャットタイトル",
   "project.chatTitlePlaceholder": "アーキテクチャレビュー",
   "project.temporaryChat": "一時チャット",
-  "project.temporaryChatMultiAgentNote":
-    "多人数会話はプロジェクトのメモリを書き込まないため、一時チャットの設定は不要です。",
+  "project.temporaryChatNote":
+    "一時チャットはメッセージと要約を保持しますが、プロジェクトメモリは作成しません。多人数会話では発言のメモリ保存も無効になります。",
   "project.openChat": "チャットを開く",
   "project.createChatError": "チャットの作成に失敗しました",
   "project.documents": "ドキュメント",
