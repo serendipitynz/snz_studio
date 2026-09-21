@@ -461,7 +461,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
   const [rolePrompt, setRolePrompt] = useState(props.participant.rolePrompt);
   const [baseUrl, setBaseUrl] = useState(props.participant.baseUrl);
   const [modelName, setModelName] = useState(props.participant.modelName);
-  const [receivesBackground, setReceivesBackground] = useState(props.participant.receivesBackground);
+  const [receivesProjectMaterial, setReceivesProjectMaterial] = useState(props.participant.receivesProjectMaterial);
   const [saving, setSaving] = useState(false);
 
   const dirty =
@@ -469,12 +469,12 @@ function ParticipantEditor(props: ParticipantEditorProps) {
     rolePrompt !== props.participant.rolePrompt ||
     baseUrl !== props.participant.baseUrl ||
     modelName !== props.participant.modelName ||
-    receivesBackground !== props.participant.receivesBackground;
+    receivesProjectMaterial !== props.participant.receivesProjectMaterial;
 
   async function handleSave() {
     setSaving(true);
     try {
-      await props.onSave(props.participant.id, { displayName, rolePrompt, baseUrl, modelName, receivesBackground });
+      await props.onSave(props.participant.id, { displayName, rolePrompt, baseUrl, modelName, receivesProjectMaterial });
     } catch {
       // Reported by the panel; the drafts stay so the edit survives the failure.
     } finally {
@@ -550,13 +550,13 @@ function ParticipantEditor(props: ParticipantEditorProps) {
             <CheckboxLabel>
               <input
                 type="checkbox"
-                checked={receivesBackground}
-                onChange={(event) => setReceivesBackground(event.target.checked)}
+                checked={receivesProjectMaterial}
+                onChange={(event) => setReceivesProjectMaterial(event.target.checked)}
               />
-              {t("participants.receivesBackground")}
+              {t("participants.receivesProjectMaterial")}
             </CheckboxLabel>
           }
-          hint={t("participants.receivesBackgroundHint")}
+          hint={t("participants.receivesProjectMaterialHint")}
         />
 
         <Field>
