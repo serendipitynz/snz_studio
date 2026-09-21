@@ -46,14 +46,16 @@ const (
 // TurnEngine runs one turn of a multi-agent chat: it picks the speaker, builds
 // that speaker's view of the conversation, streams the completion from the
 // participant's own endpoint, and stores the result with its participant_id
-// (docs/multi-agent-chat-design.md §4). It shares only the LLM client and the
-// repositories with ChatService; the retrieval / memory / summary context of a
-// single-assistant turn is deliberately not reused (§4.4).
+// (docs/multi-agent-chat-design.md §4). It shares the LLM client and the
+// repositories with ChatService, and takes the project's documents and memories
+// through the background assembler; the summary and the rest of a
+// single-assistant turn's PromptContext are deliberately not reused (§4.4).
 type TurnEngine struct {
 	chats        *repository.ChatRepository
 	participants *repository.ParticipantRepository
 	llm          *LLMClient
 	cfg          *config.Config
+	background   TurnBackgroundAssembler
 
 	// running holds the chats with a turn in flight. The speaker is derived from
 	// the last stored message and only becomes visible to the next request once
@@ -71,12 +73,13 @@ type TurnEngine struct {
 }
 
 // NewTurnEngine builds a TurnEngine.
-func NewTurnEngine(chats *repository.ChatRepository, participants *repository.ParticipantRepository, llm *LLMClient, cfg *config.Config) *TurnEngine {
+func NewTurnEngine(chats *repository.ChatRepository, participants *repository.ParticipantRepository, llm *LLMClient, cfg *config.Config, background TurnBackgroundAssembler) *TurnEngine {
 	return &TurnEngine{
 		chats:         chats,
 		participants:  participants,
 		llm:           llm,
 		cfg:           cfg,
+		background:    background,
 		running:       map[string]bool{},
 		messageWrites: map[string]*sync.Mutex{},
 	}
@@ -205,11 +208,13 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 		return nil, err
 	}
 
-	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s", chatID, speaker.ID, effectiveModel)
+	background := e.assembleBackground(chat, speaker, messages)
+
+	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(background.References))
 	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers), speaker)
 	var streamed strings.Builder
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
-		SystemPrompt: buildTurnSystemPrompt(chat, speaker, knownSpeakers),
+		SystemPrompt: buildTurnSystemPrompt(background.Prompt, chat, speaker, knownSpeakers),
 		Messages:     history,
 		UserInput:    finalUserMessage,
 		Temperature:  float64Ptr(0.7),
@@ -231,8 +236,11 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 	// The message is written once, after the stream completes, rather than being
 	// created empty and filled in as ChatService does: a failed turn would
 	// otherwise leave a blank participant message in the transcript, which
-	// round_robin then reads as that participant having spoken.
-	message, err := e.chats.AddMessage(repository.AddMessageInput{
+	// round_robin then reads as that participant having spoken. The references go
+	// in the same transaction for the same reason: stored separately, a failure
+	// to store them would fail the turn with the utterance already in the
+	// transcript, and round_robin would advance past a turn reported as failed.
+	message, err := e.chats.AddMessageWithReferences(repository.AddMessageInput{
 		ChatID:          chatID,
 		Role:            "assistant",
 		Content:         result.Content,
@@ -241,11 +249,42 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 		TokensPerSecond: float64Ptr(result.TokensPerSecond),
 		ModelName:       strPtr(result.ModelName),
 		ParticipantID:   strPtr(speaker.ID),
-	})
+	}, referenceInputs(background.References))
 	if err != nil {
 		return nil, err
 	}
 	return &message, nil
+}
+
+// assembleBackground never fails the turn: a broken document or memory search
+// would otherwise stop every turn of an auto-advancing conversation, so the
+// speaker goes on without material and the failure is left in the log (§4.4).
+// This is distinct from the reference store failing after generation, which
+// AddMessageWithReferences makes impossible to observe on its own. An embedding
+// endpoint failure never reaches here — EmbeddingClient disables itself and
+// retrieval continues on keywords, the same degradation a single-assistant turn
+// gets.
+func (e *TurnEngine) assembleBackground(chat *model.Chat, speaker *model.Participant, messages []model.Message) *TurnBackground {
+	background, err := e.background.AssembleTurnBackground(chat, speaker, messages)
+	if err != nil {
+		log.Printf("[turn] background unavailable chatId=%s participantId=%s reason=%v", chat.ID, speaker.ID, err)
+		return &TurnBackground{}
+	}
+	return background
+}
+
+func referenceInputs(references []model.SearchReference) []repository.ReferenceInput {
+	inputs := make([]repository.ReferenceInput, len(references))
+	for i, ref := range references {
+		inputs[i] = repository.ReferenceInput{
+			SourceType: ref.SourceType,
+			SourceID:   ref.SourceID,
+			Label:      ref.Label,
+			Excerpt:    ref.Excerpt,
+			Score:      ref.Score,
+		}
+	}
+	return inputs
 }
 
 // selectSpeaker applies the chat's turn rule. round_robin derives the speaker
@@ -368,12 +407,18 @@ func speakerLabel(m model.Message, labels map[string]string) string {
 	return assistantSpeakerLabel
 }
 
-// buildTurnSystemPrompt assembles the speaker's system message: the chat-wide
-// scene, the participant's role prompt, and the per-turn role reminder (§4.3).
-// The reminder is repeated every turn because small models drift out of their
-// role as the history grows and settle into agreeing with the previous speaker.
-func buildTurnSystemPrompt(chat *model.Chat, speaker *model.Participant, participants []model.Participant) string {
-	parts := make([]string, 0, 4)
+// buildTurnSystemPrompt assembles the speaker's system message: the project's
+// background material, the chat-wide scene, the participant's role prompt, and
+// the per-turn role reminder (§4.3). The background comes first so that the scene
+// and the role, which decide how the speaker talks, are the last word before the
+// reminder. The reminder is repeated every turn because small models drift out of
+// their role as the history grows and settle into agreeing with the previous
+// speaker.
+func buildTurnSystemPrompt(background string, chat *model.Chat, speaker *model.Participant, participants []model.Participant) string {
+	parts := make([]string, 0, 5)
+	if background = strings.TrimSpace(background); background != "" {
+		parts = append(parts, background)
+	}
 	if scene := strings.TrimSpace(chat.ScenePrompt); scene != "" {
 		parts = append(parts, scene)
 	}

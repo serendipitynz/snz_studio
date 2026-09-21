@@ -96,7 +96,7 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 	chatService := service.NewChatService(chats, contextService, llm, summary, memoryService, embeddingSync, cfg)
 	reviewService := service.NewReviewService(chats, contextService, llm, cfg)
 	memoryOrg := service.NewMemoryOrganizerService(memories, chats, llm, embeddingSync)
-	turnEngine := service.NewTurnEngine(chats, participants, llm, cfg)
+	turnEngine := service.NewTurnEngine(chats, participants, llm, cfg, contextService)
 
 	srv := &Server{
 		cfg:           cfg,

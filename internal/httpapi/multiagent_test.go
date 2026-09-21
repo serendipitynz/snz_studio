@@ -718,3 +718,41 @@ func TestMultiAgentPresetApplyExcludesTurns(t *testing.T) {
 	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "debate"}),
 		http.StatusConflict, "a preset applies only while the conversation has no messages")
 }
+
+// TestMultiAgentTurnCarriesReferences is the HTTP half of TASK-18's AC #4: the
+// done frame's transcript carries the references a turn used, in the same shape
+// the single-assistant chat screen already renders.
+func TestMultiAgentTurnCarriesReferences(t *testing.T) {
+	llm := newMultiAgentLLM(t, nil)
+	h := newTestServer(t).Handler()
+	rec := doJSON(t, h, "POST", "/api/projects", map[string]any{"title": "港町の物語", "description": "霧の港町ハーバーンの群像劇。"})
+	wantStatus(t, rec, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "project", &project)
+	chatID := createMultiAgentChat(t, h, project.ID, "round_robin")
+	addParticipant(t, h, chatID, "Alice", llm.URL+"/v1")
+	addParticipant(t, h, chatID, "Bob", llm.URL+"/v1")
+
+	rec = doJSON(t, h, "POST", "/api/chats/"+chatID+"/turns/stream", map[string]any{})
+	wantStatus(t, rec, http.StatusOK)
+	var messages []struct {
+		Role       string `json:"role"`
+		References []struct {
+			SourceType string `json:"sourceType"`
+			SourceID   string `json:"sourceId"`
+			Label      string `json:"label"`
+		} `json:"references"`
+	}
+	if err := json.Unmarshal(doneFrame(t, rec)["messages"], &messages); err != nil {
+		t.Fatalf("decode done.messages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("%d messages in the done frame, want 1", len(messages))
+	}
+	refs := messages[0].References
+	if len(refs) != 1 || refs[0].SourceType != "project" || refs[0].SourceID != project.ID || refs[0].Label != "港町の物語" {
+		t.Fatalf("references = %+v, want the project description alone", refs)
+	}
+}
