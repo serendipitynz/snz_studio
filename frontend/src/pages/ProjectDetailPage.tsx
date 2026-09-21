@@ -1081,71 +1081,71 @@ export function ProjectDetailPage() {
                       <List>
                         {groupedMemories[kind].map((memory) => (
                           <Item key={memory.id} style={{ position: "relative" }}>
-                            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <Row style={{ alignItems: "center" }}>
-                                  <strong>{memory.title}</strong>
-                                  <Badge tone="muted">{memory.source}</Badge>
-                                  {memory.locked ? <Badge tone="warm">{t("project.locked")}</Badge> : null}
-                                  {memory.sharedWithAll ? <Badge tone="accent">{t("project.sharedWithAll")}</Badge> : null}
-                                </Row>
-                              </div>
-                              <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                            {/* Title, actions and badges each get their own line. Sharing the
+                                first line between the title and three icon buttons left the
+                                title a few characters wide in the memory pane's narrow column
+                                (observed on a memory whose title is a long sentence). */}
+                            <strong style={{ display: "block", overflowWrap: "anywhere" }}>{memory.title}</strong>
+                            <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap" }}>
+                              <IconButton
+                                type="button"
+                                disabled={busy}
+                                aria-label={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
+                                title={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
+                                onClick={() => void handleUpdateMemorySharedWithAll(memory.id, !memory.sharedWithAll)}
+                              >
+                                {memory.sharedWithAll ? <SharedIcon /> : <NotSharedIcon />}
+                              </IconButton>
+                              <IconButton
+                                type="button"
+                                aria-label={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
+                                onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
+                              >
+                                {memory.locked ? <UnlockIcon /> : <LockIcon />}
+                              </IconButton>
+                              <div style={{ position: "relative" }}>
                                 <IconButton
                                   type="button"
-                                  disabled={busy}
-                                  aria-label={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
-                                  title={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
-                                  onClick={() => void handleUpdateMemorySharedWithAll(memory.id, !memory.sharedWithAll)}
+                                  aria-label={t("project.deleteMemory")}
+                                  onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
                                 >
-                                  {memory.sharedWithAll ? <SharedIcon /> : <NotSharedIcon />}
+                                  <TrashIcon />
                                 </IconButton>
-                                <IconButton
-                                  type="button"
-                                  aria-label={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
-                                  onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
-                                >
-                                  {memory.locked ? <UnlockIcon /> : <LockIcon />}
-                                </IconButton>
-                                <div style={{ position: "relative" }}>
-                                  <IconButton
-                                    type="button"
-                                    aria-label={t("project.deleteMemory")}
-                                    onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
-                                  >
-                                    <TrashIcon />
-                                  </IconButton>
 
-                                  {pendingDeleteMemoryId === memory.id ? (
-                                    <div
-                                      style={{
-                                        position: "absolute",
-                                        right: 0,
-                                        top: 40,
-                                        width: 210,
-                                        zIndex: 2,
-                                        padding: 12,
-                                        borderRadius: 14,
-                                        border: `1px solid ${theme.lineStrong}`,
-                                        background: theme.surfaceCard,
-                                        boxShadow: theme.shadowPopover
-                                      }}
-                                    >
-                                      <Stack>
-                                        <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
-                                        <Row>
-                                          <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
-                                            {t("common.cancel")}
-                                          </Button>
-                                          <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
-                                            {t("common.ok")}
-                                          </Button>
-                                        </Row>
-                                      </Stack>
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </Row>
+                                {pendingDeleteMemoryId === memory.id ? (
+                                  <div
+                                    style={{
+                                      position: "absolute",
+                                      right: 0,
+                                      top: 40,
+                                      width: 210,
+                                      zIndex: 2,
+                                      padding: 12,
+                                      borderRadius: 14,
+                                      border: `1px solid ${theme.lineStrong}`,
+                                      background: theme.surfaceCard,
+                                      boxShadow: theme.shadowPopover
+                                    }}
+                                  >
+                                    <Stack>
+                                      <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
+                                      <Row>
+                                        <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
+                                          {t("common.cancel")}
+                                        </Button>
+                                        <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
+                                          {t("common.ok")}
+                                        </Button>
+                                      </Row>
+                                    </Stack>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </Row>
+                            <Row style={{ alignItems: "center" }}>
+                              <Badge tone="muted">{memory.source}</Badge>
+                              {memory.locked ? <Badge tone="warm">{t("project.locked")}</Badge> : null}
+                              {memory.sharedWithAll ? <Badge tone="accent">{t("project.sharedWithAll")}</Badge> : null}
                             </Row>
                             <Subtle>{memory.content}</Subtle>
                           </Item>
