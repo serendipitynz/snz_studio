@@ -17,9 +17,10 @@ ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS �
 - assistant 返答ごとに参照した `project` / `summary` / `document` / `memory` を UI で確認
 - 多人数会話 chat（2 名以上の参加者が順番に発言する chat）
   - 参加者ごとに表示名・役割プロンプト・接続先・モデルを設定（接続先を分ければ複数の LM Studio を混在させられる）
-  - ターン進行ルールは編成順の循環（`round_robin`）と発言者の指名（`manual`）
+  - ターン進行ルールは編成順の循環（`round_robin`）・発言者の指名（`manual`）・
+    進行役が 1 人おきに挟まる交互進行（`facilitator_alternating`、TRPG の GM 向け）
   - 全参加者に共通する場面設定（論題・シーン・世界観）
-  - 同梱プリセット 7 件（ディベート・即興劇など）で選ぶだけで開始、JSON ファイルの読み込みで追加のプリセットも適用
+  - 同梱プリセット 8 件（ディベート・即興劇・TRPG の卓など）で選ぶだけで開始、JSON ファイルの読み込みで追加のプリセットも適用
   - 観戦ビューで 1 ターンずつ進める / 自動進行、任意の時点で人間として会話に発言
 - OpenAI 互換 API への接続
   - LM Studio
@@ -83,7 +84,8 @@ SQLite には最低限以下を持たせています。
 - `assistant_message_references`
 - `participants`（多人数会話の参加者。除籍は `deleted_at` の論理削除で、過去の発言の帰属は残る）
 
-`chats` には種別（`kind`）・ターン進行ルール（`turn_rule`）・場面設定（`scene_prompt`）、`messages` には
+`chats` には種別（`kind`）・ターン進行ルール（`turn_rule`）・場面設定（`scene_prompt`）・
+交互進行の進行役（`facilitator_participant_id`）、`messages` には
 発言者（`participant_id`）の列があります。既存 chat は `kind = 'assistant'` のままです。
 
 ## 必要なツール

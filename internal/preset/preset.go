@@ -41,10 +41,15 @@ var ErrInvalid = errors.New("preset: invalid preset")
 // (true) rather than false — every preset written before the field existed must
 // keep handing its whole roster the project's material. Validate fills it in, so
 // a parsed preset never carries nil.
+//
+// Facilitator marks the one entry the facilitator_alternating rule interleaves.
+// The chat stores a participant id, which does not exist until the preset is
+// applied, so the preset marks the roster entry and the apply resolves it.
 type Participant struct {
 	DisplayName             string `json:"displayName"`
 	RolePrompt              string `json:"rolePrompt"`
 	ReceivesProjectMaterial *bool  `json:"receivesProjectMaterial"`
+	Facilitator             bool   `json:"facilitator"`
 }
 
 // MultiAgentPreset is the shape of one preset JSON. ID and Group only mean
@@ -112,12 +117,13 @@ func (p *MultiAgentPreset) Validate() error {
 	if p.TurnRule == "" {
 		p.TurnRule = model.TurnRuleRoundRobin
 	}
-	if p.TurnRule != model.TurnRuleRoundRobin && p.TurnRule != model.TurnRuleManual {
-		return fmt.Errorf("%w: turnRule must be \"round_robin\" or \"manual\"", ErrInvalid)
+	if p.TurnRule != model.TurnRuleRoundRobin && p.TurnRule != model.TurnRuleManual && p.TurnRule != model.TurnRuleFacilitatorAlternating {
+		return fmt.Errorf("%w: turnRule must be \"round_robin\", \"manual\" or \"facilitator_alternating\"", ErrInvalid)
 	}
 	if len(p.Participants) < 2 {
 		return fmt.Errorf("%w: participants must have at least two entries", ErrInvalid)
 	}
+	facilitators := 0
 	for i := range p.Participants {
 		p.Participants[i].DisplayName = strings.TrimSpace(p.Participants[i].DisplayName)
 		p.Participants[i].RolePrompt = strings.TrimSpace(p.Participants[i].RolePrompt)
@@ -128,6 +134,19 @@ func (p *MultiAgentPreset) Validate() error {
 			receives := true
 			p.Participants[i].ReceivesProjectMaterial = &receives
 		}
+		if p.Participants[i].Facilitator {
+			facilitators++
+		}
+	}
+	// The mark and the rule are checked against each other rather than
+	// separately: a mark under another rule would be stored and never read, and
+	// facilitator_alternating without one applies as a chat whose rule silently
+	// degrades to round_robin (§4.2 step 1) — a preset can say which, so it must.
+	if p.TurnRule == model.TurnRuleFacilitatorAlternating && facilitators != 1 {
+		return fmt.Errorf("%w: turnRule \"facilitator_alternating\" needs exactly one participant with facilitator: true", ErrInvalid)
+	}
+	if p.TurnRule != model.TurnRuleFacilitatorAlternating && facilitators > 0 {
+		return fmt.Errorf("%w: participants[].facilitator applies to turnRule \"facilitator_alternating\" only", ErrInvalid)
 	}
 	return nil
 }

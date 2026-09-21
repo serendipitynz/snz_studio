@@ -405,6 +405,101 @@ func TestTurnEngineRoundRobinAfterRemoval(t *testing.T) {
 	}
 }
 
+// setFacilitator points the chat's facilitator_alternating rule at one
+// participant and returns the updated chat.
+func (g *turnGraph) setFacilitator(t *testing.T, chatID, participantID string) model.Chat {
+	t.Helper()
+	chat, err := g.chats.UpdateMultiAgentSettings(chatID, nil, nil, &participantID)
+	if err != nil || chat == nil {
+		t.Fatalf("UpdateMultiAgentSettings(facilitator) = %v, %v", chat, err)
+	}
+	return *chat
+}
+
+func (g *turnGraph) runTurns(t *testing.T, chatID string, want []model.Participant) {
+	t.Helper()
+	for i, expected := range want {
+		message, err := g.engine.RunTurn(chatID, "", nil)
+		if err != nil {
+			t.Fatalf("RunTurn #%d: %v", i+1, err)
+		}
+		if message.ParticipantID == nil || *message.ParticipantID != expected.ID {
+			t.Fatalf("turn #%d spoke by %v, want %s (%s)", i+1, message.ParticipantID, expected.ID, expected.DisplayName)
+		}
+	}
+}
+
+// TestTurnEngineFacilitatorAlternating covers TASK-21 AC #1 and #2: the
+// facilitator speaks every other turn, the rest of the roster cycles in
+// sort_order between its turns, and the whole order comes out of the stored
+// transcript — a second engine over the same database, holding no progression
+// state of its own, continues where the first left off.
+//
+// The facilitator sits in the middle of the roster so the opening turn cannot
+// pass by being the roster's head.
+func TestTurnEngineFacilitatorAlternating(t *testing.T) {
+	srv := newTurnLLMServer(t, "発言", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleFacilitatorAlternating, "灰縁坑の調査", srv.URL, "Player1", "GM", "Player2")
+	player1, gm, player2 := roster[0], roster[1], roster[2]
+	g.setFacilitator(t, chat.ID, gm.ID)
+
+	g.runTurns(t, chat.ID, []model.Participant{gm, player1, gm})
+
+	g.engine = NewTurnEngine(g.chats, g.participants, NewLLMClient(g.cfg), g.cfg, g.material)
+	g.runTurns(t, chat.ID, []model.Participant{player2, gm, player1})
+}
+
+// TestTurnEngineFacilitatorAnswersIntervention covers TASK-21 AC #3: the human's
+// intervention carries no participant_id, and under this rule the facilitator is
+// the one who answers it. The cycle of the others is not reset by it — the
+// player who had not spoken yet is still next after the facilitator.
+func TestTurnEngineFacilitatorAnswersIntervention(t *testing.T) {
+	srv := newTurnLLMServer(t, "発言", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleFacilitatorAlternating, "", srv.URL, "GM", "Player1", "Player2")
+	gm, player1, player2 := roster[0], roster[1], roster[2]
+	g.setFacilitator(t, chat.ID, gm.ID)
+
+	g.addMessage(t, chat.ID, "assistant", "坑道の入口に立っています", &gm.ID)
+	g.addMessage(t, chat.ID, "assistant", "足跡を調べます", &player1.ID)
+	g.addMessage(t, chat.ID, "user", "（GM へ）そろそろ物音を", nil)
+
+	g.runTurns(t, chat.ID, []model.Participant{gm, player2})
+}
+
+// TestTurnEngineFacilitatorFallsBackToRoundRobin covers TASK-21 AC #3: a
+// facilitator that has left the roster, and one never chosen, both leave the
+// rule without the participant it needs, and the turn proceeds in roster order
+// rather than failing — an auto-advancing conversation must not stop on a state
+// a removal can reach at any time.
+func TestTurnEngineFacilitatorFallsBackToRoundRobin(t *testing.T) {
+	srv := newTurnLLMServer(t, "発言", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleFacilitatorAlternating, "", srv.URL, "GM", "Player1", "Player2")
+	gm, player1, player2 := roster[0], roster[1], roster[2]
+	g.setFacilitator(t, chat.ID, gm.ID)
+
+	g.addMessage(t, chat.ID, "assistant", "坑道の入口に立っています", &gm.ID)
+	g.addMessage(t, chat.ID, "assistant", "足跡を調べます", &player1.ID)
+	if _, err := g.participants.RemoveParticipant(gm.ID); err != nil {
+		t.Fatalf("RemoveParticipant: %v", err)
+	}
+
+	// round_robin's own derivation over the roster the removal left: Player1 spoke
+	// last, so Player2 follows, and the cycle wraps back to Player1.
+	g.runTurns(t, chat.ID, []model.Participant{player2, player1})
+
+	unset, _ := g.newMultiAgentChat(t, model.TurnRuleFacilitatorAlternating, "", srv.URL, "Alice", "Bob")
+	message, err := g.engine.RunTurn(unset.ID, "", nil)
+	if err != nil {
+		t.Fatalf("RunTurn(no facilitator): %v", err)
+	}
+	if message.ParticipantID == nil {
+		t.Fatalf("no facilitator: turn stored without a speaker")
+	}
+}
+
 // TestTurnEngineConcurrentTurns covers AC #4: two overlapping requests would read
 // the same last message and make the same participant speak twice, so the second
 // one is refused while the first holds the chat's turn.

@@ -93,14 +93,20 @@ A multi-agent conversation has:
 
 - participants: display name, role prompt, endpoint, model, roster order, and whether the
   participant is given the project material (on by default)
-- turn rule: `round_robin` (cycle the roster) or `manual` (nominate each speaker)
+- turn rule: `round_robin` (cycle the roster), `manual` (nominate each speaker) or
+  `facilitator_alternating` (a chosen facilitator speaks every other turn, the rest of the roster
+  cycling in order between its turns)
+- facilitator: the participant `facilitator_alternating` interleaves. It answers the opening turn
+  and every intervention of yours; with no facilitator on the roster the rule falls back to roster
+  order
 - scene: text prefixed to every participant's system prompt (topic, setting, world)
 
 The roster is the set of participants still on the conversation. Removing a participant is a soft
 delete: the row stays, so past messages keep their speaker name, and the round-robin cycle keeps a
 starting point.
 
-Presets fill participants, turn rule and scene in one step. Seven presets ship with the app; further
+Presets fill participants, turn rule, scene and — where the preset marks one — the facilitator, in
+ one step. Eight presets ship with the app; further
 presets are applied by loading a JSON file of the same shape. A preset can be applied when the
 conversation is created, and afterwards from the organisation panel for as long as the conversation
 has no messages — which replaces the roster, the turn rule and the scene. Once something has been
@@ -164,7 +170,8 @@ A turn:
 
 1. takes the conversation's turn lock (a second concurrent turn gets 409)
 2. picks the speaker (round-robin: the next roster entry after the last participant message; manual:
-   the nominated participant)
+   the nominated participant; facilitator-alternating: the facilitator unless it spoke last, in which
+   case the roster entry after the last non-facilitator speaker)
 3. checks the participant's endpoint and loads the model
 4. builds the prompt from the participant's point of view: system = project material (project
    description, matched document passages, matched memories; see below) + scene + role prompt + role
@@ -380,14 +387,16 @@ Center:
 
 - transcript, each utterance labelled with the speaker's display name and model
 - streaming output for the turn in progress
-- advance one turn / start and stop auto-advance / (manual rule) nominate the next speaker
+- advance one turn / start and stop auto-advance / (manual rule) nominate the next speaker /
+  (facilitator-alternating rule) a note when no facilitator is on the roster
 - a composer for speaking into the conversation as the user
 
 Right pane:
 
 - organisation panel: participant CRUD with endpoint + model selection and a connection check,
-  the per-participant project-material switch, roster order, turn rule, scene, and — while the
-  conversation has no messages — applying a preset (collapsed by default)
+  the per-participant project-material switch, roster order, turn rule, the facilitator (shown for
+  the facilitator-alternating rule only), scene, and — while the conversation has no messages —
+  applying a preset (collapsed by default)
 
 Removed participants are listed separately from the roster, since their past utterances remain.
 

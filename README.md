@@ -20,10 +20,11 @@ filesystem** — a standalone desktop app you install and launch.
 - Multi-agent chats (chats where two or more participants speak in turn)
   - Per-participant display name, role prompt, endpoint and model (splitting endpoints lets you
     mix several LM Studio instances)
-  - Turn rules: cycling the roster (`round_robin`) or nominating the next speaker (`manual`)
+  - Turn rules: cycling the roster (`round_robin`), nominating the next speaker (`manual`), or a
+    chosen facilitator speaking every other turn (`facilitator_alternating`, for a game master)
   - A scene prompt (topic, setting, world) shared by every participant
-  - 7 bundled presets (debate, improv theatre and others) to start from, plus additional presets
-    loaded from JSON files
+  - 8 bundled presets (debate, improv theatre, a TRPG table and others) to start from, plus
+    additional presets loaded from JSON files
   - A spectator view that advances one turn at a time or runs automatically, and lets you speak
     into the conversation as a human at any point
 - Connects to OpenAI-compatible APIs
@@ -89,7 +90,8 @@ SQLite holds the following minimum:
 - `participants` (multi-agent participants; removal is a `deleted_at` soft delete, so past
   messages keep their attribution)
 
-`chats` carries the kind (`kind`), turn rule (`turn_rule`) and scene prompt (`scene_prompt`);
+`chats` carries the kind (`kind`), turn rule (`turn_rule`), scene prompt (`scene_prompt`) and the
+facilitator of the alternating rule (`facilitator_participant_id`);
 `messages` carries the speaker (`participant_id`). Existing chats stay `kind = 'assistant'`.
 
 ## Requirements

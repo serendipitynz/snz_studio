@@ -346,6 +346,22 @@ var migrations = []migration{
 			UPDATE memories SET shared_with_all = 1 WHERE source = 'multi_agent';
 		`,
 	},
+	{
+		// facilitator_participant_id names the participant the
+		// facilitator_alternating turn rule interleaves (design §4.2, TASK-21).
+		// It is the rule's accompanying setting rather than a second rule column,
+		// so a chat that switches back to round_robin keeps the choice and
+		// switching forth again needs no re-pick.
+		//
+		// Empty means unset, and no foreign key backs it: the participant it names
+		// can be removed from the roster, and the rule degrades to round_robin
+		// there rather than failing the turn, so a dangling id and an empty one
+		// are the same case for the engine.
+		id: "014_facilitator_turn_rule",
+		sql: `
+			ALTER TABLE chats ADD COLUMN facilitator_participant_id TEXT NOT NULL DEFAULT '';
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in

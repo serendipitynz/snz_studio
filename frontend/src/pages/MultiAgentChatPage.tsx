@@ -49,12 +49,14 @@ interface MultiAgentState {
 // transcript and roster, which is what lets one turn's result replace the whole
 // view without a second round trip.
 // What one turn needs to run: the roster to cycle, the transcript the cycle is
-// derived from, the rule, and the nomination the manual rule requires.
+// derived from, the rule, the nomination the manual rule requires, and the
+// facilitator the alternating rule interleaves.
 interface TurnInput {
   roster: Participant[];
   messages: MessageRecord[];
   turnRule: TurnRule;
   nomineeId: string;
+  facilitatorId: string;
 }
 
 interface TurnDonePayload {
@@ -239,6 +241,13 @@ export function MultiAgentChatPage() {
   }, [participants]);
 
   const manualRule = state?.chat.turnRule === "manual";
+  // The rule is the chat's standing setting, so a removed facilitator leaves it
+  // selected with nobody to interleave. The engine falls back to roster order
+  // rather than refusing the turn (design §4.2 step 1), which is invisible
+  // unless the view says so.
+  const facilitatorMissing =
+    state?.chat.turnRule === "facilitator_alternating" &&
+    !roster.some((participant) => participant.id === state?.chat.facilitatorId);
   // A multi-agent chat is one with two or more participants (design §2), and the
   // controls hold that line rather than assuming it: on a roster of one,
   // round_robin re-selects the same speaker every turn — (0 + 1) % 1 — so
@@ -249,7 +258,8 @@ export function MultiAgentChatPage() {
     roster,
     messages: state?.messages ?? [],
     turnRule: state?.chat.turnRule ?? "round_robin",
-    nomineeId
+    nomineeId,
+    facilitatorId: state?.chat.facilitatorId ?? ""
   });
 
   // runTurn takes what the turn needs and hands back what the next turn needs,
@@ -267,7 +277,9 @@ export function MultiAgentChatPage() {
     turnInFlightRef.current = true;
     setTurnError("");
     setStreamedContent("");
-    setRunningSpeaker(predictNextSpeaker(input.roster, input.messages, input.turnRule, input.nomineeId));
+    setRunningSpeaker(
+      predictNextSpeaker(input.roster, input.messages, input.turnRule, input.nomineeId, input.facilitatorId)
+    );
 
     let next: TurnInput | null = null;
     try {
@@ -296,7 +308,8 @@ export function MultiAgentChatPage() {
                 : input.roster,
               messages: done.messages ?? input.messages,
               turnRule: done.chat?.turnRule ?? input.turnRule,
-              nomineeId: input.nomineeId
+              nomineeId: input.nomineeId,
+              facilitatorId: done.chat?.facilitatorId ?? input.facilitatorId
             };
             setState((current) =>
               current
@@ -623,6 +636,9 @@ export function MultiAgentChatPage() {
                   </MetaText>
                 ) : null}
                 {manualRule && !nomineeId ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.nomineeRequired")}</MetaText> : null}
+                {facilitatorMissing ? (
+                  <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.facilitatorMissing")}</MetaText>
+                ) : null}
                 <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.reloadHint")}</MetaText>
               </Stack>
 

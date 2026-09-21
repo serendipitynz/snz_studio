@@ -63,7 +63,7 @@ export interface MemoryOrganizationPlan {
 }
 
 export type ChatKind = "assistant" | "multi_agent";
-export type TurnRule = "round_robin" | "manual";
+export type TurnRule = "round_robin" | "manual" | "facilitator_alternating";
 
 export interface ChatRecord {
   id: string;
@@ -73,6 +73,10 @@ export interface ChatRecord {
   kind: ChatKind;
   turnRule: TurnRule;
   scenePrompt: string;
+  // The participant the facilitator_alternating rule interleaves. Empty means
+  // unset, and the id may name a participant that has since left the roster;
+  // either way the rule falls back to round_robin.
+  facilitatorId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -115,6 +119,9 @@ export interface MultiAgentPresetParticipant {
   // required boolean here would promise a value that is not there. The server
   // fills the default (true) when it applies the preset.
   receivesProjectMaterial?: boolean;
+  // Marks the entry the facilitator_alternating rule interleaves. The chat
+  // stores a participant id, which the preset cannot know before it is applied.
+  facilitator?: boolean;
 }
 
 export interface MultiAgentPreset {
@@ -406,7 +413,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content })
     }),
-  updateChatMultiAgentSettings: (chatId: string, input: { turnRule?: TurnRule; scenePrompt?: string }) =>
+  updateChatMultiAgentSettings: (
+    chatId: string,
+    input: { turnRule?: TurnRule; scenePrompt?: string; facilitatorId?: string }
+  ) =>
     request<{ chat: ChatRecord }>(`/api/chats/${chatId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

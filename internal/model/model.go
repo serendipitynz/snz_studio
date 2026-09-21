@@ -51,21 +51,32 @@ const (
 
 	TurnRuleRoundRobin = "round_robin"
 	TurnRuleManual     = "manual"
+	// TurnRuleFacilitatorAlternating picks the facilitator and the rest of the
+	// roster one utterance each in turn, the rest cycling in sort_order
+	// (docs/multi-agent-chat-design.md §2). It is not the future rule where a
+	// facilitator model names the next speaker (§7).
+	TurnRuleFacilitatorAlternating = "facilitator_alternating"
 )
 
 // Chat mirrors the Chat interface. Kind is "assistant" (the single-assistant
-// chat) or "multi_agent"; TurnRule and ScenePrompt only carry meaning for the
-// latter (see docs/multi-agent-chat-design.md §3).
+// chat) or "multi_agent"; TurnRule, ScenePrompt and FacilitatorID only carry
+// meaning for the latter (see docs/multi-agent-chat-design.md §3).
+//
+// FacilitatorID names the participant TurnRuleFacilitatorAlternating
+// interleaves. Empty means unset, and the id may also name a participant that
+// has since left the roster; both make the rule fall back to round_robin's
+// derivation (§4.2 step 1).
 type Chat struct {
-	ID          string `json:"id"`
-	ProjectID   string `json:"projectId"`
-	Title       string `json:"title"`
-	IsTemporary bool   `json:"isTemporary"`
-	Kind        string `json:"kind"`
-	TurnRule    string `json:"turnRule"`
-	ScenePrompt string `json:"scenePrompt"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
+	ID            string `json:"id"`
+	ProjectID     string `json:"projectId"`
+	Title         string `json:"title"`
+	IsTemporary   bool   `json:"isTemporary"`
+	Kind          string `json:"kind"`
+	TurnRule      string `json:"turnRule"`
+	ScenePrompt   string `json:"scenePrompt"`
+	FacilitatorID string `json:"facilitatorId"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
 }
 
 // Message mirrors the Message interface. The metric fields are nil until the

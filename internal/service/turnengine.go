@@ -21,7 +21,7 @@ var (
 	ErrChatNotFound              = errors.New("service: chat not found")
 	ErrRosterEmpty               = errors.New("service: chat has no participants on its roster")
 	ErrManualParticipantRequired = errors.New("service: turn rule is manual, so a participant must be named")
-	ErrParticipantNotNameable    = errors.New("service: turn rule is round_robin, so a participant cannot be named")
+	ErrParticipantNotNameable    = errors.New("service: turn rule derives the speaker, so a participant cannot be named")
 	ErrParticipantNotInChat      = errors.New("service: participant does not belong to this chat")
 	ErrParticipantRemoved        = errors.New("service: participant was removed from the roster")
 	ErrEndpointUnavailable       = errors.New("service: participant endpoint did not accept the model")
@@ -149,7 +149,7 @@ func (e *TurnEngine) messageWriteLock(chatID string) *sync.Mutex {
 // RunTurn executes one turn of the chat and returns the stored message. A turn is
 // one completion by one participant: continuous progression is the frontend
 // calling this repeatedly (§4.1). participantID names the speaker under the
-// manual turn rule and must be empty under round_robin.
+// manual turn rule and must be empty under the rules that derive it.
 //
 // The turn is not bound to the caller's lifetime: the underlying stream runs on
 // its own sliding deadline, so a disconnected client still gets the finished turn
@@ -287,9 +287,9 @@ func referenceInputs(references []model.SearchReference) []repository.ReferenceI
 	return inputs
 }
 
-// selectSpeaker applies the chat's turn rule. round_robin derives the speaker
-// from the transcript instead of from server-side progression state, so a
-// restarted server (or a second window) continues the cycle unchanged (§2).
+// selectSpeaker applies the chat's turn rule. Both derived rules read the
+// speaker out of the transcript instead of server-side progression state, so a
+// restarted server (or a second window) continues unchanged (§2).
 func (e *TurnEngine) selectSpeaker(chat *model.Chat, participantID string, messages []model.Message) (*model.Participant, error) {
 	participantID = strings.TrimSpace(participantID)
 	if chat.TurnRule == model.TurnRuleManual {
@@ -308,18 +308,77 @@ func (e *TurnEngine) selectSpeaker(chat *model.Chat, participantID string, messa
 	if len(roster) == 0 {
 		return nil, ErrRosterEmpty
 	}
+	if chat.TurnRule == model.TurnRuleFacilitatorAlternating {
+		// An unset facilitator and one that has left the roster are the same case
+		// here, and both fall through to round_robin rather than failing the turn
+		// (§4.2 step 1): the rule is the chat's standing setting, so refusing would
+		// stop an auto-advancing conversation on a state a removal can reach at any
+		// time, and the panel can say what is missing where it can also be fixed.
+		if facilitator := rosterIndexOf(roster, chat.FacilitatorID); facilitator >= 0 {
+			return alternatingSpeaker(roster, facilitator, messages), nil
+		}
+	}
+	return roundRobinSpeaker(roster, messages), nil
+}
+
+func rosterIndexOf(roster []model.Participant, participantID string) int {
+	if participantID == "" {
+		return -1
+	}
+	for i := range roster {
+		if roster[i].ID == participantID {
+			return i
+		}
+	}
+	return -1
+}
+
+func roundRobinSpeaker(roster []model.Participant, messages []model.Message) *model.Participant {
 	last := lastParticipantID(messages)
 	if last == "" {
-		return &roster[0], nil
+		return &roster[0]
 	}
 	for i := range roster {
 		if roster[i].ID == last {
-			return &roster[(i+1)%len(roster)], nil
+			return &roster[(i+1)%len(roster)]
 		}
 	}
 	// The last speaker is no longer on the roster, so the cycle has no position to
 	// advance from; the roster's head restarts it (§4.2 step 1).
-	return &roster[0], nil
+	return &roster[0]
+}
+
+// alternatingSpeaker implements facilitator_alternating: the facilitator and the
+// rest of the roster speak one utterance each in turn, the rest cycling in
+// sort_order (§4.2 step 1).
+//
+// The human's own interventions carry no participant_id, and round_robin looks
+// straight past them; here the last message is read whoever spoke it, so an
+// intervention is answered by the facilitator. That is the same choice as the
+// opening turn, where a game master sets the scene before anyone acts.
+func alternatingSpeaker(roster []model.Participant, facilitator int, messages []model.Message) *model.Participant {
+	others := make([]*model.Participant, 0, len(roster)-1)
+	for i := range roster {
+		if i != facilitator {
+			others = append(others, &roster[i])
+		}
+	}
+	if len(others) == 0 {
+		return &roster[facilitator]
+	}
+	if last := lastSpeaker(messages); last != roster[facilitator].ID {
+		return &roster[facilitator]
+	}
+	// The facilitator has just spoken, so the roster advances one past whoever
+	// spoke before it. A previous speaker that has left the roster leaves the
+	// cycle without a position, and the head restarts it — round_robin's fallback.
+	previous := lastParticipantIDExcept(messages, roster[facilitator].ID)
+	for i, other := range others {
+		if other.ID == previous {
+			return others[(i+1)%len(others)]
+		}
+	}
+	return others[0]
 }
 
 func (e *TurnEngine) namedSpeaker(chatID, participantID string) (*model.Participant, error) {
@@ -353,6 +412,28 @@ func (e *TurnEngine) endpointAccepts(baseURL, modelName string) bool {
 		return true
 	}
 	return e.llm.CheckConnection(baseURL, modelName)
+}
+
+// lastSpeaker is the participant id of the last message, empty when the
+// transcript is empty or its last message is the human's (or an assistant
+// message left over from before the chat became multi-agent).
+func lastSpeaker(messages []model.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	if id := messages[len(messages)-1].ParticipantID; id != nil {
+		return *id
+	}
+	return ""
+}
+
+func lastParticipantIDExcept(messages []model.Message, excluded string) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if id := messages[i].ParticipantID; id != nil && *id != "" && *id != excluded {
+			return *id
+		}
+	}
+	return ""
 }
 
 func lastParticipantID(messages []model.Message) string {

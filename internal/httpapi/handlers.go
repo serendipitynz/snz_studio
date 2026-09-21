@@ -397,10 +397,16 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if chosen != nil {
-		if err := s.applyPresetRoster(chat.ID, chosen); err != nil {
+		applied, err := s.applyPresetRoster(chat.ID, chosen)
+		if err != nil {
 			fail(w, err)
 			return
 		}
+		if applied == nil {
+			writeError(w, http.StatusNotFound, "chat not found")
+			return
+		}
+		chat = *applied
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"chat": chat})
 }
@@ -794,6 +800,7 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 	title := bodyStringPtr(m, "title")
 	turnRule := bodyStringPtr(m, "turnRule")
 	scenePrompt := bodyStringPtr(m, "scenePrompt")
+	facilitatorID := bodyStringPtr(m, "facilitatorId")
 
 	chat, err := s.chats.GetChat(chatID)
 	if err != nil {
@@ -805,19 +812,26 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if turnRule != nil || scenePrompt != nil {
+	if turnRule != nil || scenePrompt != nil || facilitatorID != nil {
 		// kind is fixed at creation, so a single-assistant chat can never reach a
-		// state where these two fields mean anything; accepting them would store
+		// state where these fields mean anything; accepting them would store
 		// settings that nothing reads.
 		if chat.Kind != model.ChatKindMultiAgent {
-			writeError(w, http.StatusBadRequest, "turnRule and scenePrompt apply to multi-agent chats only")
+			writeError(w, http.StatusBadRequest, "turnRule, scenePrompt and facilitatorId apply to multi-agent chats only")
 			return
 		}
-		if turnRule != nil && *turnRule != model.TurnRuleRoundRobin && *turnRule != model.TurnRuleManual {
-			writeError(w, http.StatusBadRequest, "turnRule must be \"round_robin\" or \"manual\"")
+		if turnRule != nil && !isKnownTurnRule(*turnRule) {
+			writeError(w, http.StatusBadRequest, "turnRule must be \"round_robin\", \"manual\" or \"facilitator_alternating\"")
 			return
 		}
-		chat, err = s.chats.UpdateMultiAgentSettings(chatID, turnRule, scenePrompt)
+		// An empty value clears the choice; anything else has to be on this chat's
+		// roster. A removed participant is refused here although the engine
+		// tolerates one it finds stored (design §4.2 step 1): tolerating what a
+		// removal left behind is not a reason to let the panel write it.
+		if facilitatorID != nil && *facilitatorID != "" && !s.isRosterMember(w, chatID, *facilitatorID) {
+			return
+		}
+		chat, err = s.chats.UpdateMultiAgentSettings(chatID, turnRule, scenePrompt, facilitatorID)
 		if err != nil {
 			fail(w, err)
 			return
@@ -840,6 +854,29 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"chat": chat})
+}
+
+func isKnownTurnRule(turnRule string) bool {
+	switch turnRule {
+	case model.TurnRuleRoundRobin, model.TurnRuleManual, model.TurnRuleFacilitatorAlternating:
+		return true
+	}
+	return false
+}
+
+// isRosterMember answers whether the participant is on the chat's roster, and
+// writes the refusal itself when it is not, so the caller only has to return.
+func (s *Server) isRosterMember(w http.ResponseWriter, chatID, participantID string) bool {
+	participant, err := s.participants.GetParticipant(participantID)
+	if err != nil {
+		fail(w, err)
+		return false
+	}
+	if participant == nil || participant.ChatID != chatID || participant.DeletedAt != nil {
+		writeError(w, http.StatusBadRequest, "facilitatorId must name a participant on this chat's roster")
+		return false
+	}
+	return true
 }
 
 func (s *Server) handleSetChatTemporary(w http.ResponseWriter, r *http.Request) {

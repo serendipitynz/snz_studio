@@ -297,37 +297,45 @@ func (s *Server) presetFromBody(w http.ResponseWriter, m map[string]any, kind st
 }
 
 // createPresetParticipants creates the preset's participants in preset order,
-// which is the round_robin order (§2). Endpoint and model are left empty, so a
-// turn runs against the workspace endpoint until the organisation panel assigns
-// one. receivesProjectMaterial is preset data, because a preset is what expresses a
-// line-up where one speaker knows what the others must not.
-func (s *Server) createPresetParticipants(chatID string, p *preset.MultiAgentPreset) error {
+// which is the round_robin order (§2), and returns the id the preset's
+// facilitator mark resolved to (empty when the preset marks none). Endpoint and
+// model are left empty, so a turn runs against the workspace endpoint until the
+// organisation panel assigns one. receivesProjectMaterial is preset data, because
+// a preset is what expresses a line-up where one speaker knows what the others
+// must not.
+func (s *Server) createPresetParticipants(chatID string, p *preset.MultiAgentPreset) (string, error) {
+	facilitatorID := ""
 	for _, participant := range p.Participants {
-		if _, err := s.participants.CreateParticipant(repository.CreateParticipantInput{
+		created, err := s.participants.CreateParticipant(repository.CreateParticipantInput{
 			ChatID:                  chatID,
 			DisplayName:             participant.DisplayName,
 			RolePrompt:              participant.RolePrompt,
 			ReceivesProjectMaterial: participant.ReceivesProjectMaterial,
-		}); err != nil {
-			return err
+		})
+		if err != nil {
+			return "", err
+		}
+		if participant.Facilitator {
+			facilitatorID = created.ID
 		}
 	}
-	return nil
+	return facilitatorID, nil
 }
 
 // applyPresetRoster is createPresetParticipants for a chat that was just created
-// from the preset. Chat creation and the roster are not one transaction (the
-// repositories expose none), so a roster that fails midway takes its chat with
-// it rather than leaving a multi-agent chat with a partial roster behind.
-func (s *Server) applyPresetRoster(chatID string, p *preset.MultiAgentPreset) error {
-	err := s.createPresetParticipants(chatID, p)
+// from the preset, followed by the facilitator the roster resolved to. Chat
+// creation and the roster are not one transaction (the repositories expose
+// none), so a roster that fails midway takes its chat with it rather than
+// leaving a multi-agent chat with a partial roster behind.
+func (s *Server) applyPresetRoster(chatID string, p *preset.MultiAgentPreset) (*model.Chat, error) {
+	facilitatorID, err := s.createPresetParticipants(chatID, p)
 	if err == nil {
-		return nil
+		return s.chats.UpdateMultiAgentSettings(chatID, nil, nil, &facilitatorID)
 	}
 	if _, deleteErr := s.chats.DeleteChat(chatID); deleteErr != nil {
 		log.Printf("[preset] chat %s kept with a partial roster: %v", chatID, deleteErr)
 	}
-	return err
+	return nil, err
 }
 
 // The refusals handleApplyMultiAgentPreset raises from inside the turn exclusion,
@@ -420,7 +428,7 @@ func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*
 	if err := s.participants.DeleteRoster(chatID); err != nil {
 		return nil, err
 	}
-	chat, err := s.chats.UpdateMultiAgentSettings(chatID, &p.TurnRule, &p.ScenePrompt)
+	chat, err := s.chats.UpdateMultiAgentSettings(chatID, &p.TurnRule, &p.ScenePrompt, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -444,8 +452,19 @@ func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*
 	// may be the only thing the user has, so it is kept: the transcript is still
 	// empty, so this same route stays open and re-applying clears the partial
 	// roster and starts over.
-	if err := s.createPresetParticipants(chatID, p); err != nil {
+	facilitatorID, err := s.createPresetParticipants(chatID, p)
+	if err != nil {
 		return nil, err
+	}
+	// Written whether or not the preset marks one: the roster it replaced is gone,
+	// so leaving the previous facilitator in place would point the setting at a
+	// participant this chat no longer has.
+	chat, err = s.chats.UpdateMultiAgentSettings(chatID, nil, nil, &facilitatorID)
+	if err != nil {
+		return nil, err
+	}
+	if chat == nil {
+		return nil, errChatVanished
 	}
 	return chat, nil
 }

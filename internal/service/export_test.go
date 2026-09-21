@@ -37,6 +37,23 @@ func exportFixture() (*model.Project, *model.Chat, []model.Participant, []model.
 	return project, chat, participants, messages
 }
 
+// TestBuildChatMarkdownFacilitatorRule covers TASK-21: the export names the
+// facilitator, and reports the fallback the engine actually takes once that
+// participant has left the roster rather than the setting the chat still holds.
+func TestBuildChatMarkdownFacilitatorRule(t *testing.T) {
+	project, chat, participants, messages := exportFixture()
+	chat.TurnRule = model.TurnRuleFacilitatorAlternating
+	chat.FacilitatorID = "pa1"
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); !strings.Contains(got, "facilitator_alternating（進行役「田中」と他の参加者が交互に発言する）") {
+		t.Errorf("markdown does not name the facilitator\n--- got ---\n%s", got)
+	}
+
+	chat.FacilitatorID = "pa2" // 除籍済み
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); !strings.Contains(got, "facilitator_alternating（進行役が編成に居ないため、編成順に回す）") {
+		t.Errorf("markdown does not report the fallback\n--- got ---\n%s", got)
+	}
+}
+
 func TestBuildChatMarkdownMultiAgent(t *testing.T) {
 	project, chat, participants, messages := exportFixture()
 	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())

@@ -40,7 +40,7 @@ func BuildChatMarkdown(project *model.Project, chat *model.Chat, participants []
 
 	if chat.Kind == model.ChatKindMultiAgent {
 		writeSceneSection(&b, chat)
-		writeTurnRuleSection(&b, chat)
+		writeTurnRuleSection(&b, chat, participants)
 		writeRosterSection(&b, participants)
 	}
 
@@ -58,25 +58,45 @@ func writeSceneSection(b *strings.Builder, chat *model.Chat) {
 	}
 }
 
-func writeTurnRuleSection(b *strings.Builder, chat *model.Chat) {
+func writeTurnRuleSection(b *strings.Builder, chat *model.Chat, participants []model.Participant) {
 	b.WriteString("\n## ターン進行ルール\n\n")
-	fmt.Fprintf(b, "%s\n", turnRuleDescription(chat.TurnRule))
+	fmt.Fprintf(b, "%s\n", turnRuleDescription(chat, participants))
 }
 
 // turnRuleDescription spells out the stored rule. An unrecognised value is
 // passed through rather than replaced, so a rule added later still exports
 // something truthful before this list catches up.
-func turnRuleDescription(rule string) string {
-	switch rule {
+func turnRuleDescription(chat *model.Chat, participants []model.Participant) string {
+	switch chat.TurnRule {
 	case model.TurnRuleRoundRobin:
 		return "round_robin（編成順に回す）"
 	case model.TurnRuleManual:
 		return "manual（1 ターンごとに発言者を指名する）"
+	case model.TurnRuleFacilitatorAlternating:
+		// The export says what the conversation actually did, so an unresolvable
+		// facilitator reports the fallback the engine took rather than the setting
+		// the chat carries (§4.2 step 1).
+		if name := facilitatorName(chat.FacilitatorID, participants); name != "" {
+			return fmt.Sprintf("facilitator_alternating（進行役「%s」と他の参加者が交互に発言する）", name)
+		}
+		return "facilitator_alternating（進行役が編成に居ないため、編成順に回す）"
 	case "":
 		return "（未設定）"
 	default:
-		return rule
+		return chat.TurnRule
 	}
+}
+
+func facilitatorName(facilitatorID string, participants []model.Participant) string {
+	if facilitatorID == "" {
+		return ""
+	}
+	for _, p := range participants {
+		if p.ID == facilitatorID && p.DeletedAt == nil {
+			return singleLine(p.DisplayName)
+		}
+	}
+	return ""
 }
 
 func writeRosterSection(b *strings.Builder, participants []model.Participant) {
