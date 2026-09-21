@@ -309,9 +309,19 @@ var migrations = []migration{
 		`,
 	},
 	{
+		// The id keeps its original spelling although the column has since been
+		// renamed (012): the id is what schema_migrations records, so changing it
+		// would make an installed database re-run this migration against a column
+		// that already exists.
 		id: "011_participant_receives_background",
 		sql: `
 			ALTER TABLE participants ADD COLUMN receives_background INTEGER NOT NULL DEFAULT 1;
+		`,
+	},
+	{
+		id: "012_rename_receives_background",
+		sql: `
+			ALTER TABLE participants RENAME COLUMN receives_background TO receives_project_material;
 		`,
 	},
 }

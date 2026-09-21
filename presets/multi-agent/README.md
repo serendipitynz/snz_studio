@@ -48,7 +48,7 @@
   "scenePrompt": "全参加者の system メッセージに前置される場面設定",
   "participants": [
     { "displayName": "上司", "rolePrompt": "この参加者だけに渡す役割プロンプト" },
-    { "displayName": "部下", "rolePrompt": "...", "receivesBackground": false }
+    { "displayName": "部下", "rolePrompt": "...", "receivesProjectMaterial": false }
   ]
 }
 ```
@@ -57,7 +57,7 @@
 | --- | --- | --- |
 | `title` | 一覧に出す名前。新規作成時にチャット名を空にしたときは、これがチャット名になる | 必須 |
 | `participants` | 登録順 = `round_robin` の巡回順。`displayName` は必須、`rolePrompt` は空でも可。2 名以上 | 必須 |
-| `participants[].receivesBackground` | その参加者のターンでプロジェクトのドキュメント・メモリ（設計書 §4.4 の背景資料）を渡すか。省略時は `true` | 任意 |
+| `participants[].receivesProjectMaterial` | その参加者のターンでプロジェクトのドキュメント・メモリ（設計書 §4.4 のプロジェクト資料）を渡すか。省略時は `true` | 任意 |
 | `turnRule` | `round_robin` または `manual`。省略時は `round_robin` | 任意 |
 | `scenePrompt` | 場面設定。省略時は空 | 任意 |
 | `description` | 一覧で title の下に出す説明 | 任意 |
@@ -67,7 +67,7 @@
 ワークスペースの既定エンドポイントで発言します。参加者ごとに変えるときは編成パネルで設定してください。
 知らないフィールド (メモなど) があっても無視されます。
 
-`receivesBackground` を `false` にすると、その参加者のターンではプロジェクトの資料を一切渡さず、検索も行いません。
+`receivesProjectMaterial` を `false` にすると、その参加者のターンではプロジェクトの資料を一切渡さず、検索も行いません。
 TRPG の GM のように 1 人だけがシナリオを知っている編成に使います。省略した参加者は全員が同じ資料を読みます。
 
 ## 適用の仕組み

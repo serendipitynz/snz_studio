@@ -94,16 +94,16 @@ func TestParse(t *testing.T) {
 	}
 }
 
-// TestParseReceivesBackground covers TASK-20 AC #3: the field is preset data,
+// TestParseReceivesProjectMaterial covers TASK-20 AC #3: the field is preset data,
 // and a preset written before it existed keeps handing its whole roster the
 // project's material.
-func TestParseReceivesBackground(t *testing.T) {
+func TestParseReceivesProjectMaterial(t *testing.T) {
 	p, err := Parse([]byte(`{
 		"title": "ダンジョン探索",
 		"participants": [
 			{ "displayName": "GM" },
-			{ "displayName": "戦士", "receivesBackground": false },
-			{ "displayName": "盗賊", "receivesBackground": true }
+			{ "displayName": "戦士", "receivesProjectMaterial": false },
+			{ "displayName": "盗賊", "receivesProjectMaterial": true }
 		]
 	}`))
 	if err != nil {
@@ -111,11 +111,11 @@ func TestParseReceivesBackground(t *testing.T) {
 	}
 	want := []bool{true, false, true}
 	for i, participant := range p.Participants {
-		if participant.ReceivesBackground == nil {
-			t.Fatalf("participants[%d].receivesBackground left nil; Validate must fill the default", i)
+		if participant.ReceivesProjectMaterial == nil {
+			t.Fatalf("participants[%d].receivesProjectMaterial left nil; Validate must fill the default", i)
 		}
-		if *participant.ReceivesBackground != want[i] {
-			t.Errorf("participants[%d] (%s).receivesBackground = %v, want %v", i, participant.DisplayName, *participant.ReceivesBackground, want[i])
+		if *participant.ReceivesProjectMaterial != want[i] {
+			t.Errorf("participants[%d] (%s).receivesProjectMaterial = %v, want %v", i, participant.DisplayName, *participant.ReceivesProjectMaterial, want[i])
 		}
 	}
 
@@ -123,8 +123,8 @@ func TestParseReceivesBackground(t *testing.T) {
 	// cutting a speaker off from the project's material by accident.
 	for _, bundledPreset := range Bundled() {
 		for _, participant := range bundledPreset.Participants {
-			if participant.ReceivesBackground == nil || !*participant.ReceivesBackground {
-				t.Errorf("bundled %s: participant %q does not receive the background", bundledPreset.ID, participant.DisplayName)
+			if participant.ReceivesProjectMaterial == nil || !*participant.ReceivesProjectMaterial {
+				t.Errorf("bundled %s: participant %q does not receive the project material", bundledPreset.ID, participant.DisplayName)
 			}
 		}
 	}

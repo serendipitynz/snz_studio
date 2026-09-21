@@ -65,7 +65,7 @@ frontend/
 - llm integration layer: `internal/service/llmclient.go`
 - multi-agent turn layer: `internal/service/turnengine.go`（単独 assistant の `chat.go` とは独立。共有するのは
   LLM クライアント・repository・retrieval。ターンはプロジェクトのドキュメントとメモリを `turncontext.go` 経由で
-  背景資料として受け取る）
+  プロジェクト資料として受け取る）
 
 ## データモデル
 

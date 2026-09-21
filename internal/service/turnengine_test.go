@@ -104,7 +104,7 @@ func newTurnGraph(t *testing.T) *turnGraph {
 }
 
 // newTurnGraphWithConfig wires the engine the way NewServer does, with the
-// ContextService as the background assembler over a retrieval that follows cfg's
+// ContextService as the project material assembler over a retrieval that follows cfg's
 // embedding settings (FTS-only when no embedding model is configured).
 func newTurnGraphWithConfig(t *testing.T, d *sql.DB, cfg *config.Config) *turnGraph {
 	t.Helper()
@@ -114,7 +114,7 @@ func newTurnGraphWithConfig(t *testing.T, d *sql.DB, cfg *config.Config) *turnGr
 	documents := repository.NewDocumentRepository(d)
 	memories := repository.NewMemoryRepository(d)
 	retrieval := NewRetrievalService(d, NewEmbeddingClient(cfg))
-	background := NewContextService(projects, chats, documents, memories, retrieval)
+	material := NewContextService(projects, chats, documents, memories, retrieval)
 	return &turnGraph{
 		projects:     projects,
 		chats:        chats,
@@ -122,7 +122,7 @@ func newTurnGraphWithConfig(t *testing.T, d *sql.DB, cfg *config.Config) *turnGr
 		documents:    documents,
 		memories:     memories,
 		cfg:          cfg,
-		engine:       NewTurnEngine(chats, participants, NewLLMClient(cfg), cfg, background),
+		engine:       NewTurnEngine(chats, participants, NewLLMClient(cfg), cfg, material),
 	}
 }
 

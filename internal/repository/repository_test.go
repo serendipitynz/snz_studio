@@ -636,9 +636,9 @@ func TestParticipantRepository(t *testing.T) {
 		t.Errorf("first participant = sort %d, deletedAt %v", pro.SortOrder, pro.DeletedAt)
 	}
 	// TASK-20 AC #1: a participant created without saying anything about the
-	// project's background material reads it.
-	if !pro.ReceivesBackground {
-		t.Error("a participant created without receivesBackground must receive the background")
+	// project material reads it.
+	if !pro.ReceivesProjectMaterial {
+		t.Error("a participant created without receivesProjectMaterial must receive the project material")
 	}
 	con, err := participants.CreateParticipant(CreateParticipantInput{
 		ChatID: chat.ID, DisplayName: "反対派", RolePrompt: "you argue against", BaseURL: "http://localhost:1235/v1", ModelName: "model-b",
@@ -694,43 +694,43 @@ func TestParticipantRepository(t *testing.T) {
 	if updated.RolePrompt != pro.RolePrompt || updated.ModelName != pro.ModelName || updated.ChatID != chat.ID {
 		t.Errorf("update clobbered untouched fields: %+v", updated)
 	}
-	if !updated.ReceivesBackground {
-		t.Error("an update that does not name receivesBackground must leave it alone")
+	if !updated.ReceivesProjectMaterial {
+		t.Error("an update that does not name receivesProjectMaterial must leave it alone")
 	}
 
 	// TASK-20 AC #1: the flag is settable both ways, and creating with it false
 	// is what a preset needs.
 	receives := false
 	if updated, err = participants.UpdateParticipant(UpdateParticipantInput{
-		ParticipantID: pro.ID, ReceivesBackground: &receives,
+		ParticipantID: pro.ID, ReceivesProjectMaterial: &receives,
 	}); err != nil || updated == nil {
-		t.Fatalf("UpdateParticipant(receivesBackground): %v, %v", updated, err)
+		t.Fatalf("UpdateParticipant(receivesProjectMaterial): %v, %v", updated, err)
 	}
-	if updated.ReceivesBackground || updated.DisplayName != "賛成派 (改)" {
-		t.Errorf("receivesBackground not cleared, or the update clobbered a neighbour: %+v", updated)
+	if updated.ReceivesProjectMaterial || updated.DisplayName != "賛成派 (改)" {
+		t.Errorf("receivesProjectMaterial not cleared, or the update clobbered a neighbour: %+v", updated)
 	}
 	if reread, err := participants.GetParticipant(pro.ID); err != nil || reread == nil {
 		t.Fatalf("GetParticipant: %v, %v", reread, err)
-	} else if reread.ReceivesBackground {
-		t.Error("receivesBackground false did not survive a re-read")
+	} else if reread.ReceivesProjectMaterial {
+		t.Error("receivesProjectMaterial false did not survive a re-read")
 	}
 	receives = true
 	if updated, err = participants.UpdateParticipant(UpdateParticipantInput{
-		ParticipantID: pro.ID, ReceivesBackground: &receives,
-	}); err != nil || updated == nil || !updated.ReceivesBackground {
-		t.Fatalf("receivesBackground not restored: %v, %v", updated, err)
+		ParticipantID: pro.ID, ReceivesProjectMaterial: &receives,
+	}); err != nil || updated == nil || !updated.ReceivesProjectMaterial {
+		t.Fatalf("receivesProjectMaterial not restored: %v, %v", updated, err)
 	}
 	// Created in the other chat, so the roster of this one keeps the shape the
 	// removal assertions below count on.
 	quiet := false
 	silent, err := participants.CreateParticipant(CreateParticipantInput{
-		ChatID: plain.ID, DisplayName: "耳役", ReceivesBackground: &quiet,
+		ChatID: plain.ID, DisplayName: "耳役", ReceivesProjectMaterial: &quiet,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if silent.ReceivesBackground {
-		t.Errorf("create ignored receivesBackground: %+v", silent)
+	if silent.ReceivesProjectMaterial {
+		t.Errorf("create ignored receivesProjectMaterial: %+v", silent)
 	}
 	// sort_order now decides the cycle order.
 	if roster, err := participants.ListRoster(chat.ID); err != nil {

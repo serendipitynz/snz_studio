@@ -243,12 +243,12 @@ func TestMultiAgentParticipantsCRUD(t *testing.T) {
 	addParticipant(t, h, chatID, "Bob", "http://127.0.0.1:1/v1")
 
 	type participant struct {
-		ID                 string  `json:"id"`
-		DisplayName        string  `json:"displayName"`
-		RolePrompt         string  `json:"rolePrompt"`
-		SortOrder          int     `json:"sortOrder"`
-		ReceivesBackground bool    `json:"receivesBackground"`
-		DeletedAt          *string `json:"deletedAt"`
+		ID                      string  `json:"id"`
+		DisplayName             string  `json:"displayName"`
+		RolePrompt              string  `json:"rolePrompt"`
+		SortOrder               int     `json:"sortOrder"`
+		ReceivesProjectMaterial bool    `json:"receivesProjectMaterial"`
+		DeletedAt               *string `json:"deletedAt"`
 	}
 	list := func() []participant {
 		t.Helper()
@@ -265,25 +265,25 @@ func TestMultiAgentParticipantsCRUD(t *testing.T) {
 	}
 	// TASK-20 AC #1: a participant added without mentioning the field reads the
 	// project's material.
-	if !roster[0].ReceivesBackground || !roster[1].ReceivesBackground {
-		t.Fatalf("roster = %+v, want both participants receiving the background", roster)
+	if !roster[0].ReceivesProjectMaterial || !roster[1].ReceivesProjectMaterial {
+		t.Fatalf("roster = %+v, want both participants receiving the project material", roster)
 	}
 
 	// The flag moves on its own and leaves its neighbours alone, both ways.
-	wantStatus(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"receivesBackground": false}), http.StatusOK)
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"receivesProjectMaterial": false}), http.StatusOK)
 	roster = list()
-	if roster[0].ReceivesBackground || roster[0].RolePrompt != "Alice の役割" || roster[1].ReceivesBackground != true {
-		t.Fatalf("after clearing receivesBackground = %+v", roster)
+	if roster[0].ReceivesProjectMaterial || roster[0].RolePrompt != "Alice の役割" || roster[1].ReceivesProjectMaterial != true {
+		t.Fatalf("after clearing receivesProjectMaterial = %+v", roster)
 	}
 	// An update that does not name the field leaves it where it was (the name is
 	// re-sent unchanged, so nothing but the flag is in play).
 	wantStatus(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"displayName": "Alice"}), http.StatusOK)
-	if roster = list(); roster[0].ReceivesBackground {
-		t.Fatalf("an unrelated update turned receivesBackground back on: %+v", roster[0])
+	if roster = list(); roster[0].ReceivesProjectMaterial {
+		t.Fatalf("an unrelated update turned receivesProjectMaterial back on: %+v", roster[0])
 	}
-	wantStatus(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"receivesBackground": true}), http.StatusOK)
-	if roster = list(); !roster[0].ReceivesBackground {
-		t.Fatalf("receivesBackground could not be turned back on: %+v", roster[0])
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"receivesProjectMaterial": true}), http.StatusOK)
+	if roster = list(); !roster[0].ReceivesProjectMaterial {
+		t.Fatalf("receivesProjectMaterial could not be turned back on: %+v", roster[0])
 	}
 
 	// Creation takes it too, which is what lets a preset ship a roster where one
@@ -291,13 +291,13 @@ func TestMultiAgentParticipantsCRUD(t *testing.T) {
 	// participant row is never deleted and would shift the indices below.
 	gmChatID := createMultiAgentChat(t, h, projectID, "")
 	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+gmChatID+"/participants",
-		map[string]any{"displayName": "Carol", "receivesBackground": false}), http.StatusCreated)
+		map[string]any{"displayName": "Carol", "receivesProjectMaterial": false}), http.StatusCreated)
 	rec := doJSON(t, h, "GET", "/api/chats/"+gmChatID+"/participants", nil)
 	wantStatus(t, rec, http.StatusOK)
 	var created []participant
 	unmarshalField(t, decodeJSONMap(t, rec), "participants", &created)
-	if len(created) != 1 || created[0].ReceivesBackground {
-		t.Fatalf("created participant = %+v, want Carol not receiving the background", created)
+	if len(created) != 1 || created[0].ReceivesProjectMaterial {
+		t.Fatalf("created participant = %+v, want Carol not receiving the project material", created)
 	}
 
 	wantError(t, doJSON(t, h, "PATCH", "/api/participants/"+alice, map[string]any{"sortOrder": "second"}),
@@ -487,12 +487,12 @@ func TestMultiAgentPresets(t *testing.T) {
 	rec = doJSON(t, h, "GET", "/api/chats/"+chat.ID+"/participants", nil)
 	wantStatus(t, rec, http.StatusOK)
 	var roster []struct {
-		DisplayName        string  `json:"displayName"`
-		RolePrompt         string  `json:"rolePrompt"`
-		BaseURL            string  `json:"baseUrl"`
-		SortOrder          int     `json:"sortOrder"`
-		ReceivesBackground bool    `json:"receivesBackground"`
-		DeletedAt          *string `json:"deletedAt"`
+		DisplayName             string  `json:"displayName"`
+		RolePrompt              string  `json:"rolePrompt"`
+		BaseURL                 string  `json:"baseUrl"`
+		SortOrder               int     `json:"sortOrder"`
+		ReceivesProjectMaterial bool    `json:"receivesProjectMaterial"`
+		DeletedAt               *string `json:"deletedAt"`
 	}
 	unmarshalField(t, decodeJSONMap(t, rec), "participants", &roster)
 	if len(roster) != len(debate.Participants) {
@@ -504,8 +504,8 @@ func TestMultiAgentPresets(t *testing.T) {
 		}
 		// TASK-20 AC #3: a bundled preset says nothing about the field, so its
 		// whole roster reads the project's material.
-		if !p.ReceivesBackground {
-			t.Fatalf("roster[%d] = %+v, want a participant that receives the background", i, p)
+		if !p.ReceivesProjectMaterial {
+			t.Fatalf("roster[%d] = %+v, want a participant that receives the project material", i, p)
 		}
 	}
 
@@ -525,7 +525,7 @@ func TestMultiAgentPresets(t *testing.T) {
 		"scenePrompt": "静かな部屋。",
 		"participants": []map[string]any{
 			{"displayName": "甲", "rolePrompt": "あなたは甲です。"},
-			{"displayName": "乙", "rolePrompt": "あなたは乙です。", "receivesBackground": false},
+			{"displayName": "乙", "rolePrompt": "あなたは乙です。", "receivesProjectMaterial": false},
 		},
 	}
 	rec = doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
@@ -541,10 +541,10 @@ func TestMultiAgentPresets(t *testing.T) {
 	if len(roster) != 2 || roster[0].DisplayName != "甲" || roster[1].DisplayName != "乙" {
 		t.Fatalf("inline roster = %+v, want 甲 then 乙", roster)
 	}
-	// TASK-20 AC #3: the preset's own receivesBackground reaches the created
+	// TASK-20 AC #3: the preset's own receivesProjectMaterial reaches the created
 	// participants, and an omitted one still means "receives".
-	if !roster[0].ReceivesBackground || roster[1].ReceivesBackground {
-		t.Fatalf("inline roster = %+v, want 甲 receiving the background and 乙 not", roster)
+	if !roster[0].ReceivesProjectMaterial || roster[1].ReceivesProjectMaterial {
+		t.Fatalf("inline roster = %+v, want 甲 receiving the project material and 乙 not", roster)
 	}
 
 	// Refusals.

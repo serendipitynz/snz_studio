@@ -48,14 +48,14 @@ const (
 // participant's own endpoint, and stores the result with its participant_id
 // (docs/multi-agent-chat-design.md §4). It shares the LLM client and the
 // repositories with ChatService, and takes the project's documents and memories
-// through the background assembler; the summary and the rest of a
+// through the project material assembler; the summary and the rest of a
 // single-assistant turn's PromptContext are deliberately not reused (§4.4).
 type TurnEngine struct {
 	chats        *repository.ChatRepository
 	participants *repository.ParticipantRepository
 	llm          *LLMClient
 	cfg          *config.Config
-	background   TurnBackgroundAssembler
+	material     TurnMaterialAssembler
 
 	// running holds the chats with a turn in flight. The speaker is derived from
 	// the last stored message and only becomes visible to the next request once
@@ -73,13 +73,13 @@ type TurnEngine struct {
 }
 
 // NewTurnEngine builds a TurnEngine.
-func NewTurnEngine(chats *repository.ChatRepository, participants *repository.ParticipantRepository, llm *LLMClient, cfg *config.Config, background TurnBackgroundAssembler) *TurnEngine {
+func NewTurnEngine(chats *repository.ChatRepository, participants *repository.ParticipantRepository, llm *LLMClient, cfg *config.Config, material TurnMaterialAssembler) *TurnEngine {
 	return &TurnEngine{
 		chats:         chats,
 		participants:  participants,
 		llm:           llm,
 		cfg:           cfg,
-		background:    background,
+		material:      material,
 		running:       map[string]bool{},
 		messageWrites: map[string]*sync.Mutex{},
 	}
@@ -208,13 +208,13 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 		return nil, err
 	}
 
-	background := e.assembleBackground(chat, speaker, messages)
+	material := e.assembleMaterial(chat, speaker, messages)
 
-	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(background.References))
+	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(material.References))
 	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers), speaker)
 	var streamed strings.Builder
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
-		SystemPrompt: buildTurnSystemPrompt(background.Prompt, chat, speaker, knownSpeakers),
+		SystemPrompt: buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers),
 		Messages:     history,
 		UserInput:    finalUserMessage,
 		Temperature:  float64Ptr(0.7),
@@ -249,14 +249,14 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 		TokensPerSecond: float64Ptr(result.TokensPerSecond),
 		ModelName:       strPtr(result.ModelName),
 		ParticipantID:   strPtr(speaker.ID),
-	}, referenceInputs(background.References))
+	}, referenceInputs(material.References))
 	if err != nil {
 		return nil, err
 	}
 	return &message, nil
 }
 
-// assembleBackground never fails the turn: a broken document or memory search
+// assembleMaterial never fails the turn: a broken document or memory search
 // would otherwise stop every turn of an auto-advancing conversation, so the
 // speaker goes on without material and the failure is left in the log (§4.4).
 // This is distinct from the reference store failing after generation, which
@@ -264,13 +264,13 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 // endpoint failure never reaches here — EmbeddingClient disables itself and
 // retrieval continues on keywords, the same degradation a single-assistant turn
 // gets.
-func (e *TurnEngine) assembleBackground(chat *model.Chat, speaker *model.Participant, messages []model.Message) *TurnBackground {
-	background, err := e.background.AssembleTurnBackground(chat, speaker, messages)
+func (e *TurnEngine) assembleMaterial(chat *model.Chat, speaker *model.Participant, messages []model.Message) *TurnMaterial {
+	material, err := e.material.AssembleTurnMaterial(chat, speaker, messages)
 	if err != nil {
-		log.Printf("[turn] background unavailable chatId=%s participantId=%s reason=%v", chat.ID, speaker.ID, err)
-		return &TurnBackground{}
+		log.Printf("[turn] project material unavailable chatId=%s participantId=%s reason=%v", chat.ID, speaker.ID, err)
+		return &TurnMaterial{}
 	}
-	return background
+	return material
 }
 
 func referenceInputs(references []model.SearchReference) []repository.ReferenceInput {
@@ -408,16 +408,16 @@ func speakerLabel(m model.Message, labels map[string]string) string {
 }
 
 // buildTurnSystemPrompt assembles the speaker's system message: the project's
-// background material, the chat-wide scene, the participant's role prompt, and
-// the per-turn role reminder (§4.3). The background comes first so that the scene
+// project material, the chat-wide scene, the participant's role prompt, and
+// the per-turn role reminder (§4.3). The material comes first so that the scene
 // and the role, which decide how the speaker talks, are the last word before the
 // reminder. The reminder is repeated every turn because small models drift out of
 // their role as the history grows and settle into agreeing with the previous
 // speaker.
-func buildTurnSystemPrompt(background string, chat *model.Chat, speaker *model.Participant, participants []model.Participant) string {
+func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Participant, participants []model.Participant) string {
 	parts := make([]string, 0, 5)
-	if background = strings.TrimSpace(background); background != "" {
-		parts = append(parts, background)
+	if material = strings.TrimSpace(material); material != "" {
+		parts = append(parts, material)
 	}
 	if scene := strings.TrimSpace(chat.ScenePrompt); scene != "" {
 		parts = append(parts, scene)

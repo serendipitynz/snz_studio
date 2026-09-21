@@ -13,12 +13,12 @@ import (
 	"snzstudio/internal/repository"
 )
 
-func TestBuildTurnBackgroundQuery(t *testing.T) {
+func TestBuildTurnMaterialQuery(t *testing.T) {
 	scene := strings.Repeat("場", 250)
-	if got := buildTurnBackgroundQuery(nil, scene); got != strings.Repeat("場", turnBackgroundSceneHeadChars-1)+"…" {
+	if got := buildTurnMaterialQuery(nil, scene); got != strings.Repeat("場", turnMaterialSceneHeadChars-1)+"…" {
 		t.Fatalf("opening turn query = %q, want the head of the scene only", got)
 	}
-	if got := buildTurnBackgroundQuery(nil, "   "); got != "" {
+	if got := buildTurnMaterialQuery(nil, "   "); got != "" {
 		t.Fatalf("query with nothing to search = %q, want empty", got)
 	}
 
@@ -30,17 +30,17 @@ func TestBuildTurnBackgroundQuery(t *testing.T) {
 		{Content: "直前"},
 		{Content: "最新"},
 	}
-	got := buildTurnBackgroundQuery(messages, "場面")
+	got := buildTurnMaterialQuery(messages, "場面")
 	want := "最新\n直前\n二つ前\n場面"
 	if got != want {
 		t.Fatalf("query = %q, want %q (latest first, blanks skipped, scene last)", got, want)
 	}
 }
 
-// TestBuildTurnBackgroundBudget covers AC #3 and the second half of AC #4: the
+// TestBuildTurnMaterialBudget covers AC #3 and the second half of AC #4: the
 // material is laid out description → documents → memories, stops at the total
 // budget, and the references are exactly the items that made it in.
-func TestBuildTurnBackgroundBudget(t *testing.T) {
+func TestBuildTurnMaterialBudget(t *testing.T) {
 	project := &model.Project{ID: "proj_1", Title: "港町", Description: strings.Repeat("説", 500)}
 	chunk := func(i int) model.RetrievedDocumentChunk {
 		return model.RetrievedDocumentChunk{ChunkID: fmt.Sprintf("chunk_%d", i), ChunkIndex: i, Content: strings.Repeat("文", 350)}
@@ -54,63 +54,63 @@ func TestBuildTurnBackgroundBudget(t *testing.T) {
 		memories = append(memories, model.SearchReference{SourceType: "memory", SourceID: fmt.Sprintf("mem_%d", i), Label: fmt.Sprintf("記憶%d", i), Excerpt: strings.Repeat("憶", 220), Score: 0.5})
 	}
 
-	background := buildTurnBackground(project, documents, memories)
+	material := buildTurnMaterial(project, documents, memories)
 
-	if !strings.HasPrefix(background.Prompt, "【背景資料】") {
-		t.Fatalf("prompt does not open with the section header:\n%s", background.Prompt)
+	if !strings.HasPrefix(material.Prompt, "【プロジェクト資料】") {
+		t.Fatalf("prompt does not open with the section header:\n%s", material.Prompt)
 	}
 	// 400 (description) + 2 × (2 × 300 chunks) + 3 × 220 memories is about 2,300,
 	// over the 2,000 budget, so the tail of the memories is what falls off.
-	if len(background.References) >= 1+len(documents)+len(memories) {
-		t.Fatalf("budget did not cut anything: %d references", len(background.References))
+	if len(material.References) >= 1+len(documents)+len(memories) {
+		t.Fatalf("budget did not cut anything: %d references", len(material.References))
 	}
-	if runeLen(background.Prompt) > turnBackgroundTotalChars {
-		t.Fatalf("section is %d runes, over the %d budget", runeLen(background.Prompt), turnBackgroundTotalChars)
+	if runeLen(material.Prompt) > turnMaterialTotalChars {
+		t.Fatalf("section is %d runes, over the %d budget", runeLen(material.Prompt), turnMaterialTotalChars)
 	}
 
 	wantOrder := []string{"project:proj_1", "document:doc_1", "document:doc_2", "memory:mem_0"}
-	gotOrder := make([]string, 0, len(background.References))
-	for _, ref := range background.References {
+	gotOrder := make([]string, 0, len(material.References))
+	for _, ref := range material.References {
 		gotOrder = append(gotOrder, ref.SourceType+":"+ref.SourceID)
 	}
 	if strings.Join(gotOrder, ",") != strings.Join(wantOrder, ",") {
 		t.Fatalf("references = %v, want %v", gotOrder, wantOrder)
 	}
-	for _, ref := range background.References {
-		if !strings.Contains(background.Prompt, ref.Label) {
+	for _, ref := range material.References {
+		if !strings.Contains(material.Prompt, ref.Label) {
 			t.Fatalf("reference %q is stored but absent from the prompt", ref.Label)
 		}
 	}
-	if strings.Contains(background.Prompt, "記憶1") || strings.Contains(background.Prompt, "記憶2") {
-		t.Fatalf("prompt carries a memory that the references do not:\n%s", background.Prompt)
+	if strings.Contains(material.Prompt, "記憶1") || strings.Contains(material.Prompt, "記憶2") {
+		t.Fatalf("prompt carries a memory that the references do not:\n%s", material.Prompt)
 	}
 	// util.Truncate keeps maxLength-1 runes and appends an ellipsis.
-	if strings.Count(background.Prompt, strings.Repeat("文", 299)+"…") != 4 || strings.Contains(background.Prompt, strings.Repeat("文", 300)) {
-		t.Fatalf("chunks are not cut to %d runes", turnBackgroundChunkChars)
+	if strings.Count(material.Prompt, strings.Repeat("文", 299)+"…") != 4 || strings.Contains(material.Prompt, strings.Repeat("文", 300)) {
+		t.Fatalf("chunks are not cut to %d runes", turnMaterialChunkChars)
 	}
-	if !strings.Contains(background.Prompt, strings.Repeat("説", 399)+"…") || strings.Contains(background.Prompt, strings.Repeat("説", 400)) {
-		t.Fatalf("description is not cut to %d runes", turnBackgroundDescriptionChars)
-	}
-}
-
-func TestBuildTurnBackgroundEmpty(t *testing.T) {
-	background := buildTurnBackground(&model.Project{ID: "proj_1", Title: "無題", Description: "  "}, nil, nil)
-	if background.Prompt != "" || len(background.References) != 0 {
-		t.Fatalf("a project with no description and no matches must produce nothing, got %+v", background)
+	if !strings.Contains(material.Prompt, strings.Repeat("説", 399)+"…") || strings.Contains(material.Prompt, strings.Repeat("説", 400)) {
+		t.Fatalf("description is not cut to %d runes", turnMaterialDescriptionChars)
 	}
 }
 
-// backgroundFixture is a project whose material a turn should and should not
+func TestBuildTurnMaterialEmpty(t *testing.T) {
+	material := buildTurnMaterial(&model.Project{ID: "proj_1", Title: "無題", Description: "  "}, nil, nil)
+	if material.Prompt != "" || len(material.References) != 0 {
+		t.Fatalf("a project with no description and no matches must produce nothing, got %+v", material)
+	}
+}
+
+// materialFixture is a project whose material a turn should and should not
 // pick up: a description, a system prompt that must stay out, one document that
 // matches the conversation and one that does not, a procedural memory that must
 // not be injected unconditionally, and a semantic memory that matches.
-type backgroundFixture struct {
+type materialFixture struct {
 	project    model.Project
 	lighthouse model.DocumentRecord
 	olga       model.Memory
 }
 
-func newBackgroundFixture(t *testing.T, g *turnGraph) backgroundFixture {
+func newMaterialFixture(t *testing.T, g *turnGraph) materialFixture {
 	t.Helper()
 	project := g.newProject(t, repository.CreateProjectInput{
 		Title:        "港町の物語",
@@ -153,7 +153,7 @@ func newBackgroundFixture(t *testing.T, g *turnGraph) backgroundFixture {
 	if err != nil {
 		t.Fatalf("CreateMemory olga: %v", err)
 	}
-	return backgroundFixture{project: project, lighthouse: lighthouse, olga: olga}
+	return materialFixture{project: project, lighthouse: lighthouse, olga: olga}
 }
 
 func storedReferences(t *testing.T, g *turnGraph, chatID string) []model.AssistantMessageReference {
@@ -168,14 +168,14 @@ func storedReferences(t *testing.T, g *turnGraph, chatID string) []model.Assista
 	return messages[len(messages)-1].References
 }
 
-// TestTurnEngineBackgroundInPrompt covers AC #1, #2 and #4: the material sits
+// TestTurnEngineMaterialInPrompt covers AC #1, #2 and #4: the material sits
 // before the scene, carries only description / matched passages / matched
 // memories, and what is stored as references is what the prompt carried. The
 // utterance contains 「そのまま」, which in Assemble would switch on quote mode.
-func TestTurnEngineBackgroundInPrompt(t *testing.T) {
+func TestTurnEngineMaterialInPrompt(t *testing.T) {
 	srv := newTurnLLMServer(t, "返答", nil)
 	g := newTurnGraph(t)
-	fx := newBackgroundFixture(t, g)
+	fx := newMaterialFixture(t, g)
 	chat, roster := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleRoundRobin, "場面: 港町の酒場。短く話す。", srv.URL, "Alice", "Bob")
 
 	g.addMessage(t, chat.ID, "user", "オルガの霧笛の話をそのまま聞かせて", nil)
@@ -184,11 +184,11 @@ func TestTurnEngineBackgroundInPrompt(t *testing.T) {
 	}
 
 	system := srv.captured()[0].Messages[0].Content
-	if !strings.HasPrefix(system, "【背景資料】") {
-		t.Fatalf("system prompt does not open with the background:\n%s", system)
+	if !strings.HasPrefix(system, "【プロジェクト資料】") {
+		t.Fatalf("system prompt does not open with the project material:\n%s", system)
 	}
-	if strings.Index(system, "【背景資料】") > strings.Index(system, "場面: 港町の酒場") {
-		t.Fatalf("background must precede the scene:\n%s", system)
+	if strings.Index(system, "【プロジェクト資料】") > strings.Index(system, "場面: 港町の酒場") {
+		t.Fatalf("the material must precede the scene:\n%s", system)
 	}
 	if strings.Index(system, "場面: 港町の酒場") > strings.Index(system, roster[0].RolePrompt) {
 		t.Fatalf("scene must precede the role prompt:\n%s", system)
@@ -242,7 +242,7 @@ func TestTurnEngineBackgroundInPrompt(t *testing.T) {
 func TestTurnEngineOpeningTurnSearchesScene(t *testing.T) {
 	srv := newTurnLLMServer(t, "返答", nil)
 	g := newTurnGraph(t)
-	fx := newBackgroundFixture(t, g)
+	fx := newMaterialFixture(t, g)
 	chat, _ := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleRoundRobin, "場面: 灯台守のオルガが霧笛を鳴らす夜。", srv.URL, "Alice", "Bob")
 
 	if _, err := g.engine.RunTurn(chat.ID, "", nil); err != nil {
@@ -260,36 +260,36 @@ func TestTurnEngineOpeningTurnSearchesScene(t *testing.T) {
 	t.Fatal("opening turn stored no reference to the lighthouse document")
 }
 
-type failingBackground struct{}
+type failingAssembler struct{}
 
-func (failingBackground) AssembleTurnBackground(*model.Chat, *model.Participant, []model.Message) (*TurnBackground, error) {
+func (failingAssembler) AssembleTurnMaterial(*model.Chat, *model.Participant, []model.Message) (*TurnMaterial, error) {
 	return nil, errors.New("fts index unavailable")
 }
 
-// TestTurnEngineBackgroundFailureContinues covers the first half of AC #8: a
+// TestTurnEngineMaterialFailureContinues covers the first half of AC #8: a
 // failed search costs the turn its material, not the turn itself, and nothing
 // is stored as a reference.
-func TestTurnEngineBackgroundFailureContinues(t *testing.T) {
+func TestTurnEngineMaterialFailureContinues(t *testing.T) {
 	srv := newTurnLLMServer(t, "返答", nil)
 	g := newTurnGraph(t)
-	g.engine = NewTurnEngine(g.chats, g.participants, NewLLMClient(g.cfg), g.cfg, failingBackground{})
-	fx := newBackgroundFixture(t, g)
+	g.engine = NewTurnEngine(g.chats, g.participants, NewLLMClient(g.cfg), g.cfg, failingAssembler{})
+	fx := newMaterialFixture(t, g)
 	chat, roster := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleRoundRobin, "場面: 港町の酒場。", srv.URL, "Alice", "Bob")
 	g.addMessage(t, chat.ID, "user", "オルガの霧笛の話を聞かせて", nil)
 
 	message, err := g.engine.RunTurn(chat.ID, "", nil)
 	if err != nil {
-		t.Fatalf("RunTurn must not fail on a background error: %v", err)
+		t.Fatalf("RunTurn must not fail on a material error: %v", err)
 	}
 	if message.ParticipantID == nil || *message.ParticipantID != roster[0].ID {
 		t.Fatalf("speaker = %v, want Alice", message.ParticipantID)
 	}
 	system := srv.captured()[0].Messages[0].Content
-	if strings.Contains(system, "背景資料") {
-		t.Fatalf("system prompt carries background after a failed assembly:\n%s", system)
+	if strings.Contains(system, "プロジェクト資料") {
+		t.Fatalf("system prompt carries project material after a failed assembly:\n%s", system)
 	}
 	if !strings.HasPrefix(system, "場面: 港町の酒場。") {
-		t.Fatalf("system prompt should open with the scene when there is no background:\n%s", system)
+		t.Fatalf("system prompt should open with the scene when there is no project material:\n%s", system)
 	}
 	if refs := storedReferences(t, g, chat.ID); len(refs) != 0 {
 		t.Fatalf("stored %d references after a failed assembly, want none", len(refs))
@@ -312,7 +312,7 @@ func TestTurnEngineEmbeddingFailureDegrades(t *testing.T) {
 		LLMTimeoutMs: 5000,
 	})
 	g := newTurnGraphWithConfig(t, d, cfg)
-	fx := newBackgroundFixture(t, g)
+	fx := newMaterialFixture(t, g)
 	chat, _ := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleRoundRobin, "場面: 港町の酒場。", srv.URL, "Alice", "Bob")
 	g.addMessage(t, chat.ID, "user", "オルガの霧笛の話を聞かせて", nil)
 
@@ -328,38 +328,38 @@ func TestTurnEngineEmbeddingFailureDegrades(t *testing.T) {
 	}
 }
 
-// TestAssembleTurnBackgroundSkipsSpeaker covers the "no search is run" half of
+// TestAssembleTurnMaterialSkipsSpeaker covers the "no search is run" half of
 // TASK-20 AC #2. The ContextService is built with no repositories and no
 // retrieval at all, so anything the assembler reads or searches would panic on a
-// nil dependency: returning an empty background proves the speaker's flag is
+// nil dependency: returning an empty result proves the speaker's flag is
 // answered before any of them is touched.
-func TestAssembleTurnBackgroundSkipsSpeaker(t *testing.T) {
+func TestAssembleTurnMaterialSkipsSpeaker(t *testing.T) {
 	chat := &model.Chat{ID: "chat_1", ProjectID: "proj_1", ScenePrompt: "場面: 港町の酒場。"}
 	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
 
-	background, err := (&ContextService{}).AssembleTurnBackground(chat, &model.Participant{ID: "p_1", ReceivesBackground: false}, messages)
+	material, err := (&ContextService{}).AssembleTurnMaterial(chat, &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}, messages)
 	if err != nil {
-		t.Fatalf("AssembleTurnBackground: %v", err)
+		t.Fatalf("AssembleTurnMaterial: %v", err)
 	}
-	if background.Prompt != "" || len(background.References) != 0 {
-		t.Fatalf("a speaker that receives no background must get nothing, got %+v", background)
+	if material.Prompt != "" || len(material.References) != 0 {
+		t.Fatalf("a speaker that receives no project material must get nothing, got %+v", material)
 	}
 }
 
-// TestTurnEngineSkipsBackgroundForSpeaker covers TASK-20 AC #2 through the
+// TestTurnEngineSkipsMaterialForSpeaker covers TASK-20 AC #2 through the
 // engine: the same project and the same conversation that give Alice her
 // material leave Bob's turn without it, in the prompt and in the stored
 // references alike.
-func TestTurnEngineSkipsBackgroundForSpeaker(t *testing.T) {
+func TestTurnEngineSkipsMaterialForSpeaker(t *testing.T) {
 	srv := newTurnLLMServer(t, "返答", nil)
 	g := newTurnGraph(t)
-	fx := newBackgroundFixture(t, g)
+	fx := newMaterialFixture(t, g)
 	chat, roster := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleManual, "場面: 港町の酒場。", srv.URL, "Alice", "Bob")
 
 	receives := false
 	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{
-		ParticipantID:      roster[1].ID,
-		ReceivesBackground: &receives,
+		ParticipantID:           roster[1].ID,
+		ReceivesProjectMaterial: &receives,
 	}); err != nil {
 		t.Fatalf("UpdateParticipant: %v", err)
 	}
@@ -380,13 +380,13 @@ func TestTurnEngineSkipsBackgroundForSpeaker(t *testing.T) {
 	if !strings.Contains(alice, "[ドキュメント] 灯台守の記録") {
 		t.Fatalf("the receiving speaker lost its material:\n%s", alice)
 	}
-	if strings.Contains(bob, "背景資料") || strings.Contains(bob, "灯台守の記録") || strings.Contains(bob, "霧の港町ハーバーン") {
-		t.Fatalf("a speaker that receives no background got it anyway:\n%s", bob)
+	if strings.Contains(bob, "プロジェクト資料") || strings.Contains(bob, "灯台守の記録") || strings.Contains(bob, "霧の港町ハーバーン") {
+		t.Fatalf("a speaker that receives no project material got it anyway:\n%s", bob)
 	}
 	if !strings.HasPrefix(bob, "場面: 港町の酒場。") {
 		t.Fatalf("that speaker's prompt should open with the scene:\n%s", bob)
 	}
 	if refs := storedReferences(t, g, chat.ID); len(refs) != 0 {
-		t.Fatalf("stored %d references for a speaker that receives no background, want none", len(refs))
+		t.Fatalf("stored %d references for a speaker that receives no project material, want none", len(refs))
 	}
 }

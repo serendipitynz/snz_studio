@@ -92,7 +92,7 @@ lives in the same `chats` table and under the same project.
 A multi-agent conversation has:
 
 - participants: display name, role prompt, endpoint, model, roster order, and whether the
-  participant is given the background material (on by default)
+  participant is given the project material (on by default)
 - turn rule: `round_robin` (cycle the roster) or `manual` (nominate each speaker)
 - scene: text prefixed to every participant's system prompt (topic, setting, world)
 
@@ -166,13 +166,13 @@ A turn:
 2. picks the speaker (round-robin: the next roster entry after the last participant message; manual:
    the nominated participant)
 3. checks the participant's endpoint and loads the model
-4. builds the prompt from the participant's point of view: system = background material (project
+4. builds the prompt from the participant's point of view: system = project material (project
    description, matched document passages, matched memories; see below) + scene + role prompt + role
    reminder; history mapped to `assistant` for the participant's own past messages and `user` for
    everyone else's, prefixed with the speaker's display name; the prompt ends on the message this
    participant has to answer
 5. streams the utterance and stores it as an `assistant` message carrying `participant_id`, together
-   with the references the background material was built from (one transaction)
+   with the references the project material was built from (one transaction)
 
 Current limits, accepted as behavior:
 
@@ -184,12 +184,12 @@ Current limits, accepted as behavior:
 The multi-agent flow is separate from the single-assistant flow: it shares the LLM client, the
 persistence layer and the retrieval service, and does not use the chat summary or the rest of the
 single-assistant prompt context (project system prompt, unconditional procedural memories, quote mode,
-referenced chats). Background material is retrieved once per turn with a query made of the latest
+referenced chats). Project material is retrieved once per turn with a query made of the latest
 utterance, the two before it and the head of the scene (the scene alone on the opening turn), capped
 at 2 documents × 2 passages, 3 memories and 2,000 characters in total. The references used are stored
 with the participant's message and shown under it as on the single-assistant chat screen. A failed
 search leaves the turn without material rather than failing it. A participant that is not given the
-background material has none of this on its turns — nothing is searched for, nothing goes into the
+project material has none of this on its turns — nothing is searched for, nothing goes into the
 system prompt and no reference is stored — which is how one speaker holds a scenario the others must
 not know. It is on by default, so hidden information takes an explicit decision to withhold it. On a `multi_agent` chat the existing
 message routes store the user's message without generating a reply.
@@ -383,7 +383,7 @@ Center:
 Right pane:
 
 - organisation panel: participant CRUD with endpoint + model selection and a connection check,
-  the per-participant background-material switch, roster order, turn rule, scene, and — while the
+  the per-participant project-material switch, roster order, turn rule, scene, and — while the
   conversation has no messages — applying a preset (collapsed by default)
 
 Removed participants are listed separately from the roster, since their past utterances remain.
