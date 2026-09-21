@@ -484,6 +484,30 @@ func (s *Server) handleSetMemoryLock(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"memory": memory})
 }
 
+// handleSetMemorySharedWithAll puts a memory into the common project material or
+// takes it out (design §4.4).
+func (s *Server) handleSetMemorySharedWithAll(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	sharedWithAll, isBool := bodyBool(m, "sharedWithAll")
+	if !isBool {
+		writeError(w, http.StatusBadRequest, "sharedWithAll must be a boolean")
+		return
+	}
+	memory, err := s.memories.SetMemorySharedWithAll(r.PathValue("memoryId"), sharedWithAll)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if memory == nil {
+		writeError(w, http.StatusNotFound, "memory not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"memory": memory})
+}
+
 func (s *Server) handleDeleteMemory(w http.ResponseWriter, r *http.Request) {
 	memory, err := s.memories.DeleteMemory(r.PathValue("memoryId"))
 	if err != nil {
@@ -682,6 +706,30 @@ func (s *Server) handleUpdateDocumentCategory(w http.ResponseWriter, r *http.Req
 		return
 	}
 	document, err := s.documents.UpdateDocumentCategory(r.PathValue("documentId"), category)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if document == nil {
+		writeError(w, http.StatusNotFound, "document not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"document": document})
+}
+
+// handleUpdateDocumentSharedWithAll puts a document into the common project
+// material or takes it out (design §4.4).
+func (s *Server) handleUpdateDocumentSharedWithAll(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	sharedWithAll, isBool := bodyBool(m, "sharedWithAll")
+	if !isBool {
+		writeError(w, http.StatusBadRequest, "sharedWithAll must be a boolean")
+		return
+	}
+	document, err := s.documents.UpdateDocumentSharedWithAll(r.PathValue("documentId"), sharedWithAll)
 	if err != nil {
 		fail(w, err)
 		return
