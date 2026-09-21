@@ -48,9 +48,12 @@ type TurnBackground struct {
 // failing assembler: the engine's contract is to speak without background when
 // assembly fails (§4.4), and that path is otherwise unreachable.
 type TurnBackgroundAssembler interface {
-	// AssembleTurnBackground takes the speaker so a later change can narrow the
-	// material per participant (a game master who sees the module while the
-	// players do not); this version hands every speaker the same material.
+	// AssembleTurnBackground takes the speaker because the material is per
+	// participant: a speaker whose ReceivesBackground is false gets none of it
+	// (a game master who sees the scenario while the players do not). Every
+	// speaker that does receive it gets the same material; narrowing it to a
+	// subset of the documents would need a different shape and is not what the
+	// flag expresses.
 	AssembleTurnBackground(chat *model.Chat, speaker *model.Participant, messages []model.Message) (*TurnBackground, error)
 }
 
@@ -62,7 +65,17 @@ type TurnBackgroundAssembler interface {
 // containing 「そのまま」 or 「引用」 — that a participant speaking in role must
 // not receive, and a system prompt has no way to make the scene that follows
 // override them.
-func (s *ContextService) AssembleTurnBackground(chat *model.Chat, _ *model.Participant, messages []model.Message) (*TurnBackground, error) {
+//
+// A speaker that does not receive the material is answered before anything is
+// read or searched, rather than by discarding the result afterwards: a turn that
+// must not know the scenario should not pay for retrieving it, and the empty
+// TurnBackground is what keeps the prompt and the stored references empty
+// together.
+func (s *ContextService) AssembleTurnBackground(chat *model.Chat, speaker *model.Participant, messages []model.Message) (*TurnBackground, error) {
+	if !speaker.ReceivesBackground {
+		return &TurnBackground{}, nil
+	}
+
 	project, err := s.projects.GetProject(chat.ProjectID)
 	if err != nil {
 		return nil, err

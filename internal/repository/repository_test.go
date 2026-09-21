@@ -635,6 +635,11 @@ func TestParticipantRepository(t *testing.T) {
 	if pro.SortOrder != 0 || pro.DeletedAt != nil {
 		t.Errorf("first participant = sort %d, deletedAt %v", pro.SortOrder, pro.DeletedAt)
 	}
+	// TASK-20 AC #1: a participant created without saying anything about the
+	// project's background material reads it.
+	if !pro.ReceivesBackground {
+		t.Error("a participant created without receivesBackground must receive the background")
+	}
 	con, err := participants.CreateParticipant(CreateParticipantInput{
 		ChatID: chat.ID, DisplayName: "反対派", RolePrompt: "you argue against", BaseURL: "http://localhost:1235/v1", ModelName: "model-b",
 	})
@@ -688,6 +693,44 @@ func TestParticipantRepository(t *testing.T) {
 	}
 	if updated.RolePrompt != pro.RolePrompt || updated.ModelName != pro.ModelName || updated.ChatID != chat.ID {
 		t.Errorf("update clobbered untouched fields: %+v", updated)
+	}
+	if !updated.ReceivesBackground {
+		t.Error("an update that does not name receivesBackground must leave it alone")
+	}
+
+	// TASK-20 AC #1: the flag is settable both ways, and creating with it false
+	// is what a preset needs.
+	receives := false
+	if updated, err = participants.UpdateParticipant(UpdateParticipantInput{
+		ParticipantID: pro.ID, ReceivesBackground: &receives,
+	}); err != nil || updated == nil {
+		t.Fatalf("UpdateParticipant(receivesBackground): %v, %v", updated, err)
+	}
+	if updated.ReceivesBackground || updated.DisplayName != "賛成派 (改)" {
+		t.Errorf("receivesBackground not cleared, or the update clobbered a neighbour: %+v", updated)
+	}
+	if reread, err := participants.GetParticipant(pro.ID); err != nil || reread == nil {
+		t.Fatalf("GetParticipant: %v, %v", reread, err)
+	} else if reread.ReceivesBackground {
+		t.Error("receivesBackground false did not survive a re-read")
+	}
+	receives = true
+	if updated, err = participants.UpdateParticipant(UpdateParticipantInput{
+		ParticipantID: pro.ID, ReceivesBackground: &receives,
+	}); err != nil || updated == nil || !updated.ReceivesBackground {
+		t.Fatalf("receivesBackground not restored: %v, %v", updated, err)
+	}
+	// Created in the other chat, so the roster of this one keeps the shape the
+	// removal assertions below count on.
+	quiet := false
+	silent, err := participants.CreateParticipant(CreateParticipantInput{
+		ChatID: plain.ID, DisplayName: "耳役", ReceivesBackground: &quiet,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if silent.ReceivesBackground {
+		t.Errorf("create ignored receivesBackground: %+v", silent)
 	}
 	// sort_order now decides the cycle order.
 	if roster, err := participants.ListRoster(chat.ID); err != nil {

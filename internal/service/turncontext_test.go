@@ -327,3 +327,66 @@ func TestTurnEngineEmbeddingFailureDegrades(t *testing.T) {
 		t.Fatal("no references stored under keyword fallback")
 	}
 }
+
+// TestAssembleTurnBackgroundSkipsSpeaker covers the "no search is run" half of
+// TASK-20 AC #2. The ContextService is built with no repositories and no
+// retrieval at all, so anything the assembler reads or searches would panic on a
+// nil dependency: returning an empty background proves the speaker's flag is
+// answered before any of them is touched.
+func TestAssembleTurnBackgroundSkipsSpeaker(t *testing.T) {
+	chat := &model.Chat{ID: "chat_1", ProjectID: "proj_1", ScenePrompt: "場面: 港町の酒場。"}
+	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
+
+	background, err := (&ContextService{}).AssembleTurnBackground(chat, &model.Participant{ID: "p_1", ReceivesBackground: false}, messages)
+	if err != nil {
+		t.Fatalf("AssembleTurnBackground: %v", err)
+	}
+	if background.Prompt != "" || len(background.References) != 0 {
+		t.Fatalf("a speaker that receives no background must get nothing, got %+v", background)
+	}
+}
+
+// TestTurnEngineSkipsBackgroundForSpeaker covers TASK-20 AC #2 through the
+// engine: the same project and the same conversation that give Alice her
+// material leave Bob's turn without it, in the prompt and in the stored
+// references alike.
+func TestTurnEngineSkipsBackgroundForSpeaker(t *testing.T) {
+	srv := newTurnLLMServer(t, "返答", nil)
+	g := newTurnGraph(t)
+	fx := newBackgroundFixture(t, g)
+	chat, roster := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleManual, "場面: 港町の酒場。", srv.URL, "Alice", "Bob")
+
+	receives := false
+	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{
+		ParticipantID:      roster[1].ID,
+		ReceivesBackground: &receives,
+	}); err != nil {
+		t.Fatalf("UpdateParticipant: %v", err)
+	}
+
+	g.addMessage(t, chat.ID, "user", "オルガの霧笛の話を聞かせて", nil)
+	if _, err := g.engine.RunTurn(chat.ID, roster[0].ID, nil); err != nil {
+		t.Fatalf("RunTurn Alice: %v", err)
+	}
+	if _, err := g.engine.RunTurn(chat.ID, roster[1].ID, nil); err != nil {
+		t.Fatalf("RunTurn Bob: %v", err)
+	}
+
+	captured := srv.captured()
+	if len(captured) != 2 {
+		t.Fatalf("captured %d completions, want 2", len(captured))
+	}
+	alice, bob := captured[0].Messages[0].Content, captured[1].Messages[0].Content
+	if !strings.Contains(alice, "[ドキュメント] 灯台守の記録") {
+		t.Fatalf("the receiving speaker lost its material:\n%s", alice)
+	}
+	if strings.Contains(bob, "背景資料") || strings.Contains(bob, "灯台守の記録") || strings.Contains(bob, "霧の港町ハーバーン") {
+		t.Fatalf("a speaker that receives no background got it anyway:\n%s", bob)
+	}
+	if !strings.HasPrefix(bob, "場面: 港町の酒場。") {
+		t.Fatalf("that speaker's prompt should open with the scene:\n%s", bob)
+	}
+	if refs := storedReferences(t, g, chat.ID); len(refs) != 0 {
+		t.Fatalf("stored %d references for a speaker that receives no background, want none", len(refs))
+	}
+}

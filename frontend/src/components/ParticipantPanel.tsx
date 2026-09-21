@@ -1,5 +1,5 @@
 import styled from "@emotion/styled";
-import { FormEvent, useState } from "react";
+import { FormEvent, ReactNode, useState } from "react";
 import { api, ChatRecord, Participant, TurnRule } from "../api/client";
 import { useConfirm } from "./ConfirmDialog";
 import { PresetChoice, PresetPicker } from "./PresetPicker";
@@ -96,10 +96,21 @@ const HintBubble = styled.span`
   pointer-events: none;
 `;
 
+// The label of a checkbox that has to carry a (?) of its own: the checkbox and
+// its text form one click target, and the toggle sits beside it rather than
+// inside it, so pointing at the hint cannot flip the setting.
+const CheckboxLabel = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+`;
+
 // label is the Field itself, so a click inside it is forwarded to the input and
 // takes the focus straight back off the toggle. Cancelling that is what makes
-// the tooltip reachable without a hover.
-function FieldHint(props: { label: string; hint: string }) {
+// the tooltip reachable without a hover. It takes a node rather than a string so
+// a checkbox can be hinted the same way a text field is.
+function FieldHint(props: { label: ReactNode; hint: string }) {
   return (
     <HintRow>
       {props.label}
@@ -450,18 +461,20 @@ function ParticipantEditor(props: ParticipantEditorProps) {
   const [rolePrompt, setRolePrompt] = useState(props.participant.rolePrompt);
   const [baseUrl, setBaseUrl] = useState(props.participant.baseUrl);
   const [modelName, setModelName] = useState(props.participant.modelName);
+  const [receivesBackground, setReceivesBackground] = useState(props.participant.receivesBackground);
   const [saving, setSaving] = useState(false);
 
   const dirty =
     displayName !== props.participant.displayName ||
     rolePrompt !== props.participant.rolePrompt ||
     baseUrl !== props.participant.baseUrl ||
-    modelName !== props.participant.modelName;
+    modelName !== props.participant.modelName ||
+    receivesBackground !== props.participant.receivesBackground;
 
   async function handleSave() {
     setSaving(true);
     try {
-      await props.onSave(props.participant.id, { displayName, rolePrompt, baseUrl, modelName });
+      await props.onSave(props.participant.id, { displayName, rolePrompt, baseUrl, modelName, receivesBackground });
     } catch {
       // Reported by the panel; the drafts stay so the edit survives the failure.
     } finally {
@@ -528,6 +541,23 @@ function ParticipantEditor(props: ParticipantEditorProps) {
             style={{ minHeight: 90 }}
           />
         </Field>
+
+        {/* Beside the role prompt rather than beside the endpoint: both say what
+            this speaker is given to work with, while the endpoint and the model
+            say where its turn runs. */}
+        <FieldHint
+          label={
+            <CheckboxLabel>
+              <input
+                type="checkbox"
+                checked={receivesBackground}
+                onChange={(event) => setReceivesBackground(event.target.checked)}
+              />
+              {t("participants.receivesBackground")}
+            </CheckboxLabel>
+          }
+          hint={t("participants.receivesBackgroundHint")}
+        />
 
         <Field>
           <FieldHint label={t("participants.baseUrl")} hint={t("participants.baseUrlHint")} />

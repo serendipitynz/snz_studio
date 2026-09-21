@@ -76,6 +76,9 @@ export interface ChatRecord {
 // Participant mirrors the Go model.Participant. deletedAt non-null means the
 // participant is off the roster; the row survives so an older message still
 // resolves to a speaker name (docs/multi-agent-chat-design.md §3).
+// receivesBackground false keeps the project's documents and memories out of
+// this participant's turns entirely — nothing retrieved, nothing in the prompt,
+// no references stored (§4.4).
 export interface Participant {
   id: string;
   chatId: string;
@@ -84,6 +87,7 @@ export interface Participant {
   baseUrl: string;
   modelName: string;
   sortOrder: number;
+  receivesBackground: boolean;
   createdAt: string;
   deletedAt: string | null;
 }
@@ -102,6 +106,11 @@ export type PresetGroup = "discussion" | "drama" | "hosted" | "pair";
 export interface MultiAgentPresetParticipant {
   displayName: string;
   rolePrompt: string;
+  // Optional, mirroring the Go *bool: a hand-written preset may leave it out,
+  // and PresetPicker reaches this type by casting unvalidated JSON, so a
+  // required boolean here would promise a value that is not there. The server
+  // fills the default (true) when it applies the preset.
+  receivesBackground?: boolean;
 }
 
 export interface MultiAgentPreset {
@@ -401,7 +410,10 @@ export const api = {
     }),
   listParticipants: (chatId: string) =>
     request<{ participants: Participant[] }>(`/api/chats/${chatId}/participants`),
-  createParticipant: (chatId: string, input: { displayName: string; rolePrompt?: string; baseUrl?: string; modelName?: string }) =>
+  createParticipant: (
+    chatId: string,
+    input: { displayName: string; rolePrompt?: string; baseUrl?: string; modelName?: string; receivesBackground?: boolean }
+  ) =>
     request<{ participant: Participant }>(`/api/chats/${chatId}/participants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -409,7 +421,14 @@ export const api = {
     }),
   updateParticipant: (
     participantId: string,
-    input: { displayName?: string; rolePrompt?: string; baseUrl?: string; modelName?: string; sortOrder?: number }
+    input: {
+      displayName?: string;
+      rolePrompt?: string;
+      baseUrl?: string;
+      modelName?: string;
+      sortOrder?: number;
+      receivesBackground?: boolean;
+    }
   ) =>
     request<{ participant: Participant }>(`/api/participants/${participantId}`, {
       method: "PATCH",

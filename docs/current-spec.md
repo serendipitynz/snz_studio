@@ -91,7 +91,8 @@ lives in the same `chats` table and under the same project.
 
 A multi-agent conversation has:
 
-- participants: display name, role prompt, endpoint, model, roster order
+- participants: display name, role prompt, endpoint, model, roster order, and whether the
+  participant is given the background material (on by default)
 - turn rule: `round_robin` (cycle the roster) or `manual` (nominate each speaker)
 - scene: text prefixed to every participant's system prompt (topic, setting, world)
 
@@ -187,7 +188,10 @@ referenced chats). Background material is retrieved once per turn with a query m
 utterance, the two before it and the head of the scene (the scene alone on the opening turn), capped
 at 2 documents × 2 passages, 3 memories and 2,000 characters in total. The references used are stored
 with the participant's message and shown under it as on the single-assistant chat screen. A failed
-search leaves the turn without material rather than failing it. On a `multi_agent` chat the existing
+search leaves the turn without material rather than failing it. A participant that is not given the
+background material has none of this on its turns — nothing is searched for, nothing goes into the
+system prompt and no reference is stored — which is how one speaker holds a scenario the others must
+not know. It is on by default, so hidden information takes an explicit decision to withhold it. On a `multi_agent` chat the existing
 message routes store the user's message without generating a reply.
 
 ## Context assembly
@@ -379,8 +383,8 @@ Center:
 Right pane:
 
 - organisation panel: participant CRUD with endpoint + model selection and a connection check,
-  roster order, turn rule, scene, and — while the conversation has no messages — applying a preset
-  (collapsed by default)
+  the per-participant background-material switch, roster order, turn rule, scene, and — while the
+  conversation has no messages — applying a preset (collapsed by default)
 
 Removed participants are listed separately from the roster, since their past utterances remain.
 
