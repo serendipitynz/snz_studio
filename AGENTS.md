@@ -30,7 +30,8 @@ A multi-agent conversation is not a separate product area beside projects / docu
 memories; it is a kind of chat. It is made of:
 
 - participants: display name + role prompt + endpoint + model, kept in roster order
-- a turn rule that decides who speaks next (cycle the roster, or nominate each speaker)
+- a turn rule that decides who speaks next (cycle the roster, nominate each speaker, or alternate a
+  chosen facilitator with the rest of the roster)
 - a scene shared by every participant (topic, setting, world)
 - presets that fill participants / turn rule / scene in one step
 
