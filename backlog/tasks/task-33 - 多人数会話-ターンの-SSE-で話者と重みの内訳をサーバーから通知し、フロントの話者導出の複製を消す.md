@@ -1,10 +1,10 @@
 ---
 id: TASK-33
 title: '多人数会話: ターンの SSE で話者と重みの内訳をサーバーから通知し、フロントの話者導出の複製を消す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-21 22:55'
-updated_date: '2026-09-22 05:41'
+updated_date: '2026-09-22 05:55'
 labels: []
 dependencies: []
 references:
