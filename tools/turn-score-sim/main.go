@@ -190,8 +190,10 @@ func rules() []rule {
 		{name: "沈黙を連続量+呼びかけ×2.0", pick: weighted(continuousSilence(tuned(2.0), 0.15), facilitatorAnswersPlainHuman, byLongestSilence)},
 		{name: "直近抑制なし", pick: weighted(withRecent(proposed, 1.0), humanIsCurrentSpeaker, byRosterOrder)},
 		{name: "進行役の免除なし", pick: weighted(withoutExemption(proposed), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "推奨案(スコア)", pick: weighted(proposed, facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "呼びかけ最優先", pick: decisionTree},
+		{name: "採用(仕様どおり)", pick: weighted(proposed, humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用+名指し無し介入は進行役", pick: weighted(proposed, facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "呼びかけ最優先(先頭)", pick: addressedFirst},
+		{name: "呼びかけ最優先(沈黙が長い側)", pick: addressedLongestSilent},
 		{name: "round_robin", pick: roundRobin},
 		{name: "facilitator交互", pick: facilitatorAlternating},
 	}
@@ -310,11 +312,15 @@ func silenceRank(history []utterance, participant int) int {
 	return len(history) + 1
 }
 
-// decisionTree is the alternative TASK-28 leaves open: the same intentions as
+// addressedFirst is the alternative TASK-28 leaves open: the same intentions as
 // ordered rules rather than as a product, with the call as the top rule instead
-// of a coefficient. To make the comparison fair it is the rules the engine
-// already ships underneath, not a weaker rotation invented for the contrast.
-func decisionTree(r roster, history []utterance) (int, []float64) {
+// of a coefficient. Underneath it is the rules the engine already ships, not a
+// weaker rotation invented for the contrast.
+//
+// Taking addressees[0] is this variant's own choice and not a limit of ordered
+// rules — addressedLongestSilent picks out of the whole set without coefficients,
+// which is what the comparison has to be against.
+func addressedFirst(r roster, history []utterance) (int, []float64) {
 	if len(r) == 0 {
 		return -1, nil
 	}
@@ -328,6 +334,30 @@ func decisionTree(r roster, history []utterance) (int, []float64) {
 	if n := len(history); n > 0 && len(history[n-1].addressees) > 0 {
 		return history[n-1].addressees[0], nil
 	}
+	return addressedFallback(r, history)
+}
+
+// addressedLongestSilent is the ordered rule with the set read properly: among the
+// participants the last utterance called on, the one that has waited longest
+// speaks. It needs no coefficients to do that, so it is the baseline the score has
+// to beat on a call that names several.
+func addressedLongestSilent(r roster, history []utterance) (int, []float64) {
+	if len(r) == 0 {
+		return -1, nil
+	}
+	if n := len(history); n > 0 && len(history[n-1].addressees) > 0 {
+		best, rank := -1, -1
+		for _, called := range history[n-1].addressees {
+			if s := silenceRank(history, called); s > rank {
+				rank, best = s, called
+			}
+		}
+		return best, nil
+	}
+	return addressedFallback(r, history)
+}
+
+func addressedFallback(r roster, history []utterance) (int, []float64) {
 	if r.facilitator() >= 0 {
 		return facilitatorAlternating(r, history)
 	}
@@ -603,13 +633,13 @@ func followRate(history []utterance) string {
 // not go first has spoken. It is reported as the worst case, since the question is
 // whether anyone is left hanging, not what the average is.
 func secondCallWait(history []utterance) string {
-	worst, seen := 0, 0
+	worst, calls, unanswered := 0, 0, 0
 	for i, u := range history {
 		if len(u.addressees) < 2 {
 			continue
 		}
-		seen++
 		for _, called := range u.addressees {
+			calls++
 			wait, answered := 0, false
 			for j := i + 1; j < len(history); j++ {
 				if history[j].speaker == speakerHuman {
@@ -621,13 +651,24 @@ func secondCallWait(history []utterance) string {
 					break
 				}
 			}
-			if answered && wait > worst {
+			// An unanswered call is counted rather than skipped. Taking the maximum
+			// over the answered ones alone reported a short wait for a transcript in
+			// which someone was never answered at all — the starvation the number
+			// exists to expose.
+			if !answered {
+				unanswered++
+				continue
+			}
+			if wait > worst {
 				worst = wait
 			}
 		}
 	}
-	if seen == 0 {
+	if calls == 0 {
 		return "-"
+	}
+	if unanswered > 0 {
+		return fmt.Sprintf("%d (未応答 %d/%d)", worst, unanswered, calls)
 	}
 	return fmt.Sprintf("%d", worst)
 }
