@@ -258,9 +258,17 @@ func withoutExemption(c coefficients) coefficients      { c.facilitatorExemptRec
 // measured.
 func withoutRosterNext(c coefficients) coefficients         { c.notRosterNext = 1.0; return c }
 func withRosterNext(c coefficients, v float64) coefficients { c.notRosterNext = v; return c }
-func withBoost(c coefficients, v float64) coefficients      { c.callBoost = v; return c }
-func withExpiry(c coefficients, v bool) coefficients        { c.callExpiresOnAnswer = v; return c }
-func withWindow(c coefficients, v int) coefficients         { c.callWindow = v; return c }
+
+// withBoost sets both fields, because which one weighted reads depends on
+// callWindow: the windowed branch uses callBoost and the last-message-only
+// branch uses addresseeBoost. Setting one would leave a row labelled with a
+// boost it does not apply.
+func withBoost(c coefficients, v float64) coefficients {
+	c.callBoost, c.addresseeBoost = v, v
+	return c
+}
+func withExpiry(c coefficients, v bool) coefficients { c.callExpiresOnAnswer = v; return c }
+func withWindow(c coefficients, v int) coefficients  { c.callWindow = v; return c }
 
 func continuousSilence(c coefficients, gain float64) coefficients {
 	c.silenceGain = gain
