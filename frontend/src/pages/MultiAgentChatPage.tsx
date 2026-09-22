@@ -570,7 +570,7 @@ export function MultiAgentChatPage() {
                         onClick={(event) => void handleDraftConclusion(event.currentTarget, message.id)}
                         style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
                       >
-                        <ConcludeFromHereIcon />
+                        <SummaryIcon />
                       </IconButton>
                       {/* Same bare 24px icon button as the single-assistant page's review and
                           copy actions, so the per-message actions read alike across chat kinds. */}
@@ -877,12 +877,26 @@ function MemoryStickIcon() {
   );
 }
 
-// Three lines ending in a check: a conclusion drawn from this message onward.
-function ConcludeFromHereIcon() {
+// Lucide "summary" (ISC, see THIRD_PARTY_NOTICES.md), sized to the 16px grid
+// the other per-message icons use.
+function SummaryIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M2.75 4h10.5M2.75 8h6.5M2.75 12h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="m9.5 11.5 1.75 1.75 3-3.25" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 4H7" />
+      <path d="m18 16 3 3-3 3" />
+      <path d="M3 4v13a2 2 0 0 0 2 2h16" />
+      <path d="M7 14h7" />
+      <path d="M7 9h12" />
     </svg>
   );
 }

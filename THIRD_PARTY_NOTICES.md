@@ -324,10 +324,10 @@ notice text to propagate here.
 - Upstream: <https://lucide.dev/>
 - License: ISC — full text below
 
-`frontend/src/pages/MultiAgentChatPage.tsx` embeds the `memory-stick` icon's SVG
-paths verbatim (as the `MemoryStickIcon` component). The icon is not one of the
-Feather-derived icons Lucide lists under the MIT license, so only the ISC terms
-below apply. The Lucide package itself is not a dependency of this project.
+`frontend/src/pages/MultiAgentChatPage.tsx` embeds the `memory-stick` and
+`summary` icons' SVG paths verbatim (as the `MemoryStickIcon` and `SummaryIcon`
+components). Neither icon is one of the Feather-derived icons Lucide lists under
+the MIT license, so only the ISC terms below apply. The Lucide package itself is not a dependency of this project.
 
 ```
 ISC License
