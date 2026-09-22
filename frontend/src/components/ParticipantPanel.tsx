@@ -343,9 +343,10 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
               <option value="round_robin">{t("participants.turnRuleRoundRobin")}</option>
               <option value="manual">{t("participants.turnRuleManual")}</option>
               <option value="facilitator_alternating">{t("participants.turnRuleFacilitator")}</option>
+              <option value="weighted">{t("participants.turnRuleWeighted")}</option>
             </Select>
           </Field>
-          {props.chat.turnRule === "facilitator_alternating" ? (
+          {props.chat.turnRule === "facilitator_alternating" || props.chat.turnRule === "weighted" ? (
             <Field>
               {t("participants.facilitator")}
               {/* The value is matched against the roster rather than taken from
@@ -365,7 +366,11 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
                 ))}
               </Select>
               <Subtle style={{ margin: 0 }}>
-                {facilitatorOnRoster ? t("participants.facilitatorNote") : t("participants.facilitatorMissing")}
+                {props.chat.turnRule === "weighted"
+                  ? t("participants.facilitatorWeightedNote")
+                  : facilitatorOnRoster
+                    ? t("participants.facilitatorNote")
+                    : t("participants.facilitatorMissing")}
               </Subtle>
             </Field>
           ) : null}

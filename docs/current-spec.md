@@ -93,12 +93,18 @@ A multi-agent conversation has:
 
 - participants: display name, role prompt, endpoint, model, roster order, and whether the
   participant is given the project material (on by default)
-- turn rule: `round_robin` (cycle the roster), `manual` (nominate each speaker) or
+- turn rule: `round_robin` (cycle the roster), `manual` (nominate each speaker),
   `facilitator_alternating` (a chosen facilitator speaks every other turn, the rest of the roster
-  cycling in order between its turns)
+  cycling in order between its turns) or `weighted` (whoever an utterance called on, or whoever
+  has been quiet longest, speaks next, and nobody speaks twice in a row)
 - facilitator: the participant `facilitator_alternating` interleaves. It answers the opening turn
   and every intervention of yours; with no facilitator on the roster the rule falls back to roster
-  order
+  order. Under `weighted` the facilitator is optional and is only exempt from being held back for
+  having spoken recently
+- calls: when a message is stored, the participants it calls on are recorded with it — a trailing
+  `[次: name]` line a participant writes under `weighted` (removed from the stored text), or else the
+  roster names found in the message's last sentence. Your own interventions are matched the same
+  way, so "Alice, go on" reaches Alice under `weighted`
 - scene: text prefixed to every participant's system prompt (topic, setting, world)
 
 The roster is the set of participants still on the conversation. Removing a participant is a soft
@@ -171,7 +177,10 @@ A turn:
 1. takes the conversation's turn lock (a second concurrent turn gets 409)
 2. picks the speaker (round-robin: the next roster entry after the last participant message; manual:
    the nominated participant; facilitator-alternating: the facilitator unless it spoke last, in which
-   case the roster entry after the last non-facilitator speaker)
+   case the roster entry after the last non-facilitator speaker; weighted: the participant with the
+   highest weight — the product of ×0.2 for whoever wrote the last message, ×0.85 for anyone who
+   spoke within the last n participant utterances except the facilitator, and ×1.2 for an unanswered
+   call — ties going to the longest silent, then to roster order)
 3. checks the participant's endpoint and loads the model, then announces the speaker to the client
    (a `speaker` event carrying the participant, the resolved model and, for a rule that weighs the
    roster, the weight breakdown); a refusal up to this point is an HTTP status (409 / 404 / 400 /
@@ -398,7 +407,7 @@ Right pane:
 
 - organisation panel: participant CRUD with endpoint + model selection and a connection check,
   the per-participant project-material switch, roster order, turn rule, the facilitator (shown for
-  the facilitator-alternating rule only), scene, and — while the conversation has no messages —
+  the facilitator-alternating and weighted rules only), scene, and — while the conversation has no messages —
   applying a preset (collapsed by default)
 
 Removed participants are listed separately from the roster, since their past utterances remain.

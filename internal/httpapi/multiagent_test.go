@@ -347,7 +347,7 @@ func TestMultiAgentChatSettings(t *testing.T) {
 	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats", map[string]any{"kind": "swarm"}),
 		http.StatusBadRequest, `kind must be "assistant" or "multi_agent"`)
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"turnRule": "auction"}),
-		http.StatusBadRequest, `turnRule must be "round_robin", "manual" or "facilitator_alternating"`)
+		http.StatusBadRequest, `turnRule must be "round_robin", "manual", "facilitator_alternating" or "weighted"`)
 
 	rec := doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"scenePrompt": "論題: ローカル LLM の是非"})
 	wantStatus(t, rec, http.StatusOK)
@@ -366,6 +366,13 @@ func TestMultiAgentChatSettings(t *testing.T) {
 	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
 	if chat.Title != "Renamed" || chat.TurnRule != "manual" || chat.ScenePrompt == "" {
 		t.Fatalf("after combined update = %+v, want title and turn rule changed and the scene kept", chat)
+	}
+
+	rec = doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"turnRule": "weighted"})
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.TurnRule != "weighted" {
+		t.Fatalf("after weighted update = %+v, want the weighted rule", chat)
 	}
 
 	assistantChatID := createChat(t, h, projectID)
@@ -539,6 +546,40 @@ func TestMultiAgentMessagesAreStoredNotAnswered(t *testing.T) {
 	unmarshalField(t, decodeJSONMap(t, rec), "message", &stored)
 	if stored.Role != "assistant" {
 		t.Fatalf("assistant chat reply role = %q, want assistant", stored.Role)
+	}
+}
+
+// TestMultiAgentInterventionCallIsStored covers TASK-34 AC #6 on the human's
+// side: both message routes run the name match over the intervention and store
+// whom it called on, so the weighted rule can answer "Alice, go on".
+func TestMultiAgentInterventionCallIsStored(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Intervention Call Project")
+	chatID := createMultiAgentChat(t, h, projectID, "")
+	aliceID := addParticipant(t, h, chatID, "アリス", "")
+	bobID := addParticipant(t, h, chatID, "ボブ", "")
+
+	rec := doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": "アリス、もう少し詳しく"})
+	wantStatus(t, rec, http.StatusCreated)
+	var stored struct {
+		Content                 string   `json:"content"`
+		AddressedParticipantIDs []string `json:"addressedParticipantIds"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "message", &stored)
+	if stored.Content != "アリス、もう少し詳しく" || len(stored.AddressedParticipantIDs) != 1 || stored.AddressedParticipantIDs[0] != aliceID {
+		t.Fatalf("stored = %+v, want the body kept and the call on アリス (%s)", stored, aliceID)
+	}
+
+	rec = doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages/stream", map[string]any{"content": "アリスとボブ、どう思う？"})
+	wantStatus(t, rec, http.StatusOK)
+	var messages []struct {
+		AddressedParticipantIDs []string `json:"addressedParticipantIds"`
+	}
+	if err := json.Unmarshal(doneFrame(t, rec)["messages"], &messages); err != nil {
+		t.Fatalf("decode done.messages: %v", err)
+	}
+	if got := messages[len(messages)-1].AddressedParticipantIDs; len(got) != 2 || got[0] != aliceID || got[1] != bobID {
+		t.Fatalf("streamed intervention called %v, want both participants", got)
 	}
 }
 

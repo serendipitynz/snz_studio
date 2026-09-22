@@ -178,7 +178,15 @@ type scenario struct {
 }
 
 func main() {
-	scenarios := []scenario{
+	for _, sc := range scenarios() {
+		fmt.Printf("\n=== %s (%d ターン, 呼びかけ率 %.0f%%, うち 2 人呼び %.0f%%, 介入 %s) ===\n",
+			sc.name, sc.turns, sc.addressRate*100, sc.multiCallRate*100, interventionLabel(sc.humanEvery))
+		report(sc, rules())
+	}
+}
+
+func scenarios() []scenario {
+	return []scenario{
 		{name: "3人・進行役なし", roster: plainRoster("A", "B", "C"), turns: 60, seed: 1},
 		{name: "4人・進行役なし", roster: plainRoster("A", "B", "C", "D"), turns: 60, seed: 2},
 		{name: "4人・進行役あり", roster: gmRoster("GM", "A", "B", "C"), turns: 60, seed: 3},
@@ -196,12 +204,6 @@ func main() {
 		{name: "進行役の免除なし + GM=1.176", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1.176, 1, 1, 1), turns: 60, seed: 12},
 		// 「編成の全員を呼ぶ」介入を捨てるか残すかで挙動が変わるかを見る。
 		{name: "介入が編成の全員を呼ぶ", roster: gmRoster("GM", "A", "B", "C"), turns: 60, humanEvery: 6, humanCallsAll: true, seed: 13},
-	}
-
-	for _, sc := range scenarios {
-		fmt.Printf("\n=== %s (%d ターン, 呼びかけ率 %.0f%%, うち 2 人呼び %.0f%%, 介入 %s) ===\n",
-			sc.name, sc.turns, sc.addressRate*100, sc.multiCallRate*100, interventionLabel(sc.humanEvery))
-		report(sc, rules())
 	}
 }
 
@@ -597,6 +599,13 @@ type measurement struct {
 }
 
 func run(sc scenario, rl rule) measurement {
+	history, ties := simulate(sc, rl)
+	return measure(sc.roster, history, ties)
+}
+
+// simulate plays the scenario under the rule and returns the transcript with the
+// number of turns whose top weight was shared.
+func simulate(sc scenario, rl rule) ([]utterance, int) {
 	schedule := buildCallSchedule(sc)
 	history := make([]utterance, 0, sc.turns)
 	ties := 0
@@ -624,7 +633,7 @@ func run(sc scenario, rl rule) measurement {
 		}
 		history = append(history, utterance{speaker: speaker, addressees: addresseesFor(schedule[turn], len(sc.roster), speaker)})
 	}
-	return measure(sc.roster, history, ties)
+	return history, ties
 }
 
 // buildCallSchedule decides, once per scenario and before any rule runs, which

@@ -25,6 +25,9 @@ var (
 	ErrParticipantNotInChat      = errors.New("service: participant does not belong to this chat")
 	ErrParticipantRemoved        = errors.New("service: participant was removed from the roster")
 	ErrEndpointUnavailable       = errors.New("service: participant endpoint did not accept the model")
+	// ErrUtteranceOnlyDirective is found after generation, so it only ever
+	// reaches a caller inside an open stream and has no HTTP status of its own.
+	ErrUtteranceOnlyDirective = errors.New("service: the utterance held nothing but its addressee directive")
 )
 
 // turnHistoryLimit caps how many past messages are mapped into a turn's prompt
@@ -162,11 +165,11 @@ type SpeakerChoice struct {
 }
 
 // SpeakerWeight is one participant's weight and the factors multiplied into it.
-// It names the participant by id only, so a participant added after the client
-// last read the roster shows as its id in the breakdown; whether to carry the
-// display name as SpeakerChoice does is left to the rule that first fills this.
+// It carries the display name as well as the id, so a participant added after
+// the client last read the roster is still named in the breakdown.
 type SpeakerWeight struct {
 	ParticipantID string         `json:"participantId"`
+	DisplayName   string         `json:"displayName"`
 	Weight        float64        `json:"weight"`
 	Factors       []WeightFactor `json:"factors"`
 }
@@ -211,7 +214,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	if err != nil {
 		return nil, err
 	}
-	speaker, err := e.selectSpeaker(chat, participantID, messages)
+	speaker, weights, err := e.selectSpeaker(chat, participantID, messages)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +242,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 		return nil, fmt.Errorf("%w: %s (%s at %s)", ErrEndpointUnavailable, speaker.DisplayName, effectiveModel, effectiveBaseURL)
 	}
 	if onSpeaker != nil {
-		onSpeaker(SpeakerChoice{Participant: speaker, ModelName: effectiveModel, Weights: []SpeakerWeight{}})
+		onSpeaker(SpeakerChoice{Participant: speaker, ModelName: effectiveModel, Weights: weights})
 	}
 
 	knownSpeakers, err := e.participants.ListAll(chatID)
@@ -272,6 +275,16 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 		return nil, err
 	}
 
+	// Whom the utterance calls on is fixed here, once, for every rule: a chat
+	// switched to weighted later reads the calls already in its window, and
+	// re-reading bodies then would answer differently once a name has changed
+	// (§4.6.5). The directive is only asked for under weighted, but a trailing one
+	// is removed under any rule so no control syntax reaches the transcript.
+	content, addressees := detectAddressees(result.Content, speaker.ID, onRoster(knownSpeakers))
+	if strings.TrimSpace(content) == "" {
+		return nil, ErrUtteranceOnlyDirective
+	}
+
 	// The message is written once, after the stream completes, rather than being
 	// created empty and filled in as ChatService does: a failed turn would
 	// otherwise leave a blank participant message in the transcript, which
@@ -282,12 +295,14 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	message, err := e.chats.AddMessageWithReferences(repository.AddMessageInput{
 		ChatID:          chatID,
 		Role:            "assistant",
-		Content:         result.Content,
+		Content:         content,
 		ResponseMs:      int64Ptr(result.ResponseMs),
 		OutputTokens:    int64Ptr(result.OutputTokens),
 		TokensPerSecond: float64Ptr(result.TokensPerSecond),
 		ModelName:       strPtr(result.ModelName),
 		ParticipantID:   strPtr(speaker.ID),
+
+		AddressedParticipantIDs: addressees,
 	}, referenceInputs(material.References))
 	if err != nil {
 		return nil, err
@@ -326,26 +341,34 @@ func referenceInputs(references []model.SearchReference) []repository.ReferenceI
 	return inputs
 }
 
-// selectSpeaker applies the chat's turn rule. Both derived rules read the
-// speaker out of the transcript instead of server-side progression state, so a
-// restarted server (or a second window) continues unchanged (§2).
-func (e *TurnEngine) selectSpeaker(chat *model.Chat, participantID string, messages []model.Message) (*model.Participant, error) {
+// selectSpeaker applies the chat's turn rule. The derived rules read the speaker
+// out of the transcript instead of server-side progression state, so a restarted
+// server (or a second window) continues unchanged (§2). The weights are the
+// calculation behind the pick, empty for the rules that pick by position.
+func (e *TurnEngine) selectSpeaker(chat *model.Chat, participantID string, messages []model.Message) (*model.Participant, []SpeakerWeight, error) {
 	participantID = strings.TrimSpace(participantID)
 	if chat.TurnRule == model.TurnRuleManual {
-		return e.namedSpeaker(chat.ID, participantID)
+		speaker, err := e.namedSpeaker(chat.ID, participantID)
+		return speaker, []SpeakerWeight{}, err
 	}
 	if participantID != "" {
 		// Honouring it would let the UI nominate a speaker while a different
 		// participant actually speaks, so the mismatch is reported instead.
-		return nil, ErrParticipantNotNameable
+		return nil, nil, ErrParticipantNotNameable
 	}
 
 	roster, err := e.participants.ListRoster(chat.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(roster) == 0 {
-		return nil, ErrRosterEmpty
+		return nil, nil, ErrRosterEmpty
+	}
+	if chat.TurnRule == model.TurnRuleWeighted {
+		// A facilitator that is unset or has left the roster exempts no one, and
+		// the rule goes on weighing everyone alike.
+		speaker, weights := weightedSpeaker(roster, rosterIndexOf(roster, chat.FacilitatorID), messages)
+		return speaker, weights, nil
 	}
 	if chat.TurnRule == model.TurnRuleFacilitatorAlternating {
 		// An unset facilitator and one that has left the roster are the same case
@@ -354,10 +377,10 @@ func (e *TurnEngine) selectSpeaker(chat *model.Chat, participantID string, messa
 		// stop an auto-advancing conversation on a state a removal can reach at any
 		// time, and the panel can say what is missing where it can also be fixed.
 		if facilitator := rosterIndexOf(roster, chat.FacilitatorID); facilitator >= 0 {
-			return alternatingSpeaker(roster, facilitator, messages), nil
+			return alternatingSpeaker(roster, facilitator, messages), []SpeakerWeight{}, nil
 		}
 	}
-	return roundRobinSpeaker(roster, messages), nil
+	return roundRobinSpeaker(roster, messages), []SpeakerWeight{}, nil
 }
 
 func rosterIndexOf(roster []model.Participant, participantID string) int {
@@ -552,13 +575,32 @@ func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Par
 	// "name: body" shape the history is mapped into, write the other speakers'
 	// lines as well as their own, settle into agreeing, and stop honouring the
 	// scene's length rule once the history grows.
-	parts = append(parts, strings.Join([]string{
+	reminder := []string{
 		fmt.Sprintf("あなたは「%s」としてのみ発言する。他の参加者の発言や動作を代筆しない。1 回の発言に複数人分の会話を入れない。", speaker.DisplayName),
 		"発言の先頭に自分の名前や記号を付けない。本文だけを書く。",
 		"直前の発言のどこに反応しているかが分かるように述べる。同意するだけで終わらせず、自分の立場から具体的に述べる。",
 		"発言の長さは場面設定の指定に従う。指定がなければ簡潔にまとめる。",
-	}, "\n"))
+	}
+	// Only weighted reads the call, so only weighted asks for the directive: under
+	// the other rules it would invite the model to name someone the rule then
+	// passes over, and their prompts stay as they were.
+	if chat.TurnRule == model.TurnRuleWeighted {
+		reminder = append(reminder, "次に話してほしい相手がいるときだけ、発言の最後の行に [次: 表示名] と書く（複数なら読点で区切る）。いなければ書かない。")
+	}
+	parts = append(parts, strings.Join(reminder, "\n"))
 	return strings.Join(parts, "\n\n")
+}
+
+// onRoster keeps the participants still on the roster: only they can be called
+// on, while ListAll also returns removed ones so past speakers keep their names.
+func onRoster(participants []model.Participant) []model.Participant {
+	roster := make([]model.Participant, 0, len(participants))
+	for _, p := range participants {
+		if p.DeletedAt == nil {
+			roster = append(roster, p)
+		}
+	}
+	return roster
 }
 
 func rosterNames(participants []model.Participant) string {

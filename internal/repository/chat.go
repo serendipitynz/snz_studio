@@ -2,7 +2,9 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"snzstudio/internal/model"
@@ -21,7 +23,7 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 
 const (
 	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, created_at, updated_at`
-	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id`
+	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids`
 	summaryColumns = `chat_id, summary, updated_at`
 	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
 )
@@ -46,9 +48,13 @@ func scanMessage(s scanner) (model.Message, error) {
 		tps           sql.NullFloat64
 		modelName     sql.NullString
 		participantID sql.NullString
+		addressees    string
 	)
-	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName, &participantID); err != nil {
+	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName, &participantID, &addressees); err != nil {
 		return m, err
+	}
+	if err := json.Unmarshal([]byte(addressees), &m.AddressedParticipantIDs); err != nil {
+		return m, fmt.Errorf("message %s: addressed_participant_ids: %w", m.ID, err)
 	}
 	m.ResponseMs = int64Ptr(respMs)
 	m.OutputTokens = int64Ptr(outTok)
@@ -225,7 +231,8 @@ func (r *ChatRepository) DeleteChat(chatID string) (*model.Chat, error) {
 }
 
 // AddMessageInput carries the fields for AddMessage. ParticipantID is set only
-// for a multi-agent participant's turn.
+// for a multi-agent participant's turn; AddressedParticipantIDs only for a
+// multi-agent message that called on someone (nil stores as no call).
 type AddMessageInput struct {
 	ChatID          string
 	Role            string
@@ -235,6 +242,8 @@ type AddMessageInput struct {
 	TokensPerSecond *float64
 	ModelName       *string
 	ParticipantID   *string
+
+	AddressedParticipantIDs []string
 }
 
 // AddMessage inserts a message and bumps the chat's updated_at. Mirrors addMessage.
@@ -259,6 +268,15 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 		TokensPerSecond: input.TokensPerSecond,
 		ModelName:       input.ModelName,
 		ParticipantID:   input.ParticipantID,
+
+		AddressedParticipantIDs: input.AddressedParticipantIDs,
+	}
+	if m.AddressedParticipantIDs == nil {
+		m.AddressedParticipantIDs = []string{}
+	}
+	addressees, err := json.Marshal(m.AddressedParticipantIDs)
+	if err != nil {
+		return model.Message{}, err
 	}
 
 	tx, err := r.db.Begin()
@@ -267,10 +285,10 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`
-		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatID, m.Role, m.Content, m.CreatedAt,
-		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID)); err != nil {
+		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID), string(addressees)); err != nil {
 		return model.Message{}, err
 	}
 	if err := insertReferences(tx, m.ID, references); err != nil {

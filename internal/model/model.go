@@ -56,6 +56,11 @@ const (
 	// (docs/multi-agent-chat-design.md §2). It is not the future rule where a
 	// facilitator model names the next speaker (§7).
 	TurnRuleFacilitatorAlternating = "facilitator_alternating"
+	// TurnRuleWeighted gives every roster participant a weight — the product of
+	// the factors that apply to it — and the heaviest speaks, ties going to the
+	// longest silent and then to sort_order (§4.6.1). A call a message made
+	// raises its addressees while it is unanswered.
+	TurnRuleWeighted = "weighted"
 )
 
 // Chat mirrors the Chat interface. Kind is "assistant" (the single-assistant
@@ -65,7 +70,8 @@ const (
 // FacilitatorID names the participant TurnRuleFacilitatorAlternating
 // interleaves. Empty means unset, and the id may also name a participant that
 // has since left the roster; both make the rule fall back to round_robin's
-// derivation (§4.2 step 1).
+// derivation (§4.2 step 1). TurnRuleWeighted reads the same setting to exempt
+// the facilitator from the recent-speaker factor, and without one exempts no one.
 type Chat struct {
 	ID            string `json:"id"`
 	ProjectID     string `json:"projectId"`
@@ -83,6 +89,10 @@ type Chat struct {
 // assistant turn is finalised. ParticipantID is nil for the conventional user /
 // assistant messages and set for a multi-agent participant's turn; the speaker's
 // display name is resolved through Participant, which is never hard-deleted.
+//
+// AddressedParticipantIDs is the set of participants the message called on,
+// fixed when it was stored and never re-derived from Content (design §4.6.5).
+// It is empty, never nil, for a message that called on no one.
 type Message struct {
 	ID              string   `json:"id"`
 	ChatID          string   `json:"chatId"`
@@ -94,6 +104,8 @@ type Message struct {
 	TokensPerSecond *float64 `json:"tokensPerSecond"`
 	ModelName       *string  `json:"modelName"`
 	ParticipantID   *string  `json:"participantId"`
+
+	AddressedParticipantIDs []string `json:"addressedParticipantIds"`
 }
 
 // Participant is one speaker of a multi-agent chat: a display name, a role

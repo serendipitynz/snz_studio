@@ -63,7 +63,7 @@ export interface MemoryOrganizationPlan {
 }
 
 export type ChatKind = "assistant" | "multi_agent";
-export type TurnRule = "round_robin" | "manual" | "facilitator_alternating";
+export type TurnRule = "round_robin" | "manual" | "facilitator_alternating" | "weighted";
 
 export interface ChatRecord {
   id: string;
@@ -169,6 +169,9 @@ export interface MessageRecord {
   tokensPerSecond: number | null;
   modelName: string | null;
   participantId: string | null;
+  // The participants this message called on, fixed when it was stored. Only the
+  // weighted turn rule reads it (design §4.6.5).
+  addressedParticipantIds: string[];
   references: AssistantReference[];
 }
 

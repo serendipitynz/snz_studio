@@ -85,6 +85,7 @@ func TestParse(t *testing.T) {
 		"facilitator rule without a facilitator": `{"title":"x","turnRule":"facilitator_alternating","participants":[{"displayName":"甲"},{"displayName":"乙"}]}`,
 		"two facilitators":                       `{"title":"x","turnRule":"facilitator_alternating","participants":[{"displayName":"甲","facilitator":true},{"displayName":"乙","facilitator":true}]}`,
 		"facilitator under another rule":         `{"title":"x","participants":[{"displayName":"甲","facilitator":true},{"displayName":"乙"}]}`,
+		"two facilitators under weighted":        `{"title":"x","turnRule":"weighted","participants":[{"displayName":"甲","facilitator":true},{"displayName":"乙","facilitator":true}]}`,
 	}
 	for name, raw := range cases {
 		_, err := Parse([]byte(raw))
@@ -93,6 +94,19 @@ func TestParse(t *testing.T) {
 		}
 		if err != nil && !strings.HasPrefix(err.Error(), ErrInvalid.Error()+": ") {
 			t.Errorf("%s: err = %q, want the reason after the sentinel", name, err)
+		}
+	}
+}
+
+// TestParseWeighted: weighted reads the facilitator mark but runs without one,
+// so the mark is optional there rather than required.
+func TestParseWeighted(t *testing.T) {
+	for _, raw := range []string{
+		`{"title":"x","turnRule":"weighted","participants":[{"displayName":"甲"},{"displayName":"乙"}]}`,
+		`{"title":"x","turnRule":"weighted","participants":[{"displayName":"甲","facilitator":true},{"displayName":"乙"}]}`,
+	} {
+		if p, err := Parse([]byte(raw)); err != nil || p.TurnRule != "weighted" {
+			t.Errorf("Parse(%s) = %+v, %v, want a weighted preset", raw, p, err)
 		}
 	}
 }

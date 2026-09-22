@@ -80,6 +80,11 @@ func turnRuleDescription(chat *model.Chat, participants []model.Participant) str
 			return fmt.Sprintf("facilitator_alternating（進行役「%s」と他の参加者が交互に発言する）", name)
 		}
 		return "facilitator_alternating（進行役が編成に居ないため、編成順に回す）"
+	case model.TurnRuleWeighted:
+		if name := facilitatorName(chat.FacilitatorID, participants); name != "" {
+			return fmt.Sprintf("weighted（呼びかけと沈黙の長さで次の話者を決める。進行役「%s」）", name)
+		}
+		return "weighted（呼びかけと沈黙の長さで次の話者を決める）"
 	case "":
 		return "（未設定）"
 	default:

@@ -20,8 +20,9 @@ filesystem** — a standalone desktop app you install and launch.
 - Multi-agent chats (chats where two or more participants speak in turn)
   - Per-participant display name, role prompt, endpoint and model (splitting endpoints lets you
     mix several LM Studio instances)
-  - Turn rules: cycling the roster (`round_robin`), nominating the next speaker (`manual`), or a
-    chosen facilitator speaking every other turn (`facilitator_alternating`, for a game master)
+  - Turn rules: cycling the roster (`round_robin`), nominating the next speaker (`manual`), a
+    chosen facilitator speaking every other turn (`facilitator_alternating`, for a game master), or
+    letting whoever was called on — or has been quiet longest — speak next (`weighted`)
   - A scene prompt (topic, setting, world) shared by every participant
   - 8 bundled presets (debate, improv theatre, a TRPG table and others) to start from, plus
     additional presets loaded from JSON files
