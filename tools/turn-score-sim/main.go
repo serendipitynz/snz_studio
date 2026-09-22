@@ -133,7 +133,9 @@ type coefficients struct {
 
 	// callWindow widens the call from the last message alone to the last N
 	// participant utterances, so a call that has not been answered yet still
-	// counts. 0 keeps the last-message-only form. It is what lets the second
+	// counts. 0 keeps the last-message-only form, and -1 means the roster size,
+	// which is what the design specifies — spelling a number here instead let a
+	// variant run a window of 4 against a roster of 3. It is what lets the second
 	// participant of "A, B, what do you think?" keep its advantage after A speaks;
 	// without it the call leaves the transcript's view the moment anyone answers.
 	callWindow int
@@ -168,6 +170,10 @@ type scenario struct {
 	// multiCallRate is the share of calls that name two participants rather than
 	// one ("A, B, what do you think?").
 	multiCallRate float64
+	// humanCallsAll makes each intervention call on the whole roster ("everyone,
+	// what do you think?"), which is the case the design's "discard a call that
+	// names everyone" filter was written for.
+	humanCallsAll bool
 	seed          int64
 }
 
@@ -187,6 +193,8 @@ func main() {
 		{name: "talkativeness: C=0.2 (ほぼ黙る)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.2), turns: 60, addressRate: 0.3, seed: 11},
 		// 進行役の免除を talkativeness で置き換えられるかを見る (免除なし + GM を上げる)。
 		{name: "進行役の免除なし + GM=1.15", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1.15, 1, 1, 1), turns: 60, seed: 12},
+		// 「編成の全員を呼ぶ」介入を捨てるか残すかで挙動が変わるかを見る。
+		{name: "介入が編成の全員を呼ぶ", roster: gmRoster("GM", "A", "B", "C"), turns: 60, humanEvery: 6, humanCallsAll: true, seed: 13},
 	}
 
 	for _, sc := range scenarios {
@@ -197,42 +205,44 @@ func main() {
 }
 
 func rules() []rule {
-	// The ticket's coefficients. notAddressee 0.5 is its "the call influences the
-	// weight" rule, written as a suppression of everyone else.
+	// The ticket's original coefficients: the call as a suppression of everyone but
+	// the addressees, read from the last message alone.
 	proposed := coefficients{lastSpeaker: 0.2, recentSpeaker: 0.85, notAddressee: 0.5, notRosterNext: 0.95, addresseeBoost: 1.0, facilitatorExemptRecent: true}
-	// The same rule written as a boost, which is what can be tuned: the ticket's
-	// 0.5 is boost 2.0, and the threshold where a call stops being able to lose is
-	// 1/(0.85×0.95) ≈ 1.238, so 1.3 sits just above it and 1.2 just below.
-	tuned := func(boost float64) coefficients {
+	// The same last-message-only form written as a raise on the addressee, which is
+	// ranking-equivalent (notAddressee=x ranks as addresseeBoost=1/x) but tunable.
+	lastMessageOnly := func(boost float64) coefficients {
 		c := proposed
 		c.notAddressee, c.addresseeBoost = 1.0, boost
 		return c
 	}
+	// The adopted form: the call is a raise held over a window of the last
+	// len(roster) participant utterances while it is unanswered. Every variant of
+	// it below changes exactly one thing, so that a difference in the tables is
+	// attributable — the earlier list varied the expiry policy and the coefficient
+	// together and the comparison meant nothing.
+	adopted := windowedCall(proposed, -1, 1.2, true)
 
 	return []rule{
-		{name: "原案", pick: weighted(proposed, penalizeLastParticipant, byRosterOrder)},
-		{name: "原案+沈黙同点", pick: weighted(proposed, penalizeLastParticipant, byLongestSilence)},
-		{name: "原案+人間=話者", pick: weighted(proposed, humanIsCurrentSpeaker, byRosterOrder)},
-		{name: "原案+介入は進行役", pick: weighted(proposed, facilitatorAnswersHuman, byRosterOrder)},
-		{name: "呼びかけ×2.0(原案と等価)", pick: weighted(tuned(2.0), facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "呼びかけ×1.3", pick: weighted(tuned(1.3), facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "呼びかけ×1.2", pick: weighted(tuned(1.2), facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "呼びかけ×1.1", pick: weighted(tuned(1.1), facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "呼びかけ係数なし", pick: weighted(tuned(1.0), facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "沈黙を連続量+呼びかけ×1.3", pick: weighted(continuousSilence(tuned(1.3), 0.15), facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "窓4・×1.2・応答で消える", pick: weighted(windowedCall(proposed, 4, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "窓4・×1.2・応答でも残る", pick: weighted(windowedCall(proposed, 4, 1.2, false), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "窓4・×1.1・応答でも残る", pick: weighted(windowedCall(proposed, 4, 1.1, false), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "窓2・×1.2・応答で消える", pick: weighted(windowedCall(proposed, 2, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "窓4・×1.5・応答で消える", pick: weighted(windowedCall(proposed, 4, 1.5, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "窓4・×2.0・応答で消える", pick: weighted(windowedCall(proposed, 4, 2.0, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "直近抑制なし", pick: weighted(withRecent(proposed, 1.0), humanIsCurrentSpeaker, byRosterOrder)},
-		{name: "進行役の免除なし", pick: weighted(withoutExemption(proposed), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用(仕様どおり)", pick: weighted(proposed, humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用+名指し無し介入は進行役", pick: weighted(proposed, facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "採用", pick: weighted(adopted, humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・加点×1.1", pick: weighted(windowedCall(proposed, -1, 1.1, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・加点×1.3", pick: weighted(windowedCall(proposed, -1, 1.3, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・加点×2.0", pick: weighted(windowedCall(proposed, -1, 2.0, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・加点なし", pick: weighted(windowedCall(proposed, -1, 1.0, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・応答でも残る", pick: weighted(windowedCall(proposed, -1, 1.2, false), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・窓2固定", pick: weighted(windowedCall(proposed, 2, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・同点=名簿順", pick: weighted(adopted, humanIsCurrentSpeaker, byRosterOrder)},
+		{name: "採用・介入時も×0.2", pick: weighted(adopted, penalizeLastParticipant, byLongestSilence)},
+		{name: "採用・介入後は進行役", pick: weighted(adopted, facilitatorAnswersHuman, byLongestSilence)},
+		{name: "採用・名指し無し介入は進行役", pick: weighted(adopted, facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "採用・直近抑制なし", pick: weighted(withRecent(adopted, 1.0), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・進行役の免除なし", pick: weighted(withoutExemption(adopted), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・沈黙を連続量", pick: weighted(continuousSilence(adopted, 0.15), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "起票時の原案(末尾のみ・他を×0.5)", pick: weighted(proposed, humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "起票時の原案(同点=名簿順・介入時も×0.2)", pick: weighted(proposed, penalizeLastParticipant, byRosterOrder)},
+		{name: "末尾のみ・加点×1.2", pick: weighted(lastMessageOnly(1.2), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "呼びかけ最優先(先頭)", pick: addressedFirst},
 		{name: "呼びかけ最優先(沈黙が長い側)", pick: addressedLongestSilent},
-		{name: "呼びかけ最優先(窓4・未応答・沈黙が長い側)", pick: addressedOutstandingLongestSilent},
+		{name: "呼びかけ最優先(窓・未応答・沈黙が長い側)", pick: addressedOutstandingLongestSilent},
 		{name: "round_robin", pick: roundRobin},
 		{name: "facilitator交互", pick: facilitatorAlternating},
 	}
@@ -343,8 +353,12 @@ func weighted(c coefficients, human humanPolicy, tie tieBreak) func(roster, []ut
 			} else if spokeWithin(history, i, window) && !(c.facilitatorExemptRecent && r[i].facilitator) {
 				w *= c.recentSpeaker
 			}
-			if c.callWindow > 0 {
-				if outstandingCall(history, i, c.callWindow, c.callExpiresOnAnswer) {
+			if c.callWindow != 0 {
+				callWindow := c.callWindow
+				if callWindow < 0 {
+					callWindow = len(r)
+				}
+				if outstandingCall(history, i, callWindow, c.callExpiresOnAnswer) {
 					w *= c.callBoost
 				}
 			} else if len(called.addressees) > 0 {
@@ -573,6 +587,12 @@ func run(sc scenario, rl rule) measurement {
 			var called []int
 			if last := lastParticipantSpeaker(history); sc.humanCallsLast && last >= 0 {
 				called = []int{last}
+			}
+			if sc.humanCallsAll {
+				called = make([]int, len(sc.roster))
+				for i := range called {
+					called[i] = i
+				}
 			}
 			history = append(history, utterance{speaker: speakerHuman, addressees: called})
 		}
