@@ -130,11 +130,14 @@ func (s *Server) handleRemoveParticipant(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "participant": participant})
 }
 
-// handleRunTurnStream runs one turn and streams it (design §4.1, §5). The SSE
-// writer is created on the first delta instead of up front: every way a turn can
-// be refused — a turn already running (409), an unknown or foreign participant
-// (404), a rule violation (400) — happens before the model produces anything, and
-// opening the stream earlier would have already committed the response to 200.
+// handleRunTurnStream runs one turn and streams it (design §4.1, §5, §4.6.6).
+// The SSE writer is created when the engine announces the speaker instead of up
+// front: every way a turn can be refused — a turn already running (409), an
+// unknown or foreign participant (404), a rule violation (400), an endpoint that
+// does not answer (502) — happens before that, and opening the stream earlier
+// would have already committed the response to 200. Everything that fails after
+// the announcement (generation, storing the message) is reported inside the
+// stream, whether or not a delta had arrived.
 func (s *Server) handleRunTurnStream(w http.ResponseWriter, r *http.Request) {
 	m, ok := decodeBody(w, r)
 	if !ok {
@@ -145,10 +148,12 @@ func (s *Server) handleRunTurnStream(w http.ResponseWriter, r *http.Request) {
 
 	var sse *SSEWriter
 	var sseErr error
-	message, turnErr := s.turnEngine.RunTurn(chatID, participantID, func(chunk string) {
-		if sse == nil && sseErr == nil {
-			sse, sseErr = NewSSEWriter(w)
+	message, turnErr := s.turnEngine.RunTurn(chatID, participantID, func(choice service.SpeakerChoice) {
+		sse, sseErr = NewSSEWriter(w)
+		if sse != nil {
+			_ = sse.Event("speaker", choice)
 		}
+	}, func(chunk string) {
 		if sse != nil {
 			_ = sse.Event("delta", map[string]string{"content": chunk})
 		}
@@ -163,20 +168,8 @@ func (s *Server) handleRunTurnStream(w http.ResponseWriter, r *http.Request) {
 			writeError(w, status, message)
 			return
 		}
-		// The turn broke down mid-stream, so the status is already 200 and the
-		// failure can only be reported inside the stream.
 		_ = sse.Event("error", map[string]string{"message": turnErr.Error()})
 		return
-	}
-
-	// A turn that produced no delta (an empty completion) still has to answer, so
-	// the writer is opened here if the callback never did.
-	if sse == nil {
-		sse, sseErr = NewSSEWriter(w)
-		if sseErr != nil {
-			fail(w, sseErr)
-			return
-		}
 	}
 
 	chat, err := s.chats.GetChat(chatID)

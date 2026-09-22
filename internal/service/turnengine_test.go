@@ -195,7 +195,7 @@ func TestTurnEngineRoundRobinCycle(t *testing.T) {
 
 	want := []model.Participant{roster[0], roster[1], roster[2], roster[0]}
 	for i, expected := range want {
-		message, err := g.engine.RunTurn(chat.ID, "", nil)
+		message, err := g.engine.RunTurn(chat.ID, "", nil, nil)
 		if err != nil {
 			t.Fatalf("RunTurn #%d: %v", i+1, err)
 		}
@@ -238,7 +238,7 @@ func TestTurnEnginePromptMapping(t *testing.T) {
 	g.addMessage(t, chat.ID, "assistant", "反対の立場から述べます", &bob.ID)
 	g.addMessage(t, chat.ID, "assistant", "", &alice.ID) // 中断された空の発言は写像しない
 
-	if _, err := g.engine.RunTurn(chat.ID, alice.ID, nil); err != nil {
+	if _, err := g.engine.RunTurn(chat.ID, alice.ID, nil, nil); err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
 
@@ -298,7 +298,7 @@ func TestTurnEngineCueWhenNothingToAnswer(t *testing.T) {
 	alice := roster[0]
 
 	for _, label := range []string{"opening", "re-nomination"} {
-		if _, err := g.engine.RunTurn(chat.ID, alice.ID, nil); err != nil {
+		if _, err := g.engine.RunTurn(chat.ID, alice.ID, nil, nil); err != nil {
 			t.Fatalf("RunTurn (%s): %v", label, err)
 		}
 	}
@@ -323,7 +323,7 @@ func TestTurnEngineManualNomination(t *testing.T) {
 	chat, roster := g.newMultiAgentChat(t, model.TurnRuleManual, "", srv.URL, "Alice", "Bob", "Carol")
 	carol := roster[2]
 
-	message, err := g.engine.RunTurn(chat.ID, carol.ID, nil)
+	message, err := g.engine.RunTurn(chat.ID, carol.ID, nil, nil)
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestTurnEngineManualNomination(t *testing.T) {
 		t.Fatalf("spoke by %v, want %s (Carol)", message.ParticipantID, carol.ID)
 	}
 
-	if _, err := g.engine.RunTurn(chat.ID, "", nil); !errors.Is(err, ErrManualParticipantRequired) {
+	if _, err := g.engine.RunTurn(chat.ID, "", nil, nil); !errors.Is(err, ErrManualParticipantRequired) {
 		t.Fatalf("manual turn without a participant = %v, want ErrManualParticipantRequired", err)
 	}
 }
@@ -345,16 +345,16 @@ func TestTurnEngineRejectsForeignParticipant(t *testing.T) {
 	chat, roster := g.newMultiAgentChat(t, model.TurnRuleManual, "", srv.URL, "Alice", "Bob")
 	otherChat, otherRoster := g.newMultiAgentChat(t, model.TurnRuleManual, "", srv.URL, "Dave")
 
-	if _, err := g.engine.RunTurn(chat.ID, otherRoster[0].ID, nil); !errors.Is(err, ErrParticipantNotInChat) {
+	if _, err := g.engine.RunTurn(chat.ID, otherRoster[0].ID, nil, nil); !errors.Is(err, ErrParticipantNotInChat) {
 		t.Fatalf("foreign participant = %v, want ErrParticipantNotInChat", err)
 	}
-	if _, err := g.engine.RunTurn(chat.ID, "participant-does-not-exist", nil); !errors.Is(err, ErrParticipantNotInChat) {
+	if _, err := g.engine.RunTurn(chat.ID, "participant-does-not-exist", nil, nil); !errors.Is(err, ErrParticipantNotInChat) {
 		t.Fatalf("unknown participant = %v, want ErrParticipantNotInChat", err)
 	}
 	if _, err := g.participants.RemoveParticipant(roster[1].ID); err != nil {
 		t.Fatalf("RemoveParticipant: %v", err)
 	}
-	if _, err := g.engine.RunTurn(chat.ID, roster[1].ID, nil); !errors.Is(err, ErrParticipantRemoved) {
+	if _, err := g.engine.RunTurn(chat.ID, roster[1].ID, nil, nil); !errors.Is(err, ErrParticipantRemoved) {
 		t.Fatalf("removed participant = %v, want ErrParticipantRemoved", err)
 	}
 
@@ -386,7 +386,7 @@ func TestTurnEngineRoundRobinAfterRemoval(t *testing.T) {
 		t.Fatalf("RemoveParticipant: %v", err)
 	}
 
-	message, err := g.engine.RunTurn(chat.ID, "", nil)
+	message, err := g.engine.RunTurn(chat.ID, "", nil, nil)
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
@@ -419,7 +419,7 @@ func (g *turnGraph) setFacilitator(t *testing.T, chatID, participantID string) m
 func (g *turnGraph) runTurns(t *testing.T, chatID string, want []model.Participant) {
 	t.Helper()
 	for i, expected := range want {
-		message, err := g.engine.RunTurn(chatID, "", nil)
+		message, err := g.engine.RunTurn(chatID, "", nil, nil)
 		if err != nil {
 			t.Fatalf("RunTurn #%d: %v", i+1, err)
 		}
@@ -491,7 +491,7 @@ func TestTurnEngineFacilitatorFallsBackToRoundRobin(t *testing.T) {
 	g.runTurns(t, chat.ID, []model.Participant{player2, player1})
 
 	unset, _ := g.newMultiAgentChat(t, model.TurnRuleFacilitatorAlternating, "", srv.URL, "Alice", "Bob")
-	message, err := g.engine.RunTurn(unset.ID, "", nil)
+	message, err := g.engine.RunTurn(unset.ID, "", nil, nil)
 	if err != nil {
 		t.Fatalf("RunTurn(no facilitator): %v", err)
 	}
@@ -524,12 +524,12 @@ func TestTurnEngineConcurrentTurns(t *testing.T) {
 	}
 	first := make(chan turnResult, 1)
 	go func() {
-		message, err := g.engine.RunTurn(chat.ID, "", nil)
+		message, err := g.engine.RunTurn(chat.ID, "", nil, nil)
 		first <- turnResult{message, err}
 	}()
 
 	<-entered // the first turn is now mid-completion, before it has stored anything
-	if _, err := g.engine.RunTurn(chat.ID, "", nil); !errors.Is(err, ErrTurnInProgress) {
+	if _, err := g.engine.RunTurn(chat.ID, "", nil, nil); !errors.Is(err, ErrTurnInProgress) {
 		t.Fatalf("overlapping turn = %v, want ErrTurnInProgress", err)
 	}
 	close(release)
@@ -551,7 +551,7 @@ func TestTurnEngineConcurrentTurns(t *testing.T) {
 	}
 
 	// The lock is per chat and released with the turn, so the cycle continues.
-	next, err := g.engine.RunTurn(chat.ID, "", nil)
+	next, err := g.engine.RunTurn(chat.ID, "", nil, nil)
 	if err != nil {
 		t.Fatalf("turn after release: %v", err)
 	}
@@ -574,21 +574,21 @@ func TestTurnEngineRejectsNonMultiAgentChat(t *testing.T) {
 		t.Fatalf("CreateChat: %v", err)
 	}
 
-	if _, err := g.engine.RunTurn(chat.ID, "", nil); !errors.Is(err, ErrNotMultiAgentChat) {
+	if _, err := g.engine.RunTurn(chat.ID, "", nil, nil); !errors.Is(err, ErrNotMultiAgentChat) {
 		t.Fatalf("assistant chat = %v, want ErrNotMultiAgentChat", err)
 	}
-	if _, err := g.engine.RunTurn("chat-does-not-exist", "", nil); !errors.Is(err, ErrChatNotFound) {
+	if _, err := g.engine.RunTurn("chat-does-not-exist", "", nil, nil); !errors.Is(err, ErrChatNotFound) {
 		t.Fatalf("missing chat = %v, want ErrChatNotFound", err)
 	}
 
 	// A round_robin chat with an empty roster has nobody to speak.
 	multiAgent, _ := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL)
-	if _, err := g.engine.RunTurn(multiAgent.ID, "", nil); !errors.Is(err, ErrRosterEmpty) {
+	if _, err := g.engine.RunTurn(multiAgent.ID, "", nil, nil); !errors.Is(err, ErrRosterEmpty) {
 		t.Fatalf("empty roster = %v, want ErrRosterEmpty", err)
 	}
 	// Naming a speaker under round_robin is a mismatch, not a silent override.
 	other, otherRoster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL, "Alice")
-	if _, err := g.engine.RunTurn(other.ID, otherRoster[0].ID, nil); !errors.Is(err, ErrParticipantNotNameable) {
+	if _, err := g.engine.RunTurn(other.ID, otherRoster[0].ID, nil, nil); !errors.Is(err, ErrParticipantNotNameable) {
 		t.Fatalf("round_robin nomination = %v, want ErrParticipantNotNameable", err)
 	}
 }
@@ -643,7 +643,7 @@ func TestTurnEngineInheritedTargetInFailure(t *testing.T) {
 		t.Fatalf("UpdateParticipant: %v", err)
 	}
 
-	_, err := g.engine.RunTurn(chat.ID, "", nil)
+	_, err := g.engine.RunTurn(chat.ID, "", nil, nil)
 	if !errors.Is(err, ErrEndpointUnavailable) {
 		t.Fatalf("blank model against an endpoint without the workspace model = %v, want ErrEndpointUnavailable", err)
 	}
@@ -668,7 +668,7 @@ func TestTurnEngineInheritedModelRuns(t *testing.T) {
 		t.Fatalf("UpdateParticipant: %v", err)
 	}
 
-	message, err := g.engine.RunTurn(chat.ID, "", nil)
+	message, err := g.engine.RunTurn(chat.ID, "", nil, nil)
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
@@ -730,7 +730,7 @@ func TestTurnEngineInheritedTargetSurvivesConfigChange(t *testing.T) {
 		t.Fatalf("UpdateParticipant: %v", err)
 	}
 
-	message, err := g.engine.RunTurn(chat.ID, "", nil)
+	message, err := g.engine.RunTurn(chat.ID, "", nil, nil)
 	if err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}

@@ -179,7 +179,7 @@ func TestTurnEngineMaterialInPrompt(t *testing.T) {
 	chat, roster := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleRoundRobin, "場面: 港町の酒場。短く話す。", srv.URL, "Alice", "Bob")
 
 	g.addMessage(t, chat.ID, "user", "オルガの霧笛の話をそのまま聞かせて", nil)
-	if _, err := g.engine.RunTurn(chat.ID, "", nil); err != nil {
+	if _, err := g.engine.RunTurn(chat.ID, "", nil, nil); err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
 
@@ -245,7 +245,7 @@ func TestTurnEngineOpeningTurnSearchesScene(t *testing.T) {
 	fx := newMaterialFixture(t, g)
 	chat, _ := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleRoundRobin, "場面: 灯台守のオルガが霧笛を鳴らす夜。", srv.URL, "Alice", "Bob")
 
-	if _, err := g.engine.RunTurn(chat.ID, "", nil); err != nil {
+	if _, err := g.engine.RunTurn(chat.ID, "", nil, nil); err != nil {
 		t.Fatalf("RunTurn: %v", err)
 	}
 	system := srv.captured()[0].Messages[0].Content
@@ -277,7 +277,7 @@ func TestTurnEngineMaterialFailureContinues(t *testing.T) {
 	chat, roster := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleRoundRobin, "場面: 港町の酒場。", srv.URL, "Alice", "Bob")
 	g.addMessage(t, chat.ID, "user", "オルガの霧笛の話を聞かせて", nil)
 
-	message, err := g.engine.RunTurn(chat.ID, "", nil)
+	message, err := g.engine.RunTurn(chat.ID, "", nil, nil)
 	if err != nil {
 		t.Fatalf("RunTurn must not fail on a material error: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestTurnEngineEmbeddingFailureDegrades(t *testing.T) {
 	chat, _ := g.newMultiAgentChatInProject(t, fx.project.ID, model.TurnRuleRoundRobin, "場面: 港町の酒場。", srv.URL, "Alice", "Bob")
 	g.addMessage(t, chat.ID, "user", "オルガの霧笛の話を聞かせて", nil)
 
-	if _, err := g.engine.RunTurn(chat.ID, "", nil); err != nil {
+	if _, err := g.engine.RunTurn(chat.ID, "", nil, nil); err != nil {
 		t.Fatalf("RunTurn must survive an embedding endpoint failure: %v", err)
 	}
 	system := srv.captured()[0].Messages[0].Content
@@ -484,10 +484,10 @@ func TestTurnEngineNarrowsMaterialToCommonForSpeaker(t *testing.T) {
 	}
 
 	g.addMessage(t, chat.ID, "user", "オルガの霧笛の話を聞かせて", nil)
-	if _, err := g.engine.RunTurn(chat.ID, roster[0].ID, nil); err != nil {
+	if _, err := g.engine.RunTurn(chat.ID, roster[0].ID, nil, nil); err != nil {
 		t.Fatalf("RunTurn Alice: %v", err)
 	}
-	if _, err := g.engine.RunTurn(chat.ID, roster[1].ID, nil); err != nil {
+	if _, err := g.engine.RunTurn(chat.ID, roster[1].ID, nil, nil); err != nil {
 		t.Fatalf("RunTurn Bob: %v", err)
 	}
 

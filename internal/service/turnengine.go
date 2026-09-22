@@ -146,15 +146,48 @@ func (e *TurnEngine) messageWriteLock(chatID string) *sync.Mutex {
 	return lock
 }
 
+// SpeakerChoice is who a turn picked, announced before generation starts so the
+// spectator view names the speaker from the engine's own choice rather than a
+// copy of the turn rule (design §4.6.6).
+type SpeakerChoice struct {
+	Participant *model.Participant `json:"participant"`
+	// ModelName is the model the completion will run on, the workspace default
+	// when the participant inherits it.
+	ModelName string `json:"modelName"`
+	// Weights is the calculation that picked the speaker, one entry per
+	// participant, for a rule that weighs the roster. The rules that derive the
+	// speaker by position leave it empty (never nil, so the frame always carries
+	// an array).
+	Weights []SpeakerWeight `json:"weights"`
+}
+
+// SpeakerWeight is one participant's weight and the factors multiplied into it.
+type SpeakerWeight struct {
+	ParticipantID string         `json:"participantId"`
+	Weight        float64        `json:"weight"`
+	Factors       []WeightFactor `json:"factors"`
+}
+
+// WeightFactor is one named factor of a weight.
+type WeightFactor struct {
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+}
+
 // RunTurn executes one turn of the chat and returns the stored message. A turn is
 // one completion by one participant: continuous progression is the frontend
 // calling this repeatedly (§4.1). participantID names the speaker under the
 // manual turn rule and must be empty under the rules that derive it.
 //
+// onSpeaker is called once, after every pre-turn check has passed and before
+// generation starts: every refusal the HTTP layer maps to a status (409, 404,
+// 400, 502) happens before it, and only failures after it can occur once the
+// caller has committed to a stream (§4.6.6).
+//
 // The turn is not bound to the caller's lifetime: the underlying stream runs on
 // its own sliding deadline, so a disconnected client still gets the finished turn
-// stored (§4.1). onDelta may be nil when no one is watching the stream.
-func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string)) (*model.Message, error) {
+// stored (§4.1). onSpeaker and onDelta may be nil when no one is watching.
+func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(SpeakerChoice), onDelta func(string)) (*model.Message, error) {
 	if !e.acquireTurn(chatID) {
 		return nil, ErrTurnInProgress
 	}
@@ -201,6 +234,9 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onDelta func(string))
 
 	if !e.endpointAccepts(effectiveBaseURL, effectiveModel) {
 		return nil, fmt.Errorf("%w: %s (%s at %s)", ErrEndpointUnavailable, speaker.DisplayName, effectiveModel, effectiveBaseURL)
+	}
+	if onSpeaker != nil {
+		onSpeaker(SpeakerChoice{Participant: speaker, ModelName: effectiveModel, Weights: []SpeakerWeight{}})
 	}
 
 	knownSpeakers, err := e.participants.ListAll(chatID)
