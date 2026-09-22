@@ -42,7 +42,8 @@ var ErrInvalid = errors.New("preset: invalid preset")
 // keep handing its whole roster the project's material. Validate fills it in, so
 // a parsed preset never carries nil.
 //
-// Facilitator marks the one entry the facilitator_alternating rule interleaves.
+// Facilitator marks the one entry the facilitator_alternating rule interleaves
+// and the weighted rule exempts from its recent-speaker factor.
 // The chat stores a participant id, which does not exist until the preset is
 // applied, so the preset marks the roster entry and the apply resolves it.
 type Participant struct {
@@ -117,8 +118,10 @@ func (p *MultiAgentPreset) Validate() error {
 	if p.TurnRule == "" {
 		p.TurnRule = model.TurnRuleRoundRobin
 	}
-	if p.TurnRule != model.TurnRuleRoundRobin && p.TurnRule != model.TurnRuleManual && p.TurnRule != model.TurnRuleFacilitatorAlternating {
-		return fmt.Errorf("%w: turnRule must be \"round_robin\", \"manual\" or \"facilitator_alternating\"", ErrInvalid)
+	switch p.TurnRule {
+	case model.TurnRuleRoundRobin, model.TurnRuleManual, model.TurnRuleFacilitatorAlternating, model.TurnRuleWeighted:
+	default:
+		return fmt.Errorf("%w: turnRule must be \"round_robin\", \"manual\", \"facilitator_alternating\" or \"weighted\"", ErrInvalid)
 	}
 	if len(p.Participants) < 2 {
 		return fmt.Errorf("%w: participants must have at least two entries", ErrInvalid)
@@ -139,14 +142,24 @@ func (p *MultiAgentPreset) Validate() error {
 		}
 	}
 	// The mark and the rule are checked against each other rather than
-	// separately: a mark under another rule would be stored and never read, and
-	// facilitator_alternating without one applies as a chat whose rule silently
-	// degrades to round_robin (§4.2 step 1) — a preset can say which, so it must.
-	if p.TurnRule == model.TurnRuleFacilitatorAlternating && facilitators != 1 {
-		return fmt.Errorf("%w: turnRule \"facilitator_alternating\" needs exactly one participant with facilitator: true", ErrInvalid)
-	}
-	if p.TurnRule != model.TurnRuleFacilitatorAlternating && facilitators > 0 {
-		return fmt.Errorf("%w: participants[].facilitator applies to turnRule \"facilitator_alternating\" only", ErrInvalid)
+	// separately: a mark under a rule that has no facilitator would be stored and
+	// never read, and facilitator_alternating without one applies as a chat whose
+	// rule silently degrades to round_robin (§4.2 step 1) — a preset can say
+	// which, so it must. weighted reads the mark too but works without one (no
+	// one is exempt from the recent-speaker factor), so there it is optional.
+	switch p.TurnRule {
+	case model.TurnRuleFacilitatorAlternating:
+		if facilitators != 1 {
+			return fmt.Errorf("%w: turnRule \"facilitator_alternating\" needs exactly one participant with facilitator: true", ErrInvalid)
+		}
+	case model.TurnRuleWeighted:
+		if facilitators > 1 {
+			return fmt.Errorf("%w: turnRule \"weighted\" takes at most one participant with facilitator: true", ErrInvalid)
+		}
+	default:
+		if facilitators > 0 {
+			return fmt.Errorf("%w: participants[].facilitator applies to turnRule \"facilitator_alternating\" and \"weighted\" only", ErrInvalid)
+		}
 	}
 	return nil
 }

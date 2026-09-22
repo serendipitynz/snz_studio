@@ -821,7 +821,7 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if turnRule != nil && !isKnownTurnRule(*turnRule) {
-			writeError(w, http.StatusBadRequest, "turnRule must be \"round_robin\", \"manual\" or \"facilitator_alternating\"")
+			writeError(w, http.StatusBadRequest, "turnRule must be \"round_robin\", \"manual\", \"facilitator_alternating\" or \"weighted\"")
 			return
 		}
 		// An empty value clears the choice; anything else has to be on this chat's
@@ -858,7 +858,7 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 
 func isKnownTurnRule(turnRule string) bool {
 	switch turnRule {
-	case model.TurnRuleRoundRobin, model.TurnRuleManual, model.TurnRuleFacilitatorAlternating:
+	case model.TurnRuleRoundRobin, model.TurnRuleManual, model.TurnRuleFacilitatorAlternating, model.TurnRuleWeighted:
 		return true
 	}
 	return false

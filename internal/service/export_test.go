@@ -54,6 +54,21 @@ func TestBuildChatMarkdownFacilitatorRule(t *testing.T) {
 	}
 }
 
+// TestBuildChatMarkdownWeightedRule: the weighted rule is spelled out, naming the
+// facilitator only while it is on the roster.
+func TestBuildChatMarkdownWeightedRule(t *testing.T) {
+	project, chat, participants, messages := exportFixture()
+	chat.TurnRule = model.TurnRuleWeighted
+	chat.FacilitatorID = "pa1"
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); !strings.Contains(got, "weighted（呼びかけと沈黙の長さで次の話者を決める。進行役「田中」）") {
+		t.Errorf("markdown does not describe the weighted rule\n--- got ---\n%s", got)
+	}
+	chat.FacilitatorID = "pa2" // 除籍済み
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); !strings.Contains(got, "weighted（呼びかけと沈黙の長さで次の話者を決める）\n") {
+		t.Errorf("markdown names a removed facilitator\n--- got ---\n%s", got)
+	}
+}
+
 func TestBuildChatMarkdownMultiAgent(t *testing.T) {
 	project, chat, participants, messages := exportFixture()
 	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())

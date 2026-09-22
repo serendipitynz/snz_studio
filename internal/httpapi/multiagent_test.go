@@ -347,7 +347,7 @@ func TestMultiAgentChatSettings(t *testing.T) {
 	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats", map[string]any{"kind": "swarm"}),
 		http.StatusBadRequest, `kind must be "assistant" or "multi_agent"`)
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"turnRule": "auction"}),
-		http.StatusBadRequest, `turnRule must be "round_robin", "manual" or "facilitator_alternating"`)
+		http.StatusBadRequest, `turnRule must be "round_robin", "manual", "facilitator_alternating" or "weighted"`)
 
 	rec := doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"scenePrompt": "論題: ローカル LLM の是非"})
 	wantStatus(t, rec, http.StatusOK)
@@ -366,6 +366,13 @@ func TestMultiAgentChatSettings(t *testing.T) {
 	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
 	if chat.Title != "Renamed" || chat.TurnRule != "manual" || chat.ScenePrompt == "" {
 		t.Fatalf("after combined update = %+v, want title and turn rule changed and the scene kept", chat)
+	}
+
+	rec = doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"turnRule": "weighted"})
+	wantStatus(t, rec, http.StatusOK)
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.TurnRule != "weighted" {
+		t.Fatalf("after weighted update = %+v, want the weighted rule", chat)
 	}
 
 	assistantChatID := createChat(t, h, projectID)
