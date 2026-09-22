@@ -12,6 +12,7 @@ import {
 import type { ReviewReference } from "../api/client";
 import { useConfirm } from "../components/ConfirmDialog";
 import { CopyIcon, CopyMessageButton } from "../components/CopyMessageButton";
+import { Dialog, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { MessageReferences } from "../components/MessageReferences";
@@ -37,8 +38,6 @@ import {
   MessageBubble,
   MessageScroller,
   MetaText,
-  ModalCard,
-  ModalOverlay,
   PaneHeader,
   Row,
   Select,
@@ -538,6 +537,13 @@ export function ChatPage() {
     });
   }
 
+  function closeReview() {
+    setReviewTargetMessageId(null);
+    setReviewContent("");
+    setReviewReferences([]);
+    setReviewLoading(false);
+  }
+
   async function handleReviewMessage(messageId: string) {
     setReviewTargetMessageId(messageId);
     setReviewContent("");
@@ -859,176 +865,161 @@ export function ChatPage() {
       ) : null}
 
       {isTitleModalOpen ? (
-        <ModalOverlay>
-          <ModalCard>
-            <Stack>
-              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>{t("chat.editTitleModal")}</SectionTitle>
-                <Button type="button" variant="ghost" onClick={() => setIsTitleModalOpen(false)}>
-                  {t("common.close")}
-                </Button>
-              </Row>
-              <Card as="form" onSubmit={handleUpdateChatTitle}>
-                <Stack>
-                  <Field>
-                    {t("chat.titleField")}
-                    <Input
-                      value={titleDraft}
-                      onChange={(event) => setTitleDraft(event.target.value)}
-                      placeholder={t("chat.titlePlaceholder")}
-                    />
-                  </Field>
-                  <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <input
-                      type="checkbox"
-                      checked={isTemporaryDraft}
-                      onChange={(event) => setIsTemporaryDraft(event.target.checked)}
-                    />
-                    <span>{t("chat.temporaryChat")}</span>
-                  </label>
-                  <Subtle>{t("chat.temporaryNote")}</Subtle>
-                  <div>
-                    <Button type="submit" disabled={sending}>
-                      {t("chat.saveSettings")}
-                    </Button>
-                  </div>
-                </Stack>
-              </Card>
-            </Stack>
-          </ModalCard>
-        </ModalOverlay>
+        <Dialog onClose={() => setIsTitleModalOpen(false)}>
+          <Stack>
+            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <DialogTitle>{t("chat.editTitleModal")}</DialogTitle>
+              <Button type="button" variant="ghost" onClick={() => setIsTitleModalOpen(false)}>
+                {t("common.close")}
+              </Button>
+            </Row>
+            <Card as="form" onSubmit={handleUpdateChatTitle}>
+              <Stack>
+                <Field>
+                  {t("chat.titleField")}
+                  <Input
+                    value={titleDraft}
+                    onChange={(event) => setTitleDraft(event.target.value)}
+                    placeholder={t("chat.titlePlaceholder")}
+                  />
+                </Field>
+                <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={isTemporaryDraft}
+                    onChange={(event) => setIsTemporaryDraft(event.target.checked)}
+                  />
+                  <span>{t("chat.temporaryChat")}</span>
+                </label>
+                <Subtle>{t("chat.temporaryNote")}</Subtle>
+                <div>
+                  <Button type="submit" disabled={sending}>
+                    {t("chat.saveSettings")}
+                  </Button>
+                </div>
+              </Stack>
+            </Card>
+          </Stack>
+        </Dialog>
       ) : null}
 
       {isDocumentModalOpen ? (
-        <ModalOverlay>
-          <ModalCard>
-            <Stack>
-              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>{t("chat.addDocumentModal")}</SectionTitle>
-                <Button type="button" variant="ghost" onClick={() => setIsDocumentModalOpen(false)}>
-                  {t("common.close")}
-                </Button>
-              </Row>
+        <Dialog onClose={() => setIsDocumentModalOpen(false)}>
+          <Stack>
+            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <DialogTitle>{t("chat.addDocumentModal")}</DialogTitle>
+              <Button type="button" variant="ghost" onClick={() => setIsDocumentModalOpen(false)}>
+                {t("common.close")}
+              </Button>
+            </Row>
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".md,.markdown,.txt,image/*"
-                style={{ display: "none" }}
-                onChange={(event) => {
-                  if (event.target.files) {
-                    void handleUploadFiles(event.target.files);
-                  }
-                }}
-              />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".md,.markdown,.txt,image/*"
+              style={{ display: "none" }}
+              onChange={(event) => {
+                if (event.target.files) {
+                  void handleUploadFiles(event.target.files);
+                }
+              }}
+            />
 
-              <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
-                <Stack>
-                  <Subtle>{t("chat.dropHint")}</Subtle>
-                  <Subtle>{t("chat.overwriteHint")}</Subtle>
-                  {uploadStatus ? (
-                    <Row style={{ alignItems: "center", gap: 10 }}>
-                      <SpinnerIcon />
-                      <Subtle>{uploadStatus}</Subtle>
-                    </Row>
-                  ) : null}
-                  <div>
-                    <Button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingDocuments}>
-                      {uploadingDocuments ? t("chat.processing") : t("chat.chooseFiles")}
-                    </Button>
-                  </div>
-                </Stack>
-              </DropZone>
-            </Stack>
-          </ModalCard>
-        </ModalOverlay>
+            <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+              <Stack>
+                <Subtle>{t("chat.dropHint")}</Subtle>
+                <Subtle>{t("chat.overwriteHint")}</Subtle>
+                {uploadStatus ? (
+                  <Row style={{ alignItems: "center", gap: 10 }}>
+                    <SpinnerIcon />
+                    <Subtle>{uploadStatus}</Subtle>
+                  </Row>
+                ) : null}
+                <div>
+                  <Button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingDocuments}>
+                    {uploadingDocuments ? t("chat.processing") : t("chat.chooseFiles")}
+                  </Button>
+                </div>
+              </Stack>
+            </DropZone>
+          </Stack>
+        </Dialog>
       ) : null}
 
       {reviewTargetMessageId ? (
-        <ModalOverlay>
-          <ModalCard>
-            <Stack>
-              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>{t("chat.editorialReview")}</SectionTitle>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    setReviewTargetMessageId(null);
-                    setReviewContent("");
-                    setReviewReferences([]);
-                    setReviewLoading(false);
-                  }}
-                >
-                  {t("common.close")}
-                </Button>
-              </Row>
-              <Card style={{ position: "relative" }}>
+        <Dialog onClose={closeReview}>
+          <Stack>
+            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <DialogTitle>{t("chat.editorialReview")}</DialogTitle>
+              <Button type="button" variant="ghost" onClick={closeReview}>
+                {t("common.close")}
+              </Button>
+            </Row>
+            <Card style={{ position: "relative" }}>
+              <IconButton
+                type="button"
+                aria-label={t("chat.copyReviewText")}
+                onClick={() => void handleCopyReview()}
+                title={t("chat.copyReview")}
+                style={{
+                  position: "absolute",
+                  top: 14,
+                  right: 14,
+                  width: 24,
+                  height: 24,
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  opacity: 0.82
+                }}
+              >
+                <CopyIcon />
+              </IconButton>
+              {reviewContent ? (
+                <MarkdownPreview source={reviewContent} />
+              ) : reviewLoading ? (
+                <Row style={{ alignItems: "center", gap: 10 }}>
+                  <SpinnerIcon />
+                  <MetaText>{t("chat.reviewing")}</MetaText>
+                </Row>
+              ) : (
+                <Subtle>{t("chat.noReviewContent")}</Subtle>
+              )}
+              <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap", marginTop: 12 }}>
                 <IconButton
                   type="button"
                   aria-label={t("chat.copyReviewText")}
                   onClick={() => void handleCopyReview()}
                   title={t("chat.copyReview")}
-                  style={{
-                    position: "absolute",
-                    top: 14,
-                    right: 14,
-                    width: 24,
-                    height: 24,
-                    border: "none",
-                    background: "transparent",
-                    padding: 0,
-                    opacity: 0.82
-                  }}
+                  style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
                 >
                   <CopyIcon />
                 </IconButton>
-                {reviewContent ? (
-                  <MarkdownPreview source={reviewContent} />
-                ) : reviewLoading ? (
-                  <Row style={{ alignItems: "center", gap: 10 }}>
-                    <SpinnerIcon />
-                    <MetaText>{t("chat.reviewing")}</MetaText>
-                  </Row>
+              </Row>
+            </Card>
+            <Card>
+              <Stack>
+                <Badge tone="warm">{t("chat.reviewReferences")}</Badge>
+                {reviewReferences.length ? (
+                  <List>
+                    {reviewReferences.map((reference) => (
+                      <Item key={`${reference.sourceType}-${reference.sourceId}-${reference.label}`}>
+                        <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                          <strong>{reference.label}</strong>
+                          <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
+                        </Row>
+                        <Subtle>{reference.excerpt || t("chat.noExcerpt")}</Subtle>
+                      </Item>
+                    ))}
+                  </List>
                 ) : (
-                  <Subtle>{t("chat.noReviewContent")}</Subtle>
+                  <Subtle>{t("chat.noReviewReferences")}</Subtle>
                 )}
-                <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap", marginTop: 12 }}>
-                  <IconButton
-                    type="button"
-                    aria-label={t("chat.copyReviewText")}
-                    onClick={() => void handleCopyReview()}
-                    title={t("chat.copyReview")}
-                    style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
-                  >
-                    <CopyIcon />
-                  </IconButton>
-                </Row>
-              </Card>
-              <Card>
-                <Stack>
-                  <Badge tone="warm">{t("chat.reviewReferences")}</Badge>
-                  {reviewReferences.length ? (
-                    <List>
-                      {reviewReferences.map((reference) => (
-                        <Item key={`${reference.sourceType}-${reference.sourceId}-${reference.label}`}>
-                          <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                            <strong>{reference.label}</strong>
-                            <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
-                          </Row>
-                          <Subtle>{reference.excerpt || t("chat.noExcerpt")}</Subtle>
-                        </Item>
-                      ))}
-                    </List>
-                  ) : (
-                    <Subtle>{t("chat.noReviewReferences")}</Subtle>
-                  )}
-                </Stack>
-              </Card>
-            </Stack>
-          </ModalCard>
-        </ModalOverlay>
+              </Stack>
+            </Card>
+          </Stack>
+        </Dialog>
       ) : null}
     </WorkspaceShell>
   );

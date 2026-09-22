@@ -3,6 +3,7 @@ import { api, EmbeddingStatus, WorkspaceConfiguration } from "../api/client";
 import { Language, MessageKey, useLanguage } from "../i18n";
 import { ThemeMode, useThemeController } from "../styles/ThemeController";
 import type { ThemeFamily } from "../styles/themes";
+import { Dialog, DialogTitle } from "./Dialog";
 import {
   Badge,
   Button,
@@ -11,10 +12,7 @@ import {
   Field,
   FieldHeader,
   Input,
-  ModalCard,
-  ModalOverlay,
   Row,
-  SectionTitle,
   Select,
   Stack,
   StatusDot,
@@ -216,187 +214,185 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   }
 
   return (
-    <ModalOverlay>
-      <ModalCard>
-        <Stack>
-          <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <SectionTitle>{t("settings.title")}</SectionTitle>
-            <Button type="button" variant="ghost" onClick={onClose}>
-              {t("common.close")}
-            </Button>
-          </Row>
+    <Dialog onClose={onClose}>
+      <Stack>
+        <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <DialogTitle>{t("settings.title")}</DialogTitle>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            {t("common.close")}
+          </Button>
+        </Row>
 
-          {error ? <ErrorText>{error}</ErrorText> : null}
+        {error ? <ErrorText>{error}</ErrorText> : null}
 
-          <Card>
-            <Stack>
-              <Badge tone="accent">{t("settings.appearance")}</Badge>
-              <Field>
-                {t("settings.theme")}
-                <Select value={family} onChange={(event) => setFamily(event.target.value as ThemeFamily)}>
-                  {families.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field>
-                {t("settings.mode")}
-                <Select value={mode} onChange={(event) => setMode(event.target.value as ThemeMode)}>
-                  <option value="light">{t("settings.modeLight")}</option>
-                  <option value="dark">{t("settings.modeDark")}</option>
-                  <option value="auto">{t("settings.modeAuto")}</option>
-                </Select>
-              </Field>
-            </Stack>
-          </Card>
+        <Card>
+          <Stack>
+            <Badge tone="accent">{t("settings.appearance")}</Badge>
+            <Field>
+              {t("settings.theme")}
+              <Select value={family} onChange={(event) => setFamily(event.target.value as ThemeFamily)}>
+                {families.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field>
+              {t("settings.mode")}
+              <Select value={mode} onChange={(event) => setMode(event.target.value as ThemeMode)}>
+                <option value="light">{t("settings.modeLight")}</option>
+                <option value="dark">{t("settings.modeDark")}</option>
+                <option value="auto">{t("settings.modeAuto")}</option>
+              </Select>
+            </Field>
+          </Stack>
+        </Card>
 
-          <Card>
-            <Stack>
-              <Badge tone="accent">{t("settings.language")}</Badge>
-              <Field>
-                {t("settings.language")}
-                <Select value={lang} onChange={(event) => setLang(event.target.value as Language)}>
-                  <option value="ja">日本語</option>
-                  <option value="en">English</option>
-                </Select>
-              </Field>
-            </Stack>
-          </Card>
+        <Card>
+          <Stack>
+            <Badge tone="accent">{t("settings.language")}</Badge>
+            <Field>
+              {t("settings.language")}
+              <Select value={lang} onChange={(event) => setLang(event.target.value as Language)}>
+                <option value="ja">日本語</option>
+                <option value="en">English</option>
+              </Select>
+            </Field>
+          </Stack>
+        </Card>
 
-          <Card as="form" onSubmit={handleConfigurationSubmit}>
-            <Stack>
-              <Badge tone="accent">{t("settings.connection")}</Badge>
-              {loading ? <Subtle>{t("settings.loadingConfig")}</Subtle> : null}
-              <Field>
-                <FieldHeader>
-                  <span>{t("settings.llmEndpoint")}</span>
-                  <StatusDot $connected={Boolean(configuration?.llmConnected)} />
-                </FieldHeader>
-                <Input
-                  value={configDraft.llmBaseUrl}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, llmBaseUrl: event.target.value }))}
-                  placeholder="http://127.0.0.1:1234/v1"
-                />
-              </Field>
-              <Field>
-                {t("settings.llmModel")}
-                <Input
-                  list="settings-llm-model-options"
-                  value={configDraft.llmModel}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, llmModel: event.target.value }))}
-                  placeholder="openai/gpt-oss-20b"
-                />
-                <datalist id="settings-llm-model-options">
-                  {llmModelOptions.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
-                <Subtle>{modelCandidatesLabel(loadingLlmModels, llmModelOptions)}</Subtle>
-              </Field>
-              <Field>
-                {t("settings.llmResponseFormat")}
-                <Select
-                  value={configDraft.llmResponseFormat}
-                  onChange={(event) =>
-                    setConfigDraft((current) => ({
-                      ...current,
-                      llmResponseFormat: event.target.value as "standard" | "llm_jp_thinking"
-                    }))
-                  }
-                >
-                  <option value="standard">{t("settings.formatStandard")}</option>
-                  <option value="llm_jp_thinking">{t("settings.formatThinking")}</option>
-                </Select>
-              </Field>
-              <Field>
-                <FieldHeader>
-                  <span>{t("settings.reviewEndpoint")}</span>
-                  <StatusDot $connected={Boolean(configuration?.reviewConnected)} />
-                </FieldHeader>
-                <Input
-                  value={configDraft.reviewBaseUrl}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, reviewBaseUrl: event.target.value }))}
-                  placeholder="http://127.0.0.1:1234/v1"
-                />
-              </Field>
-              <Field>
-                {t("settings.reviewModel")}
-                <Input
-                  list="settings-review-model-options"
-                  value={configDraft.reviewModel}
-                  onChange={(event) => setConfigDraft((current) => ({ ...current, reviewModel: event.target.value }))}
-                  placeholder={t("settings.reviewModelPlaceholder")}
-                />
-                <datalist id="settings-review-model-options">
-                  {reviewModelOptions.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
-                <Subtle>{modelCandidatesLabel(loadingReviewModels, reviewModelOptions)}</Subtle>
-              </Field>
-              <Field>
-                <FieldHeader>
-                  <span>{t("settings.embeddingSource")}</span>
-                  {configDraft.embeddingMode === "external" ? (
-                    <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
-                  ) : null}
-                </FieldHeader>
-                <Select
-                  value={configDraft.embeddingMode}
-                  onChange={(event) =>
-                    setConfigDraft((current) => ({
-                      ...current,
-                      embeddingMode: event.target.value as "internal" | "external"
-                    }))
-                  }
-                >
-                  <option value="internal">{t("settings.embeddingInternal")}</option>
-                  <option value="external">{t("settings.embeddingExternal")}</option>
-                </Select>
-                <Subtle>
-                  {configDraft.embeddingMode === "internal"
-                    ? embeddingStatusLabel(t, embeddingStatus)
-                    : t("settings.embeddingExternalNote")}
-                </Subtle>
-              </Field>
-              {configDraft.embeddingMode === "external" ? (
-                <>
-                  <Field>
-                    {t("settings.embeddingEndpoint")}
-                    <Input
-                      value={configDraft.embeddingBaseUrl}
-                      onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingBaseUrl: event.target.value }))}
-                      placeholder="http://127.0.0.1:8080/v1"
-                    />
-                  </Field>
-                  <Field>
-                    {t("settings.embeddingModel")}
-                    <Input
-                      list="settings-embedding-model-options"
-                      value={configDraft.embeddingModel}
-                      onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingModel: event.target.value }))}
-                      placeholder="text-embeddings-inference"
-                    />
-                    <datalist id="settings-embedding-model-options">
-                      {embeddingModelOptions.map((model) => (
-                        <option key={model} value={model} />
-                      ))}
-                    </datalist>
-                    <Subtle>{modelCandidatesLabel(loadingEmbeddingModels, embeddingModelOptions)}</Subtle>
-                  </Field>
-                </>
-              ) : null}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                <Button type="submit" disabled={savingConfig || loading}>
-                  {savingConfig ? t("settings.saving") : t("settings.save")}
-                </Button>
-              </div>
-            </Stack>
-          </Card>
-        </Stack>
-      </ModalCard>
-    </ModalOverlay>
+        <Card as="form" onSubmit={handleConfigurationSubmit}>
+          <Stack>
+            <Badge tone="accent">{t("settings.connection")}</Badge>
+            {loading ? <Subtle>{t("settings.loadingConfig")}</Subtle> : null}
+            <Field>
+              <FieldHeader>
+                <span>{t("settings.llmEndpoint")}</span>
+                <StatusDot $connected={Boolean(configuration?.llmConnected)} />
+              </FieldHeader>
+              <Input
+                value={configDraft.llmBaseUrl}
+                onChange={(event) => setConfigDraft((current) => ({ ...current, llmBaseUrl: event.target.value }))}
+                placeholder="http://127.0.0.1:1234/v1"
+              />
+            </Field>
+            <Field>
+              {t("settings.llmModel")}
+              <Input
+                list="settings-llm-model-options"
+                value={configDraft.llmModel}
+                onChange={(event) => setConfigDraft((current) => ({ ...current, llmModel: event.target.value }))}
+                placeholder="openai/gpt-oss-20b"
+              />
+              <datalist id="settings-llm-model-options">
+                {llmModelOptions.map((model) => (
+                  <option key={model} value={model} />
+                ))}
+              </datalist>
+              <Subtle>{modelCandidatesLabel(loadingLlmModels, llmModelOptions)}</Subtle>
+            </Field>
+            <Field>
+              {t("settings.llmResponseFormat")}
+              <Select
+                value={configDraft.llmResponseFormat}
+                onChange={(event) =>
+                  setConfigDraft((current) => ({
+                    ...current,
+                    llmResponseFormat: event.target.value as "standard" | "llm_jp_thinking"
+                  }))
+                }
+              >
+                <option value="standard">{t("settings.formatStandard")}</option>
+                <option value="llm_jp_thinking">{t("settings.formatThinking")}</option>
+              </Select>
+            </Field>
+            <Field>
+              <FieldHeader>
+                <span>{t("settings.reviewEndpoint")}</span>
+                <StatusDot $connected={Boolean(configuration?.reviewConnected)} />
+              </FieldHeader>
+              <Input
+                value={configDraft.reviewBaseUrl}
+                onChange={(event) => setConfigDraft((current) => ({ ...current, reviewBaseUrl: event.target.value }))}
+                placeholder="http://127.0.0.1:1234/v1"
+              />
+            </Field>
+            <Field>
+              {t("settings.reviewModel")}
+              <Input
+                list="settings-review-model-options"
+                value={configDraft.reviewModel}
+                onChange={(event) => setConfigDraft((current) => ({ ...current, reviewModel: event.target.value }))}
+                placeholder={t("settings.reviewModelPlaceholder")}
+              />
+              <datalist id="settings-review-model-options">
+                {reviewModelOptions.map((model) => (
+                  <option key={model} value={model} />
+                ))}
+              </datalist>
+              <Subtle>{modelCandidatesLabel(loadingReviewModels, reviewModelOptions)}</Subtle>
+            </Field>
+            <Field>
+              <FieldHeader>
+                <span>{t("settings.embeddingSource")}</span>
+                {configDraft.embeddingMode === "external" ? (
+                  <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
+                ) : null}
+              </FieldHeader>
+              <Select
+                value={configDraft.embeddingMode}
+                onChange={(event) =>
+                  setConfigDraft((current) => ({
+                    ...current,
+                    embeddingMode: event.target.value as "internal" | "external"
+                  }))
+                }
+              >
+                <option value="internal">{t("settings.embeddingInternal")}</option>
+                <option value="external">{t("settings.embeddingExternal")}</option>
+              </Select>
+              <Subtle>
+                {configDraft.embeddingMode === "internal"
+                  ? embeddingStatusLabel(t, embeddingStatus)
+                  : t("settings.embeddingExternalNote")}
+              </Subtle>
+            </Field>
+            {configDraft.embeddingMode === "external" ? (
+              <>
+                <Field>
+                  {t("settings.embeddingEndpoint")}
+                  <Input
+                    value={configDraft.embeddingBaseUrl}
+                    onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingBaseUrl: event.target.value }))}
+                    placeholder="http://127.0.0.1:8080/v1"
+                  />
+                </Field>
+                <Field>
+                  {t("settings.embeddingModel")}
+                  <Input
+                    list="settings-embedding-model-options"
+                    value={configDraft.embeddingModel}
+                    onChange={(event) => setConfigDraft((current) => ({ ...current, embeddingModel: event.target.value }))}
+                    placeholder="text-embeddings-inference"
+                  />
+                  <datalist id="settings-embedding-model-options">
+                    {embeddingModelOptions.map((model) => (
+                      <option key={model} value={model} />
+                    ))}
+                  </datalist>
+                  <Subtle>{modelCandidatesLabel(loadingEmbeddingModels, embeddingModelOptions)}</Subtle>
+                </Field>
+              </>
+            ) : null}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <Button type="submit" disabled={savingConfig || loading}>
+                {savingConfig ? t("settings.saving") : t("settings.save")}
+              </Button>
+            </div>
+          </Stack>
+        </Card>
+      </Stack>
+    </Dialog>
   );
 }

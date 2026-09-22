@@ -1,7 +1,7 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import styled from "@emotion/styled";
+import { createContext, ReactNode, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { useLanguage } from "../i18n";
-import { Button, ModalCard, ModalOverlay, Row, Stack, Subtle } from "../styles/ui";
+import { Button, Row, Stack, Subtle } from "../styles/ui";
+import { Dialog } from "./Dialog";
 
 // window.confirm / alert / prompt must not be used anywhere in this app: Wails' macOS
 // WebView declares WKUIDelegate without implementing the panel callbacks, so WKWebView
@@ -13,10 +13,6 @@ interface ConfirmContextValue {
 }
 
 const ConfirmContext = createContext<ConfirmContextValue | null>(null);
-
-const ConfirmCard = styled(ModalCard)`
-  width: min(420px, 100%);
-`;
 
 // Only one dialog is ever mounted, so a fixed id cannot collide.
 const MESSAGE_ID = "confirm-dialog-message";
@@ -51,47 +47,29 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  // Escape cancels. window.confirm answered the key natively and this replaces it, so
-  // without the listener the dialog would be the one thing on screen the keyboard cannot
-  // dismiss; it resolves false, which is the safe direction for every current caller.
-  useEffect(() => {
-    if (!pending) {
-      return;
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        close(false);
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [pending, close]);
-
   const value = useMemo(() => ({ confirm }), [confirm]);
 
   return (
     <ConfirmContext.Provider value={value}>
       {children}
       {pending ? (
-        <ModalOverlay>
-          <ConfirmCard role="dialog" aria-modal="true" aria-labelledby={MESSAGE_ID}>
-            <Stack>
-              <Subtle id={MESSAGE_ID}>{pending.message}</Subtle>
-              <Row style={{ justifyContent: "flex-end" }}>
-                {/* Cancel takes the initial focus: every current caller asks about a destructive
-                    action, so a stray Enter right after the click must not confirm one. */}
-                <Button type="button" variant="ghost" autoFocus onClick={() => close(false)}>
-                  {t("common.cancel")}
-                </Button>
-                <Button type="button" variant="warm" onClick={() => close(true)}>
-                  {t("common.ok")}
-                </Button>
-              </Row>
-            </Stack>
-          </ConfirmCard>
-        </ModalOverlay>
+        // Escape cancels, as window.confirm did natively. It resolves false, which is the
+        // safe direction for every current caller.
+        <Dialog onClose={() => close(false)} labelledBy={MESSAGE_ID} style={{ width: "min(420px, 100%)" }}>
+          <Stack>
+            <Subtle id={MESSAGE_ID}>{pending.message}</Subtle>
+            <Row style={{ justifyContent: "flex-end" }}>
+              {/* Cancel takes the initial focus: every current caller asks about a destructive
+                  action, so a stray Enter right after the click must not confirm one. */}
+              <Button type="button" variant="ghost" autoFocus onClick={() => close(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button type="button" variant="warm" onClick={() => close(true)}>
+                {t("common.ok")}
+              </Button>
+            </Row>
+          </Stack>
+        </Dialog>
       ) : null}
     </ConfirmContext.Provider>
   );
