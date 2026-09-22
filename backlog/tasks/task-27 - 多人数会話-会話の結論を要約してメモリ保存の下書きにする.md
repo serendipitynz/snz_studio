@@ -1,10 +1,10 @@
 ---
 id: TASK-27
 title: '多人数会話: 会話の結論を要約してメモリ保存の下書きにする'
-status: To Do
+status: In Review
 assignee: []
 created_date: '2026-09-21 01:14'
-updated_date: '2026-09-21 04:23'
+updated_date: '2026-09-22 11:08'
 labels: []
 dependencies:
   - TASK-19
@@ -57,9 +57,51 @@ TASK-19 で人間が任意の 1 発言を選んでメモリに保存できるよ
 <!-- AC:BEGIN -->
 - [ ] #1 多人数会話画面から、会話全体または選んだ発言以降を対象に結論の下書きを生成できる
 - [ ] #2 下書きは TASK-19 の保存ダイアログに既定の内容として入り、編集と kind の選択を経てから保存される (自動保存されない)
-- [ ] #3 要約プロンプトが決定と未決を分けて書かせ、役割プロンプト由来の反論を結論にしないよう指示している
-- [ ] #4 生成にはアプリの既定 LLM を使い、chat_summaries には書き込まれない
+- [x] #3 要約プロンプトが決定と未決を分けて書かせ、役割プロンプト由来の反論を結論にしないよう指示している
+- [x] #4 生成にはアプリの既定 LLM を使い、chat_summaries には書き込まれない
 - [ ] #5 isTemporary な会話では保存が無効化され、下書きの生成・表示はできる
-- [ ] #6 議論系プリセット (設計レビュー系または討論系) で実機確認し、下書きの品質と結果がタスクに記録されている
+- [x] #6 議論系プリセット (設計レビュー系または討論系) で実機確認し、下書きの品質と結果がタスクに記録されている
 - [ ] #7 要約対象の総文字数に上限があり、会話全体が上限を超えるときは開始発言の選択を求められる (先頭が黙って切り捨てられない)。上限を超える長さの会話が実機確認に含まれている
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. service: SummaryService に結論下書き生成 DraftConclusion を別ファイル (conclusion.go) で足す。UpdateSummary は流用せず、同じ LLMClient だけを使う。発言者ラベル + 本文の transcript の総文字数 (rune) が 12000 を超えたら ConclusionTooLongError を返す (上限は既定 LLM に文書全文を渡す fullDocumentCharLimit=12000 と同じ予算)。プロンプトには範囲内の話者の表示名と役割プロンプト要旨を渡し、「決定」「未決」を分けて書かせ、役割由来の反論は他者の同意かユーザーの採用が無い限り決定に入れないよう指示する。
+2. httpapi: POST /api/chats/{chatId}/conclusion-draft (body: fromMessageId 任意)。多人数会話のみ、一時チャットでも生成可。発言 0 件は 409、上限超過は 422 + {limit, chars}、LLM 失敗は 502。chat_summaries には書かない。応答 {draft:{content, kind:"semantic"}, anchorMessageId, messageCount}。
+3. 保存は TASK-19 の POST /api/messages/{id}/memory を範囲の最後の発言 id で再利用する (保存時に使うのは chat と project だけで、一時チャットの 409 もそのまま効く)。
+4. frontend: ヘッダに「結論を要約」(会話全体)、各発言に「ここから結論を要約」。422 のときは上限超過を表示して開始発言の選択を促す。下書きは TASK-19 の保存ダイアログに入れ、kind 既定 semantic、一時チャットでは保存ボタンを無効化。request のエラーに status を持たせる。
+5. テスト (Go の httpapi / service)、設計書 §5 と §8.1 への追記、実機確認 (議論系プリセット + 上限超過の長い会話)。
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## 実装ノート (2026-09-22)
+
+### 経路の形
+- 生成は `POST /api/chats/{chatId}/conclusion-draft` (body `{ fromMessageId? }`)。LLM を毎回呼ぶので GET ではなく POST。本体は `internal/service/conclusion.go` の `SummaryService.DraftConclusion`。`UpdateSummary` は流用せず、同じ `LLMClient` (= 既定 LLM) だけを使う。何も永続化せず、`chat_summaries` にも書かない。
+- 保存用のルートは増やしていない。ダイアログは既存の `POST /api/messages/{id}/memory` を範囲の最後の発言 id (`anchorMessageId`) で呼ぶ。保存ルートが発言から使うのは chat と project だけなので、`source = multi_agent`・一時チャットの 409 がそのまま効く。
+- 拒否: 単独 assistant 400 / `fromMessageId` がその chat に無い 404 / 発言 0 件 409 / 範囲が上限超過 422 (`{ error, chars, limit }`) / 生成失敗 502。一時チャットでも生成は 200 (保存だけ 409)。
+- フロント: ヘッダに「結論を要約」(会話全体)、各発言に「ここから要約」アイコン (自作 SVG、Lucide ではないので NOTICE 追記なし)。422 は `ApiError.status` で判別し、「もっと後の発言の『ここから要約』を押す」よう composer 上に出す。下書きは TASK-19 の保存ダイアログに入り、既定 kind は semantic、一時チャットでは保存ボタンが無効で注記が出る。
+
+### 上限値 (着手時判断)
+- 12000 字 (`service.ConclusionCharLimit`)。数えるのは `表示名: 本文` の行の文字数 (rune)。根拠: 同じ既定 LLM に文書全文を渡すときの既存予算 `fullDocumentCharLimit` = 12000 と揃え、アプリがそのモデルに既に渡している量を超えないようにした。先頭を切り捨てないのは、議論の前提は先頭にあり、欠けた下書きは欠けていることが読み手に分からないため。設計書 §4.4 に記録。
+
+### プロンプト (AC #3)
+- 範囲内で発言した参加者の表示名 + 役割プロンプト要旨 (160 字) と、人間 (ユーザー) の発言は採用・却下の判断として扱う旨を渡す。「決定」「未決」の 2 節の形式だけを出させ、役割 (反対役・批判役・懐疑役など) に沿って出た反論は他の参加者の同意かユーザーの採用が無い限り決定に入れず未決に書かせる。
+
+### 測定・検証
+- `go vet ./...` / `go test ./...` 全パス、`pnpm check:client` / `pnpm build:client` 通過。
+- 新規テスト `internal/httpapi/multiagent_conclusion_test.go`:
+  - `TestMultiAgentConclusionDraft` (AC #1 サーバ側・#3・#4): 会話全体と `fromMessageId` 以降の両方で下書きが返る。生成リクエストのモデルが参加者のものではなく既定モデル。system prompt に決定/未決/役割由来の反論の指示、user input に話者名・役割要旨が入り、範囲内で発言していない参加者は入らない。`chat_summaries` の summary は空のまま、メモリは保存まで 0 件。anchor 経由の保存で semantic / `multi_agent` / `sourceChatId` 付きのメモリになる。
+  - `TestMultiAgentConclusionDraftLimits` (AC #5・#7 サーバ側): 発言 0 件 409、上限超過 422 と `chars > limit` (モデルは呼ばれない)、後の発言からなら 200。一時チャットでも生成は 200、anchor での保存は 409。未知の `fromMessageId` 404、単独 assistant 400。
+- 実機 (AC #6・#7、API レベル): LM Studio の `openai/gpt-oss-20b` を既定 LLM と参加者の両方に使い、「設計レビュー会議」プリセット (presets/multi-agent/11-design-review.json) を round_robin で進めた。8 ターン後に人間が「べき等キー案は採用 / 個人情報はキューに ID だけ載せてワーカーが引き直す / 監視閾値は持ち帰り」と介入し、さらに 3 ターン。
+  - 会話全体 (12 件・約 11000 字) の下書き: 人間が採用した 2 点 (べき等キー、キューに個人情報を載せない) が決定に入り、持ち帰りの閾値は未決に入った。崩れ: 閾値の件が決定側にも「次回レビューで決定する」として重複した。提案者が出した詳細案 (Vault AppRole、DLQ 暗号化など) が決定に並んだが、レビュアーが承認した流れなので誤りとは言えない。
+  - 16 件・14228 字 (サーバ計数) まで進めると会話全体は 422 (`chars 14228, limit 12000`)。最後から 10 件目 (人間の介入を含む範囲) からで 200。人間の採用 2 点は「ユーザーが決定」と帰属付きで決定に入り、セキュリティ担当が最後に出した「追加で検討すべき項目」は未決に入った (役割由来の提起を決定にしない指示が効いた例)。崩れ: 持ち帰りの閾値が「持ち帰り扱いとすることを決定」として決定にも残る (同じ傾向)。
+  - 総評: 採用/未決の振り分けは実用水準。持ち帰り事項が「持ち帰ると決めた」として決定にも出る重複が 2 回とも出たので、保存前の人手編集は前提 (ワンクリック保存しない方針のとおり)。
+  - ハーネスは一時テストファイルで行い、削除済み (コミットしない)。
+
+### 目視に残したもの (AC #1・#2・#5・#7 の画面側)
+- SPA は Wails 束縛で API トークンを受け取るため、画面操作は確認していない。確認してほしい点: ヘッダの「結論を要約」と各発言の「ここから要約」→ 生成中表示 → 保存ダイアログ (タイトル「会話の結論を…」、件数の注記、kind 既定 semantic、編集可)。長い会話で composer 上に上限超過の案内が出ること。一時チャットでは下書きは開くが保存ボタンが無効で注記が出ること。
+<!-- SECTION:NOTES:END -->
