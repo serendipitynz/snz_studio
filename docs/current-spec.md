@@ -172,7 +172,10 @@ A turn:
 2. picks the speaker (round-robin: the next roster entry after the last participant message; manual:
    the nominated participant; facilitator-alternating: the facilitator unless it spoke last, in which
    case the roster entry after the last non-facilitator speaker)
-3. checks the participant's endpoint and loads the model
+3. checks the participant's endpoint and loads the model, then announces the speaker to the client
+   (a `speaker` event carrying the participant, the resolved model and, for a rule that weighs the
+   roster, the weight breakdown); a refusal up to this point is an HTTP status (409 / 404 / 400 /
+   502), and a failure after it is an `error` event inside the stream
 4. builds the prompt from the participant's point of view: system = project material (project
    description, matched document passages, matched memories; see below) + scene + role prompt + role
    reminder; history mapped to `assistant` for the participant's own past messages and `user` for
@@ -386,7 +389,7 @@ Right pane:
 Center:
 
 - transcript, each utterance labelled with the speaker's display name and model
-- streaming output for the turn in progress
+- streaming output for the turn in progress, labelled from the server's `speaker` event
 - advance one turn / start and stop auto-advance / (manual rule) nominate the next speaker /
   (facilitator-alternating rule) a note when no facilitator is on the roster
 - a composer for speaking into the conversation as the user
