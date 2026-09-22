@@ -8,19 +8,23 @@ import (
 	"snzstudio/internal/model"
 )
 
-// addresseeDirective is the trailing line a participant is asked to write under
-// the weighted rule when it wants someone in particular to speak next (design
-// §4.6.5 (a)): "[次: 表示名]", several names separated by 読点. Full-width
-// brackets and colon are accepted because a Japanese-writing model switches
-// between the two forms freely.
-var addresseeDirective = regexp.MustCompile(`^[\[［]\s*次\s*[:：]\s*(.*?)\s*[\]］]$`)
+// addresseeDirective is what a participant is asked to write on the last line
+// under the weighted rule when it wants someone in particular to speak next
+// (design §4.6.5 (a)): "[次: 表示名]", several names separated by 読点. It is
+// matched at the very end of the utterance, so one a model appends to its last
+// sentence without a line break is stripped too. Full-width brackets and colon
+// are accepted because a Japanese-writing model switches between the two forms
+// freely.
+var addresseeDirective = regexp.MustCompile(`[\[［]\s*次\s*[:：]\s*([^\]］\n]*?)\s*[\]］]$`)
 
 // addresseeDirectiveSeparators splits the names inside a directive. The reminder
 // asks for 読点, but a model that writes a comma instead still means a list.
 var addresseeDirectiveSeparators = regexp.MustCompile(`[、,，]`)
 
-// sentenceBoundary ends a sentence for the name match of §4.6.5 (b).
-var sentenceBoundary = regexp.MustCompile(`[。．.！!？?\n]`)
+// sentenceBoundary ends a sentence for the name match of §4.6.5 (b). An ASCII
+// period counts only before whitespace or the end, so a decimal ("3.5") does not
+// cut the sentence and hide a name written before it.
+var sentenceBoundary = regexp.MustCompile(`[。．！!？?\n]|\.(?:\s|$)`)
 
 // nameAnnotation is a parenthesised note at the end of a display name, the way
 // the bundled presets label a role: "レン (斥候)". A speaker calling on that
@@ -60,35 +64,25 @@ func DetectHumanAddressees(content string, roster []model.Participant) []string 
 	return matchNamesInLastSentence(content, "", roster)
 }
 
-// splitAddresseeDirective removes the directive when it is the last line, and
-// only then: a directive-shaped line anywhere else is content the model wrote,
+// splitAddresseeDirective removes the directive when it ends the utterance, and
+// only then: a directive-shaped text anywhere else is content the model wrote,
 // and stripping it would be the one edit this function can get wrong.
 func splitAddresseeDirective(content string) (string, []string, bool) {
 	trimmed := strings.TrimRight(content, " \t\r\n")
-	lastLine := trimmed
-	body := ""
-	if i := strings.LastIndex(trimmed, "\n"); i >= 0 {
-		lastLine, body = trimmed[i+1:], trimmed[:i]
-	}
-	match := addresseeDirective.FindStringSubmatch(strings.TrimSpace(lastLine))
-	if match == nil {
+	loc := addresseeDirective.FindStringSubmatchIndex(trimmed)
+	if loc == nil {
 		return content, nil, false
 	}
-	return strings.TrimRight(body, " \t\r\n"), addresseeDirectiveSeparators.Split(match[1], -1), true
+	names := addresseeDirectiveSeparators.Split(trimmed[loc[2]:loc[3]], -1)
+	return strings.TrimRight(trimmed[:loc[0]], " \t\r\n"), names, true
 }
 
 func resolveDirectiveNames(names []string, speakerID string, roster []model.Participant) []string {
+	callable := callableNames(roster, 1)
 	addressees := []string{}
 	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		for _, p := range roster {
-			if p.ID != speakerID && namesOf(p, 1)[strings.ToLower(name)] {
-				addressees = appendUnique(addressees, p.ID)
-				break
-			}
+		if id, ok := callable[strings.ToLower(strings.TrimSpace(name))]; ok && id != speakerID {
+			addressees = appendUnique(addressees, id)
 		}
 	}
 	return addressees
@@ -100,18 +94,40 @@ func matchNamesInLastSentence(content, speakerID string, roster []model.Particip
 	if sentence == "" {
 		return addressees
 	}
+	callable := callableNames(roster, minMatchedNameLength)
 	for _, p := range roster {
 		if p.ID == speakerID {
 			continue
 		}
 		for name := range namesOf(p, minMatchedNameLength) {
-			if strings.Contains(sentence, name) {
+			if callable[name] == p.ID && strings.Contains(sentence, name) {
 				addressees = appendUnique(addressees, p.ID)
 				break
 			}
 		}
 	}
 	return addressees
+}
+
+// callableNames maps each name form to the one participant it calls. A form
+// more than one participant has — "買い手" for both "買い手 (情シス担当)" and
+// "買い手 (部長)" in the bundled negotiation preset — is left out: matching it
+// would call on both, or on whichever came first, rather than on the one meant.
+// Such participants stay callable by their full display names.
+func callableNames(roster []model.Participant, minLength int) map[string]string {
+	owners := map[string][]string{}
+	for _, p := range roster {
+		for name := range namesOf(p, minLength) {
+			owners[name] = append(owners[name], p.ID)
+		}
+	}
+	callable := make(map[string]string, len(owners))
+	for name, ids := range owners {
+		if len(ids) == 1 {
+			callable[name] = ids[0]
+		}
+	}
+	return callable
 }
 
 // namesOf is the lower-cased forms a participant can be called by: the display

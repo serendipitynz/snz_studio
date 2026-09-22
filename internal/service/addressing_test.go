@@ -15,6 +15,8 @@ func addressingRoster() []model.Participant {
 		{ID: "rin", DisplayName: "リ"},
 		{ID: "ren", DisplayName: "レン (斥候)"},
 		{ID: "mira", DisplayName: "ミラ（神官戦士）"},
+		{ID: "buyer-it", DisplayName: "買い手 (情シス担当)"},
+		{ID: "buyer-head", DisplayName: "買い手 (部長)"},
 	}
 }
 
@@ -43,6 +45,10 @@ func TestDetectAddresseesDirective(t *testing.T) {
 		// calls them by the name alone (seen live on gemma-4-e4b).
 		{"the name before a parenthesised note", "どうする？\n[次: レン, ミラ]", "gm", "どうする？", []string{"ren", "mira"}},
 		{"the full display name still matches", "どうする？\n[次: レン (斥候)]", "gm", "どうする？", []string{"ren"}},
+		{"appended to the last sentence", "扉が開いた。[次: ボブ]", "gm", "扉が開いた。", []string{"bob"}},
+		// Both buyers shorten to 買い手, so it calls no one; the full name still does.
+		{"a short form two participants share", "いかが？\n[次: 買い手]", "gm", "いかが？", []string{}},
+		{"the full name of one of them", "いかが？\n[次: 買い手 (部長)]", "gm", "いかが？", []string{"buyer-head"}},
 	}
 	for _, tc := range cases {
 		body, got := detectAddressees(tc.content, tc.speaker, addressingRoster())
@@ -70,6 +76,8 @@ func TestDetectAddresseesNameMatch(t *testing.T) {
 		{"closing quote after the boundary", "彼は言った。「アリス、来て。」", "gm", []string{"alice"}},
 		{"case-insensitive latin names", "What do you think, gm?", "alice", []string{"gm"}},
 		{"the name before a parenthesised note", "扉の向こうから音がする。レン、ミラ、どうする？", "gm", []string{"ren", "mira"}},
+		{"a shared short form calls only the one named in full", "では条件を。買い手 (部長)、いかがですか？", "gm", []string{"buyer-head"}},
+		{"a decimal does not cut the sentence", "アリス、3.5 でどう？", "gm", []string{"alice"}},
 		{"a directive-shaped line not at the end stays content", "[次: アリス]\n以上です。", "gm", []string{}},
 	}
 	for _, tc := range cases {

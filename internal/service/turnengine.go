@@ -25,7 +25,9 @@ var (
 	ErrParticipantNotInChat      = errors.New("service: participant does not belong to this chat")
 	ErrParticipantRemoved        = errors.New("service: participant was removed from the roster")
 	ErrEndpointUnavailable       = errors.New("service: participant endpoint did not accept the model")
-	ErrUtteranceOnlyDirective    = errors.New("service: the utterance held nothing but its addressee directive")
+	// ErrUtteranceOnlyDirective is found after generation, so it only ever
+	// reaches a caller inside an open stream and has no HTTP status of its own.
+	ErrUtteranceOnlyDirective = errors.New("service: the utterance held nothing but its addressee directive")
 )
 
 // turnHistoryLimit caps how many past messages are mapped into a turn's prompt
