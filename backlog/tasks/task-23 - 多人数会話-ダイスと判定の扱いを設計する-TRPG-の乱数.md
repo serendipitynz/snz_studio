@@ -1,10 +1,10 @@
 ---
 id: TASK-23
 title: '多人数会話: ダイスと判定の扱いを設計する (TRPG の乱数)'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-20 00:18'
-updated_date: '2026-09-22 09:56'
+updated_date: '2026-09-22 10:07'
 labels: []
 milestone: m-1
 dependencies: []
