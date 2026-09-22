@@ -303,8 +303,11 @@ export function MultiAgentChatPage() {
         (event, payload) => {
           if (event === "speaker") {
             const speaker = payload as unknown as TurnSpeaker;
-            // A frame without weights must drop the breakdown, not break the render.
-            setRunningSpeaker({ ...speaker, weights: speaker.weights ?? [] });
+            // A frame missing weights or factors must drop them, not break the render.
+            setRunningSpeaker({
+              ...speaker,
+              weights: (speaker.weights ?? []).map((entry) => ({ ...entry, factors: entry.factors ?? [] }))
+            });
             return;
           }
 
