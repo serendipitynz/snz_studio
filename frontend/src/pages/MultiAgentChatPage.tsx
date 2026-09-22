@@ -8,7 +8,7 @@ import { MarkdownPreview } from "../components/MarkdownPreview";
 import { MessageReferences } from "../components/MessageReferences";
 import { ParticipantPanel } from "../components/ParticipantPanel";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
-import { useLanguage } from "../i18n";
+import { MessageKey, useLanguage } from "../i18n";
 import {
   Badge,
   Button,
@@ -66,6 +66,7 @@ interface TurnSpeaker {
 
 interface SpeakerWeight {
   participantId: string;
+  displayName?: string;
   weight: number;
   factors: { name: string; value: number }[];
 }
@@ -97,6 +98,7 @@ const MEMORY_SAVED_NOTICE_MS = 5000;
 export function MultiAgentChatPage() {
   const { chatId = "" } = useParams();
   const { t } = useLanguage();
+  const factorLabel = (name: string) => (name in factorLabelKeys ? t(factorLabelKeys[name]) : name);
   const messageScrollerRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<MultiAgentState | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -592,10 +594,10 @@ export function MultiAgentChatPage() {
                         <Stack style={{ gap: 2, marginTop: 4 }}>
                           {runningSpeaker.weights.map((entry) => (
                             <MetaText key={entry.participantId}>
-                              {speakerById.get(entry.participantId)?.displayName ?? entry.participantId}:{" "}
+                              {speakerById.get(entry.participantId)?.displayName ?? entry.displayName ?? entry.participantId}:{" "}
                               {formatWeight(entry.weight)}
                               {entry.factors.length > 0
-                                ? ` = ${entry.factors.map((factor) => `${factor.name} ×${formatWeight(factor.value)}`).join(" · ")}`
+                                ? ` = ${entry.factors.map((factor) => `${factorLabel(factor.name)} ×${formatWeight(factor.value)}`).join(" · ")}`
                                 : ""}
                             </MetaText>
                           ))}
@@ -774,6 +776,14 @@ export function MultiAgentChatPage() {
     </WorkspaceShell>
   );
 }
+
+// The weighted rule's factor names (design §4.6.1) as the server sends them. A
+// name this list does not know is shown as sent rather than dropped.
+const factorLabelKeys: Record<string, MessageKey> = {
+  consecutive: "multiAgent.factorConsecutive",
+  recent: "multiAgent.factorRecent",
+  call: "multiAgent.factorCall"
+};
 
 function formatWeight(value: number): string {
   return String(Number(value.toFixed(3)));

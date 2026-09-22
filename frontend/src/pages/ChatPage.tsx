@@ -69,6 +69,7 @@ function createOptimisticMessage(chatId: string, role: "user" | "assistant", con
     tokensPerSecond: null,
     modelName: null,
     participantId: null,
+    addressedParticipantIds: [],
     references: []
   };
 }
