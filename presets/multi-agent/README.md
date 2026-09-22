@@ -58,8 +58,8 @@
 | `title` | 一覧に出す名前。新規作成時にチャット名を空にしたときは、これがチャット名になる | 必須 |
 | `participants` | 登録順 = `round_robin` の巡回順。`displayName` は必須、`rolePrompt` は空でも可。2 名以上 | 必須 |
 | `participants[].receivesProjectMaterial` | その参加者のターンでプロジェクトのドキュメント・メモリ（設計書 §4.4 のプロジェクト資料）を渡すか。省略時は `true` | 任意 |
-| `participants[].facilitator` | `turnRule` が `facilitator_alternating` のとき、進行役にする参加者に `true` を付ける。ちょうど 1 人必要で、他のルールでは付けられない | 条件付き |
-| `turnRule` | `round_robin` / `manual` / `facilitator_alternating` のいずれか。省略時は `round_robin` | 任意 |
+| `participants[].facilitator` | 進行役にする参加者に `true` を付ける。`turnRule` が `facilitator_alternating` ならちょうど 1 人必要、`weighted` なら 0 人か 1 人で、他のルールでは付けられない | 条件付き |
+| `turnRule` | `round_robin` / `manual` / `facilitator_alternating` / `weighted` のいずれか。省略時は `round_robin` | 任意 |
 | `scenePrompt` | 場面設定。省略時は空 | 任意 |
 | `description` | 一覧で title の下に出す説明 | 任意 |
 | `id` / `group` | 同梱分の一覧で使う値。ファイルから読み込むときは使われない (`group` は `discussion` / `drama` / `hosted` / `pair`) | 任意 |
