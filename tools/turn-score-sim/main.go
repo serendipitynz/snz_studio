@@ -193,7 +193,7 @@ func main() {
 		{name: "talkativeness: C=0.5 (かなり控えめ)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.5), turns: 60, addressRate: 0.3, seed: 10},
 		{name: "talkativeness: C=0.2 (ほぼ黙る)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.2), turns: 60, addressRate: 0.3, seed: 11},
 		// 進行役の免除を talkativeness で置き換えられるかを見る (免除なし + GM を上げる)。
-		{name: "進行役の免除なし + GM=1.15", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1.15, 1, 1, 1), turns: 60, seed: 12},
+		{name: "進行役の免除なし + GM=1.176", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1.176, 1, 1, 1), turns: 60, seed: 12},
 		// 「編成の全員を呼ぶ」介入を捨てるか残すかで挙動が変わるかを見る。
 		{name: "介入が編成の全員を呼ぶ", roster: gmRoster("GM", "A", "B", "C"), turns: 60, humanEvery: 6, humanCallsAll: true, seed: 13},
 	}
@@ -207,41 +207,34 @@ func main() {
 
 func rules() []rule {
 	// The ticket's original coefficients: the call as a suppression of everyone but
-	// the addressees, read from the last message alone.
+	// the addressees, read from the last message alone, plus a roster-order term.
 	proposed := coefficients{lastSpeaker: 0.2, recentSpeaker: 0.85, notAddressee: 0.5, notRosterNext: 0.95, addresseeBoost: 1.0, facilitatorExemptRecent: true}
-	// The same last-message-only form written as a raise on the addressee, which is
-	// ranking-equivalent (notAddressee=x ranks as addresseeBoost=1/x) but tunable.
-	lastMessageOnly := func(boost float64) coefficients {
-		c := proposed
-		c.notAddressee, c.addresseeBoost = 1.0, boost
-		return c
-	}
-	// The adopted form: the call is a raise held over a window of the last
-	// len(roster) participant utterances while it is unanswered. Every variant of
-	// it below changes exactly one thing, so that a difference in the tables is
-	// attributable — the earlier list varied the expiry policy and the coefficient
-	// together and the comparison meant nothing.
-	adopted := windowedCall(proposed, -1, 1.2, true)
+	// The adopted form. Three coefficients: the call is a raise held over a window
+	// of the last len(roster) participant utterances while unanswered, and the
+	// roster-order term is gone — the longest-silence tie-break points at the same
+	// participant it did, so it only pre-resolved ties, while raising the boost a
+	// call needs from 1/0.85 to 1/(0.85×0.95).
+	adopted := withoutRosterNext(windowedCall(proposed, -1, 1.2, true))
+	tweak := func(f func(coefficients) coefficients) coefficients { return f(adopted) }
 
 	return []rule{
 		{name: "採用", pick: weighted(adopted, humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・加点×1.1", pick: weighted(windowedCall(proposed, -1, 1.1, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・加点×1.3", pick: weighted(windowedCall(proposed, -1, 1.3, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・加点×2.0", pick: weighted(windowedCall(proposed, -1, 2.0, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・加点なし", pick: weighted(windowedCall(proposed, -1, 1.0, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・応答でも残る", pick: weighted(windowedCall(proposed, -1, 1.2, false), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・窓2固定", pick: weighted(windowedCall(proposed, 2, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・窓8固定", pick: weighted(windowedCall(proposed, 8, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・加点×1.1", pick: weighted(withBoost(adopted, 1.1), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・加点×1.3", pick: weighted(withBoost(adopted, 1.3), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・加点×2.0", pick: weighted(withBoost(adopted, 2.0), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・加点なし", pick: weighted(withBoost(adopted, 1.0), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・応答でも残る", pick: weighted(withExpiry(adopted, false), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・窓2固定", pick: weighted(withWindow(adopted, 2), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・窓8固定", pick: weighted(withWindow(adopted, 8), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・名簿順×0.95を戻す", pick: weighted(withRosterNext(adopted, 0.95), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "採用・同点=名簿順", pick: weighted(adopted, humanIsCurrentSpeaker, byRosterOrder)},
 		{name: "採用・介入時も×0.2", pick: weighted(adopted, penalizeLastParticipant, byLongestSilence)},
 		{name: "採用・介入後は進行役", pick: weighted(adopted, facilitatorAnswersHuman, byLongestSilence)},
 		{name: "採用・名指し無し介入は進行役", pick: weighted(adopted, facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "採用・直近抑制なし", pick: weighted(withRecent(adopted, 1.0), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・進行役の免除なし", pick: weighted(withoutExemption(adopted), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・直近抑制なし", pick: weighted(tweak(func(c coefficients) coefficients { return withRecent(c, 1.0) }), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・進行役の免除なし", pick: weighted(tweak(withoutExemption), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "採用・沈黙を連続量", pick: weighted(continuousSilence(adopted, 0.15), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "起票時の原案(末尾のみ・他を×0.5)", pick: weighted(proposed, humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "起票時の原案(同点=名簿順・介入時も×0.2)", pick: weighted(proposed, penalizeLastParticipant, byRosterOrder)},
-		{name: "末尾のみ・加点×1.2", pick: weighted(lastMessageOnly(1.2), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "起票時の原案(末尾のみ・他を×0.5・名簿順あり)", pick: weighted(proposed, humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "呼びかけ最優先(先頭)", pick: addressedFirst},
 		{name: "呼びかけ最優先(沈黙が長い側)", pick: addressedLongestSilent},
 		{name: "呼びかけ最優先(窓・未応答・沈黙が長い側)", pick: addressedOutstandingLongestSilent},
@@ -252,6 +245,16 @@ func rules() []rule {
 
 func withRecent(c coefficients, v float64) coefficients { c.recentSpeaker = v; return c }
 func withoutExemption(c coefficients) coefficients      { c.facilitatorExemptRecent = false; return c }
+
+// withoutRosterNext drops the roster-order coefficient. It is a candidate for
+// removal on two grounds: it is what raises the call's required boost from
+// 1/0.85 to 1/(0.85×0.95), and in the no-call steady state it points at the same
+// participant the longest-silence tie-break does, so the two may be redundant.
+func withoutRosterNext(c coefficients) coefficients         { c.notRosterNext = 1.0; return c }
+func withRosterNext(c coefficients, v float64) coefficients { c.notRosterNext = v; return c }
+func withBoost(c coefficients, v float64) coefficients      { c.callBoost = v; return c }
+func withExpiry(c coefficients, v bool) coefficients        { c.callExpiresOnAnswer = v; return c }
+func withWindow(c coefficients, v int) coefficients         { c.callWindow = v; return c }
 
 func continuousSilence(c coefficients, gain float64) coefficients {
 	c.silenceGain = gain
