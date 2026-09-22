@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { api, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
 import { CopyMessageButton } from "../components/CopyMessageButton";
+import { Dialog, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { MessageReferences } from "../components/MessageReferences";
@@ -25,8 +26,6 @@ import {
   MessageBubble,
   MessageScroller,
   MetaText,
-  ModalCard,
-  ModalOverlay,
   PaneHeader,
   Row,
   SectionTitle,
@@ -122,15 +121,9 @@ export function MultiAgentChatPage() {
   const [memorySaving, setMemorySaving] = useState(false);
   const [memoryError, setMemoryError] = useState("");
   const [memorySavedTitle, setMemorySavedTitle] = useState("");
-  // The button that opened the save dialog, so closing it (save, cancel or
-  // Escape) puts keyboard focus back where the user was in the transcript
-  // instead of dropping it at the top of the document.
+  // The button that opened the save dialog. The dialog opens only after the
+  // server's draft arrives, so by then focus is no longer reliably on it.
   const memoryOpenerRef = useRef<HTMLButtonElement | null>(null);
-  const memoryDialogRef = useRef<HTMLDivElement | null>(null);
-  // Open/closed is tracked apart from the draft: the draft changes on every
-  // keystroke, and an effect keyed on it would run its close-time cleanup —
-  // focusing the opener — in the middle of typing.
-  const memoryDialogOpen = memoryDraft !== null;
   const [isRosterCollapsed, setIsRosterCollapsed] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -180,51 +173,6 @@ export function MultiAgentChatPage() {
       autoRunningRef.current = false;
     };
   }, []);
-
-  // Escape closes the save dialog, as it does the confirm dialog: the overlay
-  // is otherwise the one thing on screen the keyboard cannot dismiss. Tab is
-  // kept inside the dialog, because the overlay hides the transcript's controls
-  // without taking them out of the tab order. Closing hands focus back to the
-  // button that opened the dialog.
-  useEffect(() => {
-    if (!memoryDialogOpen) {
-      return;
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setMemoryDraft(null);
-        return;
-      }
-      if (event.key !== "Tab" || !memoryDialogRef.current) {
-        return;
-      }
-
-      const focusable = Array.from(
-        memoryDialogRef.current.querySelectorAll<HTMLElement>("select, textarea, input, button:not([disabled])")
-      );
-      if (focusable.length === 0) {
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      const outside = !memoryDialogRef.current.contains(active);
-      if (event.shiftKey && (active === first || outside)) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && (active === last || outside)) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      memoryOpenerRef.current?.focus();
-    };
-  }, [memoryDialogOpen]);
 
   useEffect(() => {
     if (!memorySavedTitle) {
@@ -418,6 +366,14 @@ export function MultiAgentChatPage() {
       setMemoryError(nextError instanceof Error ? nextError.message : t("multiAgent.saveMemoryDraftError"));
     } finally {
       setMemoryPreparing(false);
+    }
+  }
+
+  // Escape follows the cancel button, which is disabled while the save is in
+  // flight: closing then would hide an error the save might still report.
+  function closeMemoryDialog() {
+    if (!memorySaving) {
+      setMemoryDraft(null);
     }
   }
 
@@ -713,17 +669,14 @@ export function MultiAgentChatPage() {
       </InspectorPane>
 
       {memoryDraft ? (
-        <ModalOverlay>
-          <ModalCard
-            as="form"
-            ref={memoryDialogRef}
-            role="dialog"
-            aria-modal="true"
-            onSubmit={handleSaveMemory}
-            style={{ width: "min(640px, 100%)" }}
-          >
+        <Dialog
+          onClose={closeMemoryDialog}
+          returnFocusTo={memoryOpenerRef.current}
+          style={{ width: "min(640px, 100%)" }}
+        >
+          <form onSubmit={handleSaveMemory}>
             <Stack>
-              <SectionTitle>{t("multiAgent.saveMemoryTitle")}</SectionTitle>
+              <DialogTitle>{t("multiAgent.saveMemoryTitle")}</DialogTitle>
               <Subtle>{t("multiAgent.saveMemoryFrom", { name: speakerLabel(memoryDraft.message) })}</Subtle>
               <Field>
                 {t("project.kind")}
@@ -762,7 +715,7 @@ export function MultiAgentChatPage() {
               <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.saveMemoryNote")}</MetaText>
               {memoryError ? <ErrorText>{memoryError}</ErrorText> : null}
               <Row style={{ justifyContent: "flex-end" }}>
-                <Button type="button" variant="ghost" onClick={() => setMemoryDraft(null)} disabled={memorySaving}>
+                <Button type="button" variant="ghost" onClick={closeMemoryDialog} disabled={memorySaving}>
                   {t("common.cancel")}
                 </Button>
                 <Button type="submit" disabled={memorySaving || !memoryDraft.content.trim()}>
@@ -770,8 +723,8 @@ export function MultiAgentChatPage() {
                 </Button>
               </Row>
             </Stack>
-          </ModalCard>
-        </ModalOverlay>
+          </form>
+        </Dialog>
       ) : null}
     </WorkspaceShell>
   );
