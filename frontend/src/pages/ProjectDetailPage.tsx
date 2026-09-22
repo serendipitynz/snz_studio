@@ -15,6 +15,7 @@ import {
   Project
 } from "../api/client";
 import { useConfirm } from "../components/ConfirmDialog";
+import { Dialog, DialogTitle } from "../components/Dialog";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { PresetChoice, PresetPicker } from "../components/PresetPicker";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
@@ -34,8 +35,6 @@ import {
   Item,
   List,
   MainPane,
-  ModalCard,
-  ModalOverlay,
   PaneBody,
   PaneHeader,
   Row,
@@ -832,332 +831,324 @@ export function ProjectDetailPage() {
       </WorkspaceShell>
 
       {selectedDocument ? (
-        <ModalOverlay>
-          <ModalCard>
-            <Stack>
-              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <Dialog onClose={() => setSelectedDocument(null)}>
+          <Stack>
+            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <DialogTitle>{selectedDocument.title}</DialogTitle>
+                <Subtle>
+                  {selectedDocument.type} · {t(`category.${selectedDocument.category}`)}
+                  {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
+                </Subtle>
+              </div>
+              <Button type="button" variant="ghost" onClick={() => setSelectedDocument(null)}>
+                {t("common.close")}
+              </Button>
+            </Row>
+
+            {selectedDocument.tags.length ? <Subtle>{t("project.tags", { tags: selectedDocument.tags.join(", ") })}</Subtle> : null}
+            {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
+
+            <Card>
+              <Stack>
+                <Field>
+                  {t("project.category")}
+                  <Select
+                    value={documentCategoryDraft}
+                    onChange={(event) => setDocumentCategoryDraft(event.target.value as DocumentCategory)}
+                  >
+                    {DOCUMENT_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {t(`category.${category}`)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
                 <div>
-                  <SectionTitle>{selectedDocument.title}</SectionTitle>
-                  <Subtle>
-                    {selectedDocument.type} · {t(`category.${selectedDocument.category}`)}
-                    {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
-                  </Subtle>
+                  <Button
+                    type="button"
+                    disabled={busy || documentCategoryDraft === selectedDocument.category}
+                    onClick={() => void handleUpdateDocumentCategory(selectedDocument.id, documentCategoryDraft)}
+                  >
+                    {t("project.saveCategory")}
+                  </Button>
                 </div>
-                <Button type="button" variant="ghost" onClick={() => setSelectedDocument(null)}>
-                  {t("common.close")}
-                </Button>
-              </Row>
 
-              {selectedDocument.tags.length ? <Subtle>{t("project.tags", { tags: selectedDocument.tags.join(", ") })}</Subtle> : null}
-              {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
+                <Field>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedDocument.sharedWithAll}
+                      disabled={busy}
+                      onChange={(event) =>
+                        void handleUpdateDocumentSharedWithAll(selectedDocument.id, event.target.checked)
+                      }
+                    />
+                    {t("project.shareWithAll")}
+                  </label>
+                  <Subtle>{t("project.shareWithAllHint")}</Subtle>
+                </Field>
+              </Stack>
+            </Card>
 
-              <Card>
-                <Stack>
-                  <Field>
-                    {t("project.category")}
-                    <Select
-                      value={documentCategoryDraft}
-                      onChange={(event) => setDocumentCategoryDraft(event.target.value as DocumentCategory)}
-                    >
-                      {DOCUMENT_CATEGORIES.map((category) => (
-                        <option key={category} value={category}>
-                          {t(`category.${category}`)}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <div>
-                    <Button
-                      type="button"
-                      disabled={busy || documentCategoryDraft === selectedDocument.category}
-                      onClick={() => void handleUpdateDocumentCategory(selectedDocument.id, documentCategoryDraft)}
-                    >
-                      {t("project.saveCategory")}
-                    </Button>
-                  </div>
+            <Card>
+              {selectedDocument.type === "image" && selectedDocument.filePath ? (
+                <img
+                  src={fileSrc(selectedDocument.filePath)}
+                  alt={selectedDocument.title}
+                  style={{ width: "100%", borderRadius: 16, display: "block" }}
+                />
+              ) : null}
 
-                  <Field>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedDocument.sharedWithAll}
-                        disabled={busy}
-                        onChange={(event) =>
-                          void handleUpdateDocumentSharedWithAll(selectedDocument.id, event.target.checked)
-                        }
-                      />
-                      {t("project.shareWithAll")}
-                    </label>
-                    <Subtle>{t("project.shareWithAllHint")}</Subtle>
-                  </Field>
-                </Stack>
-              </Card>
+              {selectedDocument.type === "markdown" ? (
+                <MarkdownPreview source={selectedDocument.contentText} />
+              ) : null}
 
-              <Card>
-                {selectedDocument.type === "image" && selectedDocument.filePath ? (
-                  <img
-                    src={fileSrc(selectedDocument.filePath)}
-                    alt={selectedDocument.title}
-                    style={{ width: "100%", borderRadius: 16, display: "block" }}
-                  />
-                ) : null}
+              {selectedDocument.type === "text" ? (
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{selectedDocument.contentText}</pre>
+              ) : null}
 
-                {selectedDocument.type === "markdown" ? (
-                  <MarkdownPreview source={selectedDocument.contentText} />
-                ) : null}
-
-                {selectedDocument.type === "text" ? (
-                  <pre style={{ margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{selectedDocument.contentText}</pre>
-                ) : null}
-
-                {selectedDocument.type === "image" && selectedDocument.derivedText ? (
-                  <div style={{ marginTop: 14 }}>
-                    <Badge tone="warm">{t("project.derivedText")}</Badge>
-                    <div style={{ marginTop: 10, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{selectedDocument.derivedText}</div>
-                  </div>
-                ) : null}
-              </Card>
-            </Stack>
-          </ModalCard>
-        </ModalOverlay>
+              {selectedDocument.type === "image" && selectedDocument.derivedText ? (
+                <div style={{ marginTop: 14 }}>
+                  <Badge tone="warm">{t("project.derivedText")}</Badge>
+                  <div style={{ marginTop: 10, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{selectedDocument.derivedText}</div>
+                </div>
+              ) : null}
+            </Card>
+          </Stack>
+        </Dialog>
       ) : null}
 
       {isTitleModalOpen ? (
-        <ModalOverlay>
-          <ModalCard>
-            <Stack>
-              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>{t("project.editTitleModal")}</SectionTitle>
-                <Button type="button" variant="ghost" onClick={() => setIsTitleModalOpen(false)}>
-                  {t("common.close")}
-                </Button>
-              </Row>
-              <Card as="form" onSubmit={handleUpdateProjectTitle}>
-                <Stack>
-                  <Field>
-                    {t("project.titleField")}
-                    <Input
-                      value={titleDraft}
-                      onChange={(event) => setTitleDraft(event.target.value)}
-                      placeholder={t("project.titlePlaceholder")}
-                    />
-                  </Field>
-                  <div>
-                    <Button type="submit" disabled={busy || !titleDraft.trim()}>
-                      {t("project.saveTitle")}
-                    </Button>
-                  </div>
-                </Stack>
-              </Card>
-            </Stack>
-          </ModalCard>
-        </ModalOverlay>
+        <Dialog onClose={() => setIsTitleModalOpen(false)}>
+          <Stack>
+            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <DialogTitle>{t("project.editTitleModal")}</DialogTitle>
+              <Button type="button" variant="ghost" onClick={() => setIsTitleModalOpen(false)}>
+                {t("common.close")}
+              </Button>
+            </Row>
+            <Card as="form" onSubmit={handleUpdateProjectTitle}>
+              <Stack>
+                <Field>
+                  {t("project.titleField")}
+                  <Input
+                    value={titleDraft}
+                    onChange={(event) => setTitleDraft(event.target.value)}
+                    placeholder={t("project.titlePlaceholder")}
+                  />
+                </Field>
+                <div>
+                  <Button type="submit" disabled={busy || !titleDraft.trim()}>
+                    {t("project.saveTitle")}
+                  </Button>
+                </div>
+              </Stack>
+            </Card>
+          </Stack>
+        </Dialog>
       ) : null}
 
       {isSystemPromptModalOpen ? (
-        <ModalOverlay>
-          <ModalCard>
-            <Stack>
-              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>{t("project.editSystemPromptModal")}</SectionTitle>
-                <Button type="button" variant="ghost" onClick={() => setIsSystemPromptModalOpen(false)}>
-                  {t("common.close")}
-                </Button>
-              </Row>
-              <Card as="form" onSubmit={handleUpdateProjectSystemPrompt}>
-                <Stack>
-                  <Field>
-                    {t("project.systemPromptField")}
-                    <Textarea
-                      value={systemPromptDraft}
-                      onChange={(event) => setSystemPromptDraft(event.target.value)}
-                      placeholder={t("project.systemPromptPlaceholder")}
-                    />
-                  </Field>
-                  <div>
-                    <Button type="submit" disabled={busy}>
-                      {t("project.saveSystemPrompt")}
-                    </Button>
-                  </div>
-                </Stack>
-              </Card>
-            </Stack>
-          </ModalCard>
-        </ModalOverlay>
+        <Dialog onClose={() => setIsSystemPromptModalOpen(false)}>
+          <Stack>
+            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <DialogTitle>{t("project.editSystemPromptModal")}</DialogTitle>
+              <Button type="button" variant="ghost" onClick={() => setIsSystemPromptModalOpen(false)}>
+                {t("common.close")}
+              </Button>
+            </Row>
+            <Card as="form" onSubmit={handleUpdateProjectSystemPrompt}>
+              <Stack>
+                <Field>
+                  {t("project.systemPromptField")}
+                  <Textarea
+                    value={systemPromptDraft}
+                    onChange={(event) => setSystemPromptDraft(event.target.value)}
+                    placeholder={t("project.systemPromptPlaceholder")}
+                  />
+                </Field>
+                <div>
+                  <Button type="submit" disabled={busy}>
+                    {t("project.saveSystemPrompt")}
+                  </Button>
+                </div>
+              </Stack>
+            </Card>
+          </Stack>
+        </Dialog>
       ) : null}
 
       {isMemoryModalOpen ? (
-        <ModalOverlay>
-          <ModalCard>
-            <Stack>
-              <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <SectionTitle>{t("project.projectMemories")}</SectionTitle>
-                <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                  <Button type="button" variant="ghost" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
-                    {organizingMemories ? t("project.organizing") : t("project.organize")}
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={() => setIsMemoryModalOpen(false)}>
-                    {t("common.close")}
-                  </Button>
-                </Row>
+        <Dialog onClose={() => setIsMemoryModalOpen(false)}>
+          <Stack>
+            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <DialogTitle>{t("project.projectMemories")}</DialogTitle>
+              <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                <Button type="button" variant="ghost" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
+                  {organizingMemories ? t("project.organizing") : t("project.organize")}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setIsMemoryModalOpen(false)}>
+                  {t("common.close")}
+                </Button>
               </Row>
+            </Row>
 
-              {memoryPlan ? (
-                <Card>
-                  <Stack>
-                    <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <SectionTitle>{t("project.organizationPlan")}</SectionTitle>
-                      <Button
-                        type="button"
-                        onClick={() => void handleApplyMemoryPlan()}
-                        disabled={organizingMemories || memoryPlan.changes.length === 0}
-                      >
-                        {t("project.apply")}
-                      </Button>
-                    </Row>
-                    <Subtle>{memoryPlan.summary || t("project.noSummary")}</Subtle>
-                    {memoryPlan.changes.length === 0 ? (
-                      <Subtle>{t("project.noChanges")}</Subtle>
-                    ) : (
-                      <List>
-                        {memoryPlan.changes.map((change, index) => (
-                          <Item key={`${change.action}-${change.memoryId ?? change.title ?? index}`}>
-                            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                              <strong>{change.title || change.memoryId || change.action}</strong>
-                              <Badge tone={change.action === "remove" ? "warm" : change.action === "update" ? "accent" : "muted"}>
-                                {change.action}
-                              </Badge>
-                            </Row>
-                            {change.kind ? <Subtle>{change.kind}</Subtle> : null}
-                            {change.content ? <Subtle>{change.content}</Subtle> : null}
-                            <Subtle>{change.reason}</Subtle>
-                          </Item>
-                        ))}
-                      </List>
-                    )}
-                  </Stack>
-                </Card>
-              ) : null}
-
-              <Card as="form" onSubmit={handleCreateMemory}>
+            {memoryPlan ? (
+              <Card>
                 <Stack>
-                  <SectionTitle>{t("project.addMemory")}</SectionTitle>
-                  <ComposerBox>
-                    <Field>
-                      {t("project.kind")}
-                      <Select value={memoryKind} onChange={(event) => setMemoryKind(event.target.value as MemoryKind)}>
-                        <option value="semantic">{t("project.kindSemantic")}</option>
-                        <option value="procedural">{t("project.kindProcedural")}</option>
-                        <option value="episodic">{t("project.kindEpisodic")}</option>
-                      </Select>
-                    </Field>
-                    <Field>
-                      {t("project.content")}
-                      <Textarea
-                        value={memoryContent}
-                        onChange={(event) => setMemoryContent(event.target.value)}
-                        placeholder={t("project.contentPlaceholder")}
-                      />
-                    </Field>
-                    <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <input type="checkbox" checked={memoryLocked} onChange={(event) => setMemoryLocked(event.target.checked)} />
-                      <span>{t("project.lockHint")}</span>
-                    </label>
-                    <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <Button type="submit" disabled={busy}>
-                        {t("project.saveMemory")}
-                      </Button>
-                    </Row>
-                  </ComposerBox>
+                  <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <SectionTitle>{t("project.organizationPlan")}</SectionTitle>
+                    <Button
+                      type="button"
+                      onClick={() => void handleApplyMemoryPlan()}
+                      disabled={organizingMemories || memoryPlan.changes.length === 0}
+                    >
+                      {t("project.apply")}
+                    </Button>
+                  </Row>
+                  <Subtle>{memoryPlan.summary || t("project.noSummary")}</Subtle>
+                  {memoryPlan.changes.length === 0 ? (
+                    <Subtle>{t("project.noChanges")}</Subtle>
+                  ) : (
+                    <List>
+                      {memoryPlan.changes.map((change, index) => (
+                        <Item key={`${change.action}-${change.memoryId ?? change.title ?? index}`}>
+                          <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                            <strong>{change.title || change.memoryId || change.action}</strong>
+                            <Badge tone={change.action === "remove" ? "warm" : change.action === "update" ? "accent" : "muted"}>
+                              {change.action}
+                            </Badge>
+                          </Row>
+                          {change.kind ? <Subtle>{change.kind}</Subtle> : null}
+                          {change.content ? <Subtle>{change.content}</Subtle> : null}
+                          <Subtle>{change.reason}</Subtle>
+                        </Item>
+                      ))}
+                    </List>
+                  )}
                 </Stack>
               </Card>
+            ) : null}
 
-              <Grid columns="1fr 1fr 1fr">
-                {(["procedural", "semantic", "episodic"] as const).map((kind) => (
-                  <Card key={kind}>
-                    <Stack>
-                      <Badge tone={kind === "procedural" ? "accent" : kind === "semantic" ? "warm" : "muted"}>{t(`memoryKind.${kind}`)}</Badge>
-                      {groupedMemories[kind].length === 0 ? <Subtle>{t("project.noKindMemoryYet", { kind: t(`memoryKind.${kind}`) })}</Subtle> : null}
-                      <List>
-                        {groupedMemories[kind].map((memory) => (
-                          <Item key={memory.id} style={{ position: "relative" }}>
-                            {/* Title, actions and badges each get their own line. Sharing the
-                                first line between the title and three icon buttons left the
-                                title a few characters wide in the memory pane's narrow column
-                                (observed on a memory whose title is a long sentence). */}
-                            <strong style={{ display: "block", overflowWrap: "anywhere" }}>{memory.title}</strong>
-                            <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap" }}>
+            <Card as="form" onSubmit={handleCreateMemory}>
+              <Stack>
+                <SectionTitle>{t("project.addMemory")}</SectionTitle>
+                <ComposerBox>
+                  <Field>
+                    {t("project.kind")}
+                    <Select value={memoryKind} onChange={(event) => setMemoryKind(event.target.value as MemoryKind)}>
+                      <option value="semantic">{t("project.kindSemantic")}</option>
+                      <option value="procedural">{t("project.kindProcedural")}</option>
+                      <option value="episodic">{t("project.kindEpisodic")}</option>
+                    </Select>
+                  </Field>
+                  <Field>
+                    {t("project.content")}
+                    <Textarea
+                      value={memoryContent}
+                      onChange={(event) => setMemoryContent(event.target.value)}
+                      placeholder={t("project.contentPlaceholder")}
+                    />
+                  </Field>
+                  <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input type="checkbox" checked={memoryLocked} onChange={(event) => setMemoryLocked(event.target.checked)} />
+                    <span>{t("project.lockHint")}</span>
+                  </label>
+                  <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <Button type="submit" disabled={busy}>
+                      {t("project.saveMemory")}
+                    </Button>
+                  </Row>
+                </ComposerBox>
+              </Stack>
+            </Card>
+
+            <Grid columns="1fr 1fr 1fr">
+              {(["procedural", "semantic", "episodic"] as const).map((kind) => (
+                <Card key={kind}>
+                  <Stack>
+                    <Badge tone={kind === "procedural" ? "accent" : kind === "semantic" ? "warm" : "muted"}>{t(`memoryKind.${kind}`)}</Badge>
+                    {groupedMemories[kind].length === 0 ? <Subtle>{t("project.noKindMemoryYet", { kind: t(`memoryKind.${kind}`) })}</Subtle> : null}
+                    <List>
+                      {groupedMemories[kind].map((memory) => (
+                        <Item key={memory.id} style={{ position: "relative" }}>
+                          {/* Title, actions and badges each get their own line. Sharing the
+                              first line between the title and three icon buttons left the
+                              title a few characters wide in the memory pane's narrow column
+                              (observed on a memory whose title is a long sentence). */}
+                          <strong style={{ display: "block", overflowWrap: "anywhere" }}>{memory.title}</strong>
+                          <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap" }}>
+                            <IconButton
+                              type="button"
+                              disabled={busy}
+                              aria-label={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
+                              title={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
+                              onClick={() => void handleUpdateMemorySharedWithAll(memory.id, !memory.sharedWithAll)}
+                            >
+                              {memory.sharedWithAll ? <SharedIcon /> : <NotSharedIcon />}
+                            </IconButton>
+                            <IconButton
+                              type="button"
+                              aria-label={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
+                              onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
+                            >
+                              {memory.locked ? <UnlockIcon /> : <LockIcon />}
+                            </IconButton>
+                            <div style={{ position: "relative" }}>
                               <IconButton
                                 type="button"
-                                disabled={busy}
-                                aria-label={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
-                                title={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
-                                onClick={() => void handleUpdateMemorySharedWithAll(memory.id, !memory.sharedWithAll)}
+                                aria-label={t("project.deleteMemory")}
+                                onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
                               >
-                                {memory.sharedWithAll ? <SharedIcon /> : <NotSharedIcon />}
+                                <TrashIcon />
                               </IconButton>
-                              <IconButton
-                                type="button"
-                                aria-label={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
-                                onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
-                              >
-                                {memory.locked ? <UnlockIcon /> : <LockIcon />}
-                              </IconButton>
-                              <div style={{ position: "relative" }}>
-                                <IconButton
-                                  type="button"
-                                  aria-label={t("project.deleteMemory")}
-                                  onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
+
+                              {pendingDeleteMemoryId === memory.id ? (
+                                <div
+                                  style={{
+                                    position: "absolute",
+                                    right: 0,
+                                    top: 40,
+                                    width: 210,
+                                    zIndex: 2,
+                                    padding: 12,
+                                    borderRadius: 14,
+                                    border: `1px solid ${theme.lineStrong}`,
+                                    background: theme.surfaceCard,
+                                    boxShadow: theme.shadowPopover
+                                  }}
                                 >
-                                  <TrashIcon />
-                                </IconButton>
-
-                                {pendingDeleteMemoryId === memory.id ? (
-                                  <div
-                                    style={{
-                                      position: "absolute",
-                                      right: 0,
-                                      top: 40,
-                                      width: 210,
-                                      zIndex: 2,
-                                      padding: 12,
-                                      borderRadius: 14,
-                                      border: `1px solid ${theme.lineStrong}`,
-                                      background: theme.surfaceCard,
-                                      boxShadow: theme.shadowPopover
-                                    }}
-                                  >
-                                    <Stack>
-                                      <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
-                                      <Row>
-                                        <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
-                                          {t("common.cancel")}
-                                        </Button>
-                                        <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
-                                          {t("common.ok")}
-                                        </Button>
-                                      </Row>
-                                    </Stack>
-                                  </div>
-                                ) : null}
-                              </div>
-                            </Row>
-                            <Row style={{ alignItems: "center" }}>
-                              <Badge tone="muted">{memory.source}</Badge>
-                              {memory.locked ? <Badge tone="warm">{t("project.locked")}</Badge> : null}
-                              {memory.sharedWithAll ? <Badge tone="accent">{t("project.sharedWithAll")}</Badge> : null}
-                            </Row>
-                            <Subtle>{memory.content}</Subtle>
-                          </Item>
-                        ))}
-                      </List>
-                    </Stack>
-                  </Card>
-                ))}
-              </Grid>
-            </Stack>
-          </ModalCard>
-        </ModalOverlay>
+                                  <Stack>
+                                    <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
+                                    <Row>
+                                      <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
+                                        {t("common.cancel")}
+                                      </Button>
+                                      <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
+                                        {t("common.ok")}
+                                      </Button>
+                                    </Row>
+                                  </Stack>
+                                </div>
+                              ) : null}
+                            </div>
+                          </Row>
+                          <Row style={{ alignItems: "center" }}>
+                            <Badge tone="muted">{memory.source}</Badge>
+                            {memory.locked ? <Badge tone="warm">{t("project.locked")}</Badge> : null}
+                            {memory.sharedWithAll ? <Badge tone="accent">{t("project.sharedWithAll")}</Badge> : null}
+                          </Row>
+                          <Subtle>{memory.content}</Subtle>
+                        </Item>
+                      ))}
+                    </List>
+                  </Stack>
+                </Card>
+              ))}
+            </Grid>
+          </Stack>
+        </Dialog>
       ) : null}
     </>
   );
