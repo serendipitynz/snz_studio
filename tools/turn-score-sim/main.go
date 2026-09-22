@@ -24,19 +24,32 @@ import (
 // participant_id in the real transcript (design §3).
 const speakerHuman = -1
 
-const noAddressee = -1
-
 type participant struct {
 	name        string
 	facilitator bool
 }
 
 // utterance is one stored message: who spoke, and whom that message called on.
-// The addressee is fixed when the message is stored and never re-derived, which
+// The addressees are fixed when the message is stored and never re-derived, which
 // is what keeps the next speaker the same across a restart (design §2).
+//
+// There can be more than one — "A, B, what do you think?" calls on two — and the
+// score keeps them all rather than discarding the utterance: every participant
+// called on escapes the notAddressee coefficient, and the remaining coefficients
+// decide which of them speaks first. An ordered rule cannot express that; it has
+// to pick one and drop the rest.
 type utterance struct {
-	speaker   int
-	addressee int
+	speaker    int
+	addressees []int
+}
+
+func (u utterance) calls(participant int) bool {
+	for _, a := range u.addressees {
+		if a == participant {
+			return true
+		}
+	}
+	return false
 }
 
 type roster []participant
@@ -88,6 +101,22 @@ type coefficients struct {
 	notAddressee  float64 // everyone but the participant the last utterance called on
 	notRosterNext float64 // everyone but the participant after the last one in sort_order
 
+	// addresseeBoost is the other way to express the call: raise the participant
+	// that was called on instead of lowering everyone else. The two are the same
+	// ranking (notAddressee=x ranks exactly as addresseeBoost=1/x), so a variant
+	// sets one and leaves the other at 1; having both lets the boost be tuned down
+	// to where the call competes with the other coefficients instead of settling
+	// the turn on its own.
+	addresseeBoost float64
+
+	// silenceGain replaces the fixed recentSpeaker coefficient with a term that
+	// grows with how long a participant has been silent (×(1+gain×turns)). It is
+	// the only continuous term any variant here has: with the fixed coefficients
+	// the weights take a handful of discrete values, so a call can only win always
+	// or lose always. A term that grows lets a long-silent participant outweigh a
+	// call by degrees, which is what "the call influences the score" would mean.
+	silenceGain float64
+
 	// facilitatorExemptRecent leaves the facilitator out of recentSpeaker, which
 	// is what lets it come back every other turn.
 	facilitatorExemptRecent bool
@@ -109,7 +138,10 @@ type scenario struct {
 	// humanCallsLast makes each intervention call on the participant that just
 	// spoke, which is the one case where the addressee also carries the ×0.2.
 	humanCallsLast bool
-	seed           int64
+	// multiCallRate is the share of calls that name two participants rather than
+	// one ("A, B, what do you think?").
+	multiCallRate float64
+	seed          int64
 }
 
 func main() {
@@ -121,37 +153,57 @@ func main() {
 		{name: "4人・進行役あり・呼びかけ3割+介入", roster: gmRoster("GM", "A", "B", "C"), turns: 60, addressRate: 0.3, humanEvery: 7, seed: 5},
 		{name: "3人・進行役なし・呼びかけ3割+介入", roster: plainRoster("A", "B", "C"), turns: 60, addressRate: 0.3, humanEvery: 7, seed: 6},
 		{name: "4人・進行役あり・介入が直前の話者を呼ぶ", roster: gmRoster("GM", "A", "B", "C"), turns: 60, humanEvery: 5, humanCallsLast: true, seed: 7},
+		{name: "4人・進行役あり・呼びかけ4割 (半分は2人呼び)", roster: gmRoster("GM", "A", "B", "C"), turns: 60, addressRate: 0.4, multiCallRate: 0.5, seed: 8},
 	}
 
 	for _, sc := range scenarios {
-		fmt.Printf("\n=== %s (%d ターン, 呼びかけ率 %.0f%%, 介入 %s) ===\n",
-			sc.name, sc.turns, sc.addressRate*100, interventionLabel(sc.humanEvery))
+		fmt.Printf("\n=== %s (%d ターン, 呼びかけ率 %.0f%%, うち 2 人呼び %.0f%%, 介入 %s) ===\n",
+			sc.name, sc.turns, sc.addressRate*100, sc.multiCallRate*100, interventionLabel(sc.humanEvery))
 		report(sc, rules())
 	}
 }
 
 func rules() []rule {
-	proposed := coefficients{lastSpeaker: 0.2, recentSpeaker: 0.85, notAddressee: 0.5, notRosterNext: 0.95, facilitatorExemptRecent: true}
+	// The ticket's coefficients. notAddressee 0.5 is its "the call influences the
+	// weight" rule, written as a suppression of everyone else.
+	proposed := coefficients{lastSpeaker: 0.2, recentSpeaker: 0.85, notAddressee: 0.5, notRosterNext: 0.95, addresseeBoost: 1.0, facilitatorExemptRecent: true}
+	// The same rule written as a boost, which is what can be tuned: the ticket's
+	// 0.5 is boost 2.0, and the threshold where a call stops being able to lose is
+	// 1/(0.85×0.95) ≈ 1.238, so 1.3 sits just above it and 1.2 just below.
+	tuned := func(boost float64) coefficients {
+		c := proposed
+		c.notAddressee, c.addresseeBoost = 1.0, boost
+		return c
+	}
 
 	return []rule{
 		{name: "原案", pick: weighted(proposed, penalizeLastParticipant, byRosterOrder)},
 		{name: "原案+沈黙同点", pick: weighted(proposed, penalizeLastParticipant, byLongestSilence)},
 		{name: "原案+人間=話者", pick: weighted(proposed, humanIsCurrentSpeaker, byRosterOrder)},
 		{name: "原案+介入は進行役", pick: weighted(proposed, facilitatorAnswersHuman, byRosterOrder)},
-		{name: "呼びかけ強め(0.2)", pick: weighted(withAddressee(proposed, 0.2), humanIsCurrentSpeaker, byRosterOrder)},
+		{name: "呼びかけ×2.0(原案と等価)", pick: weighted(tuned(2.0), facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "呼びかけ×1.3", pick: weighted(tuned(1.3), facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "呼びかけ×1.2", pick: weighted(tuned(1.2), facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "呼びかけ×1.1", pick: weighted(tuned(1.1), facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "呼びかけ係数なし", pick: weighted(tuned(1.0), facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "沈黙を連続量+呼びかけ×1.3", pick: weighted(continuousSilence(tuned(1.3), 0.15), facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "沈黙を連続量+呼びかけ×2.0", pick: weighted(continuousSilence(tuned(2.0), 0.15), facilitatorAnswersPlainHuman, byLongestSilence)},
 		{name: "直近抑制なし", pick: weighted(withRecent(proposed, 1.0), humanIsCurrentSpeaker, byRosterOrder)},
-		{name: "直近抑制0.5", pick: weighted(withRecent(proposed, 0.5), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "進行役の免除なし", pick: weighted(withoutExemption(proposed), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "推奨案", pick: weighted(proposed, facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "決定木", pick: decisionTree},
+		{name: "推奨案(スコア)", pick: weighted(proposed, facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "呼びかけ最優先", pick: decisionTree},
 		{name: "round_robin", pick: roundRobin},
 		{name: "facilitator交互", pick: facilitatorAlternating},
 	}
 }
 
-func withAddressee(c coefficients, v float64) coefficients { c.notAddressee = v; return c }
-func withRecent(c coefficients, v float64) coefficients    { c.recentSpeaker = v; return c }
-func withoutExemption(c coefficients) coefficients         { c.facilitatorExemptRecent = false; return c }
+func withRecent(c coefficients, v float64) coefficients { c.recentSpeaker = v; return c }
+func withoutExemption(c coefficients) coefficients      { c.facilitatorExemptRecent = false; return c }
+
+func continuousSilence(c coefficients, gain float64) coefficients {
+	c.silenceGain = gain
+	return c
+}
 
 // weighted is the score rule: every participant's weight is the product of the
 // coefficients that apply to it, and the highest weight speaks. The product is
@@ -164,7 +216,7 @@ func weighted(c coefficients, human humanPolicy, tie tieBreak) func(roster, []ut
 		}
 		gm := r.facilitator()
 		if gm >= 0 && lastIsHuman(history) {
-			plain := history[len(history)-1].addressee == noAddressee
+			plain := len(history[len(history)-1].addressees) == 0
 			if human == facilitatorAnswersHuman || (human == facilitatorAnswersPlainHuman && plain) {
 				return gm, nil
 			}
@@ -176,9 +228,9 @@ func weighted(c coefficients, human humanPolicy, tie tieBreak) func(roster, []ut
 			penalized = -1
 		}
 
-		addressee := noAddressee
+		var called utterance
 		if n := len(history); n > 0 {
-			addressee = history[n-1].addressee
+			called = history[n-1]
 		}
 
 		next := 0
@@ -196,11 +248,23 @@ func weighted(c coefficients, human humanPolicy, tie tieBreak) func(roster, []ut
 			if i == penalized {
 				w *= c.lastSpeaker
 			}
-			if spokeWithin(history, i, window) && !(c.facilitatorExemptRecent && r[i].facilitator) {
+			if c.silenceGain > 0 {
+				// Capped at the roster size so a participant that has never spoken does
+				// not outweigh everything else for the rest of the conversation.
+				silent := silenceRank(history, i)
+				if silent > len(r) {
+					silent = len(r)
+				}
+				w *= 1 + c.silenceGain*float64(silent)
+			} else if spokeWithin(history, i, window) && !(c.facilitatorExemptRecent && r[i].facilitator) {
 				w *= c.recentSpeaker
 			}
-			if addressee != noAddressee && i != addressee {
-				w *= c.notAddressee
+			if len(called.addressees) > 0 {
+				if called.calls(i) {
+					w *= c.addresseeBoost
+				} else {
+					w *= c.notAddressee
+				}
 			}
 			if i != next {
 				w *= c.notRosterNext
@@ -226,26 +290,43 @@ func argmax(weights []float64, history []utterance, tie tieBreak) int {
 		if weights[i] != weights[best] {
 			continue
 		}
-		if s := turnsSinceSpoken(history, i); s > silence {
+		if s := silenceRank(history, i); s > silence {
 			silence, best = s, i
 		}
 	}
 	return best
 }
 
+// silenceRank orders participants by how long they have been silent, with one
+// that has never spoken ranked ahead of every participant that has. Using
+// turnsSinceSpoken directly would rank it last instead: its -1 loses to any real
+// count, so on a fresh roster the tie-break would pass over the participant that
+// has been waiting longest of all. The scan runs from the back and stops at the
+// first match, so ties resolve to the earliest sort_order among equals.
+func silenceRank(history []utterance, participant int) int {
+	if since := turnsSinceSpoken(history, participant); since >= 0 {
+		return since
+	}
+	return len(history) + 1
+}
+
 // decisionTree is the alternative TASK-28 leaves open: the same intentions as
-// ordered rules rather than as a product. To make the comparison fair it is the
-// rules the engine already ships, with the addressee overriding them — not a
-// weaker rotation invented for the contrast.
+// ordered rules rather than as a product, with the call as the top rule instead
+// of a coefficient. To make the comparison fair it is the rules the engine
+// already ships underneath, not a weaker rotation invented for the contrast.
 func decisionTree(r roster, history []utterance) (int, []float64) {
 	if len(r) == 0 {
 		return -1, nil
 	}
-	// No guard against the addressee having just spoken: a participant calling on
+	// No guard against an addressee having just spoken: a participant calling on
 	// itself is discarded when the utterance is stored, so an addressee that spoke
 	// last can only come from the human asking that speaker to go on.
-	if n := len(history); n > 0 && history[n-1].addressee != noAddressee {
-		return history[n-1].addressee, nil
+	//
+	// Several addressees leave an ordered rule with nothing to order them by, so it
+	// takes the first and the rest fall back to the rotation — which is the gap the
+	// score does not have.
+	if n := len(history); n > 0 && len(history[n-1].addressees) > 0 {
+		return history[n-1].addressees[0], nil
 	}
 	if r.facilitator() >= 0 {
 		return facilitatorAlternating(r, history)
@@ -333,6 +414,7 @@ type measurement struct {
 	gmGapMin      int     // 進行役の間隔 (最小)
 	gmGapMax      int     // 進行役の間隔 (最大)
 	addressFollow string  // 呼びかけ追従率
+	secondWait    string  // 複数呼びかけで後回しになった側が話すまでのターン数 (最悪)
 	ties          int     // 同点が起きたターン数
 	order         string
 }
@@ -344,11 +426,11 @@ func run(sc scenario, rl rule) measurement {
 
 	for turn := 1; turn <= sc.turns; turn++ {
 		if sc.humanEvery > 0 && turn%sc.humanEvery == 0 {
-			called := noAddressee
-			if sc.humanCallsLast {
-				called = lastParticipantSpeaker(history)
+			var called []int
+			if last := lastParticipantSpeaker(history); sc.humanCallsLast && last >= 0 {
+				called = []int{last}
 			}
-			history = append(history, utterance{speaker: speakerHuman, addressee: called})
+			history = append(history, utterance{speaker: speakerHuman, addressees: called})
 		}
 		speaker, weights := rl.pick(sc.roster, history)
 		if speaker < 0 {
@@ -357,19 +439,28 @@ func run(sc scenario, rl rule) measurement {
 		if tiedAtTop(weights) {
 			ties++
 		}
-		history = append(history, utterance{speaker: speaker, addressee: drawAddressee(rng, sc, speaker)})
+		history = append(history, utterance{speaker: speaker, addressees: drawAddressees(rng, sc, speaker)})
 	}
 	return measure(sc.roster, history, ties)
 }
 
-// drawAddressee picks whom the utterance calls on. A speaker never calls on
-// itself, which is what the detection of §4.6 would discard anyway.
-func drawAddressee(rng *rand.Rand, sc scenario, speaker int) int {
+// drawAddressees picks whom the utterance calls on. A speaker never calls on
+// itself, which is what the detection of §4.6 would discard anyway. With
+// multiCallRate set, some calls name two participants instead of one.
+func drawAddressees(rng *rand.Rand, sc scenario, speaker int) []int {
 	if sc.addressRate <= 0 || rng.Float64() >= sc.addressRate {
-		return noAddressee
+		return nil
 	}
+	first := drawOther(rng, len(sc.roster), speaker, -1)
+	if sc.multiCallRate <= 0 || len(sc.roster) < 3 || rng.Float64() >= sc.multiCallRate {
+		return []int{first}
+	}
+	return []int{first, drawOther(rng, len(sc.roster), speaker, first)}
+}
+
+func drawOther(rng *rand.Rand, size, speaker, taken int) int {
 	for {
-		if candidate := rng.Intn(len(sc.roster)); candidate != speaker {
+		if candidate := rng.Intn(size); candidate != speaker && candidate != taken {
 			return candidate
 		}
 	}
@@ -425,6 +516,7 @@ func measure(r roster, history []utterance, ties int) measurement {
 		repeatRate:    repeatRate,
 		passTurns:     longestPass(spoken, len(r)),
 		addressFollow: followRate(history),
+		secondWait:    secondCallWait(history),
 		ties:          ties,
 		order:         strings.Join(order[:min(len(order), 24)], " "),
 	}
@@ -477,32 +569,72 @@ func facilitatorGaps(r roster, spoken []int) (int, int) {
 	return low, high
 }
 
+// followRate counts only the calls whose answer is actually in the transcript. A
+// call in the last utterance has not been answered yet rather than answered
+// wrongly, and counting it as a miss would charge every rule for where the run
+// happened to stop. A call on several participants is followed when any one of
+// them answers: the call asks the group, and which of them goes first is what the
+// remaining coefficients are for.
 func followRate(history []utterance) string {
-	called, followed := 0, 0
+	observed, followed := 0, 0
 	for i, u := range history {
-		if u.addressee == noAddressee {
+		if len(u.addressees) == 0 {
 			continue
 		}
-		called++
 		for j := i + 1; j < len(history); j++ {
 			if history[j].speaker == speakerHuman {
 				continue
 			}
-			if history[j].speaker == u.addressee {
+			observed++
+			if u.calls(history[j].speaker) {
 				followed++
 			}
 			break
 		}
 	}
-	if called == 0 {
+	if observed == 0 {
 		return "-"
 	}
-	return fmt.Sprintf("%d/%d", followed, called)
+	return fmt.Sprintf("%d/%d", followed, observed)
+}
+
+// secondCallWait answers what happens to the other participants a call named: for
+// every call on two or more, how many turns pass before each of the ones that did
+// not go first has spoken. It is reported as the worst case, since the question is
+// whether anyone is left hanging, not what the average is.
+func secondCallWait(history []utterance) string {
+	worst, seen := 0, 0
+	for i, u := range history {
+		if len(u.addressees) < 2 {
+			continue
+		}
+		seen++
+		for _, called := range u.addressees {
+			wait, answered := 0, false
+			for j := i + 1; j < len(history); j++ {
+				if history[j].speaker == speakerHuman {
+					continue
+				}
+				wait++
+				if history[j].speaker == called {
+					answered = true
+					break
+				}
+			}
+			if answered && wait > worst {
+				worst = wait
+			}
+		}
+	}
+	if seen == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", worst)
 }
 
 func report(sc scenario, rules []rule) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "規則\t連続発言率\t一巡ターン数\t進行役の間隔\t呼びかけ追従\t同点\t発言順 (先頭24)")
+	fmt.Fprintln(w, "規則\t連続発言率\t一巡ターン数\t進行役の間隔\t呼びかけ追従\t複数呼びかけ待ち\t同点\t発言順 (先頭24)")
 	for _, rl := range rules {
 		m := run(sc, rl)
 		gap := "-"
@@ -513,8 +645,8 @@ func report(sc scenario, rules []rule) {
 		if m.passTurns < 0 {
 			pass = "一巡せず"
 		}
-		fmt.Fprintf(w, "%s\t%.0f%%\t%s\t%s\t%s\t%d\t%s\n",
-			rl.name, m.repeatRate, pass, gap, m.addressFollow, m.ties, m.order)
+		fmt.Fprintf(w, "%s\t%.0f%%\t%s\t%s\t%s\t%s\t%d\t%s\n",
+			rl.name, m.repeatRate, pass, gap, m.addressFollow, m.secondWait, m.ties, m.order)
 	}
 	w.Flush()
 }
