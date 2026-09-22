@@ -215,13 +215,14 @@ func TestMultiAgentMigrationOnExistingDB(t *testing.T) {
 	var (
 		content       string
 		participantID sql.NullString
+		addressees    string
 	)
-	if err := d.QueryRow("SELECT content, participant_id FROM messages WHERE id = 'm1'").
-		Scan(&content, &participantID); err != nil {
+	if err := d.QueryRow("SELECT content, participant_id, addressed_participant_ids FROM messages WHERE id = 'm1'").
+		Scan(&content, &participantID, &addressees); err != nil {
 		t.Fatalf("read migrated message: %v", err)
 	}
-	if content != "hello" || participantID.Valid {
-		t.Errorf("migrated message = (%q, %v), want the row unchanged with a NULL participant_id", content, participantID)
+	if content != "hello" || participantID.Valid || addressees != "[]" {
+		t.Errorf("migrated message = (%q, %v, %q), want the row unchanged with a NULL participant_id and no addressees", content, participantID, addressees)
 	}
 
 	// participants must cascade with its chat, like the other chat-owned tables.

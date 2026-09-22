@@ -83,6 +83,10 @@ type Chat struct {
 // assistant turn is finalised. ParticipantID is nil for the conventional user /
 // assistant messages and set for a multi-agent participant's turn; the speaker's
 // display name is resolved through Participant, which is never hard-deleted.
+//
+// AddressedParticipantIDs is the set of participants the message called on,
+// fixed when it was stored and never re-derived from Content (design §4.6.5).
+// It is empty, never nil, for a message that called on no one.
 type Message struct {
 	ID              string   `json:"id"`
 	ChatID          string   `json:"chatId"`
@@ -94,6 +98,8 @@ type Message struct {
 	TokensPerSecond *float64 `json:"tokensPerSecond"`
 	ModelName       *string  `json:"modelName"`
 	ParticipantID   *string  `json:"participantId"`
+
+	AddressedParticipantIDs []string `json:"addressedParticipantIds"`
 }
 
 // Participant is one speaker of a multi-agent chat: a display name, a role

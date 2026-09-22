@@ -362,6 +362,24 @@ var migrations = []migration{
 			ALTER TABLE chats ADD COLUMN facilitator_participant_id TEXT NOT NULL DEFAULT '';
 		`,
 	},
+	{
+		// addressed_participant_ids is the set of participants a message called on,
+		// as a JSON array of participant ids ('[]' = no call). The weighted turn
+		// rule reads it back for every message inside its call window (design
+		// §4.6.5, TASK-34).
+		//
+		// It is fixed when the message is stored rather than re-read from the body:
+		// the window reads the same message several times, and a display name
+		// renamed or removed in between would change the answer, and with it the
+		// next speaker. A JSON column rather than a join table because the set is
+		// only ever read whole alongside its message, and — like
+		// facilitator_participant_id — it must survive the participant it names
+		// being removed, so a foreign key would add nothing.
+		id: "015_message_addressees",
+		sql: `
+			ALTER TABLE messages ADD COLUMN addressed_participant_ids TEXT NOT NULL DEFAULT '[]';
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in
