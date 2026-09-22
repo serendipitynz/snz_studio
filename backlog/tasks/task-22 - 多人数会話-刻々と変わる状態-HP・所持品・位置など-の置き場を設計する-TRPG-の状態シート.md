@@ -1,10 +1,10 @@
 ---
 id: TASK-22
 title: '多人数会話: 刻々と変わる状態 (HP・所持品・位置など) の置き場を設計する (TRPG の状態シート)'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-20 00:18'
-updated_date: '2026-09-22 08:43'
+updated_date: '2026-09-22 09:00'
 labels: []
 milestone: m-1
 dependencies: []
