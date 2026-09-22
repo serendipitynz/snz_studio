@@ -510,15 +510,15 @@ export function MultiAgentChatPage() {
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
           <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-            <Button
+            <IconButton
               type="button"
-              variant="ghost"
+              aria-label={t("multiAgent.conclude")}
               title={t("multiAgent.concludeTitle")}
               disabled={concluding || memoryPreparing || memorySaving || state.messages.length === 0}
               onClick={(event) => void handleDraftConclusion(event.currentTarget)}
             >
-              {t("multiAgent.conclude")}
-            </Button>
+              <SummaryIcon />
+            </IconButton>
             <ExportChatButton chatId={state.chat.id} chatTitle={state.chat.title} onError={setError} />
             <IconButton
               type="button"
