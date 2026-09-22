@@ -226,14 +226,26 @@ export function fileSrc(filePath: string): string {
   return token ? `${base}?t=${encodeURIComponent(token)}` : base;
 }
 
+// ApiError keeps the status and the rest of the error body for the callers
+// that act on a particular refusal rather than only showing its message.
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: Record<string, unknown> | null
+  ) {
+    super(message);
+  }
+}
+
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   // Prefix string paths with the loopback API origin (set in main.tsx). All
   // callers below pass a relative "/api/..." string; Request objects pass through.
   const target = typeof input === "string" ? `${window.__API_BASE__ ?? ""}${input}` : input;
   const response = await fetch(target, { ...init, headers: authHeaders(init?.headers) });
   if (!response.ok) {
-    const data = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(data?.error ?? `Request failed with ${response.status}`);
+    const data = (await response.json().catch(() => null)) as ({ error?: string } & Record<string, unknown>) | null;
+    throw new ApiError(data?.error ?? `Request failed with ${response.status}`, response.status, data);
   }
   return (await response.json()) as T;
 }
@@ -347,6 +359,16 @@ export const api = {
   // what the dialog opens with, the save stores what the user made of it.
   getMessageMemoryDraft: (messageId: string) =>
     request<{ draft: { content: string; kind: MemoryKind } }>(`/api/messages/${messageId}/memory-draft`),
+  // 422 carries { chars, limit } when the range is over the character limit.
+  draftConclusion: (chatId: string, fromMessageId?: string) =>
+    request<{ draft: { content: string; kind: MemoryKind }; anchorMessageId: string; messageCount: number }>(
+      `/api/chats/${chatId}/conclusion-draft`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fromMessageId ? { fromMessageId } : {})
+      }
+    ),
   saveMessageMemory: (messageId: string, input: { content: string; kind: MemoryKind; locked?: boolean }) =>
     request<{ memory: MemoryRecord }>(`/api/messages/${messageId}/memory`, {
       method: "POST",

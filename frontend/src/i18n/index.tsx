@@ -288,6 +288,16 @@ const en = {
   "multiAgent.saveMemorySaved": "Saved to project memory: {title}",
   "multiAgent.temporaryNoSave":
     "This is a temporary chat: it reads project documents and memories, but its messages cannot be saved to memory.",
+  "multiAgent.conclude": "Summarize conclusion",
+  "multiAgent.concludeTitle": "Draft what the conversation decided and left open, to save as a project memory",
+  "multiAgent.concludeFromHere": "Summarize from here — draft the conclusion from this message to the latest",
+  "multiAgent.concluding": "Drafting the conclusion…",
+  "multiAgent.concludeError": "Failed to draft the conclusion",
+  "multiAgent.concludeTooLong":
+    "The range to summarize is {chars} characters, over the {limit}-character limit. Choose a later message to start from and press its “summarize from here” button.",
+  "multiAgent.concludeDialogTitle": "Save the conversation's conclusion as a project memory",
+  "multiAgent.concludeFrom":
+    "Drafted by the default model from {count} messages. Check it against the conversation and edit it before saving.",
 
   "participants.title": "Organisation",
   "participants.roster": "Roster",
@@ -645,6 +655,15 @@ const ja: Record<MessageKey, string> = {
   "multiAgent.saveMemoryError": "メモリの保存に失敗しました",
   "multiAgent.saveMemorySaved": "プロジェクトのメモリに保存しました: {title}",
   "multiAgent.temporaryNoSave": "一時チャットのため、プロジェクトの資料・メモリは読みますが、発言をメモリに保存できません。",
+  "multiAgent.conclude": "結論を要約",
+  "multiAgent.concludeTitle": "会話で決まったこと・未決のことを下書きし、プロジェクトのメモリに保存する",
+  "multiAgent.concludeFromHere": "ここから要約 — この発言から最新までの結論を下書きする",
+  "multiAgent.concluding": "結論の下書きを生成中…",
+  "multiAgent.concludeError": "結論の下書きを生成できませんでした",
+  "multiAgent.concludeTooLong":
+    "要約する範囲が {chars} 字あり、上限（{limit} 字）を超えています。もっと後の発言を選び、その発言の「ここから要約」ボタンを押してください。",
+  "multiAgent.concludeDialogTitle": "会話の結論をプロジェクトのメモリに保存",
+  "multiAgent.concludeFrom": "既定のモデルが {count} 件の発言から下書きしました。保存する前に会話と照らして直してください。",
 
   "participants.title": "編成",
   "participants.roster": "編成",
