@@ -2,7 +2,6 @@ import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { useParams } from "react-router-dom";
 import { api, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
-import { predictNextSpeaker } from "../api/turnOrder";
 import { CopyMessageButton } from "../components/CopyMessageButton";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { MarkdownPreview } from "../components/MarkdownPreview";
@@ -48,15 +47,27 @@ interface MultiAgentState {
 // A turn's completion arrives as a `done` frame carrying the freshly read chat,
 // transcript and roster, which is what lets one turn's result replace the whole
 // view without a second round trip.
-// What one turn needs to run: the roster to cycle, the transcript the cycle is
-// derived from, the rule, the nomination the manual rule requires, and the
-// facilitator the alternating rule interleaves.
+// What one turn needs to send: the rule, and the nomination the manual rule
+// requires. Who speaks under the other rules is the server's to decide, and it
+// says so in the `speaker` frame.
 interface TurnInput {
-  roster: Participant[];
-  messages: MessageRecord[];
   turnRule: TurnRule;
   nomineeId: string;
-  facilitatorId: string;
+}
+
+// The `speaker` frame: who the engine picked, before generation starts
+// (design §4.6.6). weights is the calculation behind the pick for a rule that
+// weighs the roster, and empty for the rules that go by position.
+interface TurnSpeaker {
+  participant: Participant;
+  modelName: string;
+  weights: SpeakerWeight[];
+}
+
+interface SpeakerWeight {
+  participantId: string;
+  weight: number;
+  factors: { name: string; value: number }[];
 }
 
 interface TurnDonePayload {
@@ -94,7 +105,10 @@ export function MultiAgentChatPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [turnError, setTurnError] = useState("");
-  const [runningSpeaker, setRunningSpeaker] = useState<Participant | null>(null);
+  // A turn is in flight from the request until its stream ends, but its speaker
+  // is known only once the `speaker` frame arrives, so the two are kept apart.
+  const [turnRunning, setTurnRunning] = useState(false);
+  const [runningSpeaker, setRunningSpeaker] = useState<TurnSpeaker | null>(null);
   const [streamedContent, setStreamedContent] = useState("");
   const [autoRunning, setAutoRunning] = useState(false);
   const [nomineeId, setNomineeId] = useState("");
@@ -255,20 +269,17 @@ export function MultiAgentChatPage() {
   const turnBlocked = roster.length < 2 || (manualRule && !nomineeId);
 
   const currentTurnInput = (): TurnInput => ({
-    roster,
-    messages: state?.messages ?? [],
     turnRule: state?.chat.turnRule ?? "round_robin",
-    nomineeId,
-    facilitatorId: state?.chat.facilitatorId ?? ""
+    nomineeId
   });
 
   // runTurn takes what the turn needs and hands back what the next turn needs,
   // instead of reading either from the component's scope. The auto-advance loop
   // awaits every turn inside one closure, so a turn reading the scope would see
-  // the values of the render the loop started in — the deltas would all be
-  // labelled with the first turn's speaker. Threading the `done` frame's own
-  // chat, transcript and roster through also keeps the loop on what the server
-  // actually stored rather than on whether React has re-rendered yet.
+  // the values of the render the loop started in — a rule changed mid-run would
+  // not reach the next request. Threading the `done` frame's own chat through
+  // also keeps the loop on what the server actually stored rather than on
+  // whether React has re-rendered yet.
   async function runTurn(input: TurnInput): Promise<TurnInput | null> {
     if (turnInFlightRef.current) {
       return null;
@@ -277,9 +288,8 @@ export function MultiAgentChatPage() {
     turnInFlightRef.current = true;
     setTurnError("");
     setStreamedContent("");
-    setRunningSpeaker(
-      predictNextSpeaker(input.roster, input.messages, input.turnRule, input.nomineeId, input.facilitatorId)
-    );
+    setRunningSpeaker(null);
+    setTurnRunning(true);
 
     let next: TurnInput | null = null;
     try {
@@ -291,6 +301,11 @@ export function MultiAgentChatPage() {
           body: JSON.stringify(input.turnRule === "manual" ? { participantId: input.nomineeId } : {})
         },
         (event, payload) => {
+          if (event === "speaker") {
+            setRunningSpeaker(payload as unknown as TurnSpeaker);
+            return;
+          }
+
           if (event === "delta") {
             const delta = typeof payload.content === "string" ? payload.content : "";
             if (delta) {
@@ -301,15 +316,9 @@ export function MultiAgentChatPage() {
 
           if (event === "done") {
             const done = payload as TurnDonePayload;
-            const nextParticipants = done.participants ?? [];
             next = {
-              roster: done.participants
-                ? nextParticipants.filter((participant) => participant.deletedAt === null)
-                : input.roster,
-              messages: done.messages ?? input.messages,
               turnRule: done.chat?.turnRule ?? input.turnRule,
-              nomineeId: input.nomineeId,
-              facilitatorId: done.chat?.facilitatorId ?? input.facilitatorId
+              nomineeId: input.nomineeId
             };
             setState((current) =>
               current
@@ -332,6 +341,7 @@ export function MultiAgentChatPage() {
       return null;
     } finally {
       turnInFlightRef.current = false;
+      setTurnRunning(false);
       setRunningSpeaker(null);
       setStreamedContent("");
     }
@@ -465,7 +475,7 @@ export function MultiAgentChatPage() {
     return <Card>{error || t("multiAgent.notFound")}</Card>;
   }
 
-  const stopPending = !autoRunning && runningSpeaker !== null;
+  const stopPending = !autoRunning && turnRunning;
   const chatTitle = state.chat.title.trim() || t("sidebar.untitled");
   // A temporary multi-agent chat reads project material but never writes it
   // back, so the one write path is closed while the flag is on (design §4.4).
@@ -514,7 +524,7 @@ export function MultiAgentChatPage() {
               {error ? <ErrorText>{error}</ErrorText> : null}
               {turnError ? <ErrorText>{turnError}</ErrorText> : null}
               {memoryError && !memoryDraft ? <ErrorText>{memoryError}</ErrorText> : null}
-              {state.messages.length === 0 && !runningSpeaker ? <Subtle>{t("multiAgent.spectatorEmpty")}</Subtle> : null}
+              {state.messages.length === 0 && !turnRunning ? <Subtle>{t("multiAgent.spectatorEmpty")}</Subtle> : null}
 
               {state.messages.map((message) => (
                 <MessageBubble key={message.id} $role={message.role}>
@@ -558,17 +568,35 @@ export function MultiAgentChatPage() {
                 </MessageBubble>
               ))}
 
-              {runningSpeaker || streamedContent ? (
+              {turnRunning ? (
                 <MessageBubble $role="assistant">
                   <Stack>
                     <Row style={{ justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
                       <strong style={{ overflowWrap: "anywhere" }}>
-                        {runningSpeaker?.displayName ?? t("multiAgent.runningTurnUnknown")}
+                        {runningSpeaker?.participant.displayName ?? t("multiAgent.runningTurnUnknown")}
                       </strong>
                       <MetaText style={{ whiteSpace: "nowrap", opacity: 0.68 }}>
                         {runningSpeaker?.modelName ?? ""}
                       </MetaText>
                     </Row>
+                    {runningSpeaker && runningSpeaker.weights.length > 0 ? (
+                      <details>
+                        <summary>
+                          <MetaText as="span">{t("multiAgent.speakerWeights")}</MetaText>
+                        </summary>
+                        <Stack style={{ gap: 2, marginTop: 4 }}>
+                          {runningSpeaker.weights.map((entry) => (
+                            <MetaText key={entry.participantId}>
+                              {speakerById.get(entry.participantId)?.displayName ?? entry.participantId}:{" "}
+                              {formatWeight(entry.weight)}
+                              {entry.factors.length > 0
+                                ? ` = ${entry.factors.map((factor) => `${factor.name} ×${formatWeight(factor.value)}`).join(" · ")}`
+                                : ""}
+                            </MetaText>
+                          ))}
+                        </Stack>
+                      </details>
+                    ) : null}
                     {streamedContent ? (
                       <MarkdownPreview source={streamedContent} />
                     ) : (
@@ -594,14 +622,14 @@ export function MultiAgentChatPage() {
           <ComposerBox>
             <Stack>
               <Row style={{ alignItems: "center" }}>
-                <Button type="button" onClick={() => void handleAdvanceTurn()} disabled={autoRunning || runningSpeaker !== null || turnBlocked}>
+                <Button type="button" onClick={() => void handleAdvanceTurn()} disabled={autoRunning || turnRunning || turnBlocked}>
                   {t("multiAgent.advanceTurn")}
                 </Button>
                 <Button
                   type="button"
                   variant={autoRunning ? "warm" : "solid"}
                   onClick={() => void handleToggleAutoRun()}
-                  disabled={manualRule || (!autoRunning && (runningSpeaker !== null || turnBlocked))}
+                  disabled={manualRule || (!autoRunning && (turnRunning || turnBlocked))}
                 >
                   {autoRunning ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
                 </Button>
@@ -618,10 +646,14 @@ export function MultiAgentChatPage() {
               </Row>
 
               <Stack style={{ gap: 4 }}>
-                {runningSpeaker ? (
+                {turnRunning ? (
                   <Row style={{ alignItems: "center", gap: 8 }}>
                     <SpinnerIcon />
-                    <MetaText>{t("multiAgent.runningTurn", { name: runningSpeaker.displayName })}</MetaText>
+                    <MetaText>
+                      {runningSpeaker
+                        ? t("multiAgent.runningTurn", { name: runningSpeaker.participant.displayName })
+                        : t("multiAgent.runningTurnUnknown")}
+                    </MetaText>
                   </Row>
                 ) : null}
                 {autoRunning ? <MetaText>{t("multiAgent.autoRunning")}</MetaText> : null}
@@ -669,7 +701,7 @@ export function MultiAgentChatPage() {
           canApplyPreset={state.messages.length === 0}
           onChatChange={(chat) => setState((current) => (current ? { ...current, chat } : current))}
           onParticipantsChange={setParticipants}
-          disabled={autoRunning || runningSpeaker !== null}
+          disabled={autoRunning || turnRunning}
         />
       </InspectorPane>
 
@@ -736,6 +768,10 @@ export function MultiAgentChatPage() {
       ) : null}
     </WorkspaceShell>
   );
+}
+
+function formatWeight(value: number): string {
+  return String(Number(value.toFixed(3)));
 }
 
 function PanelCloseIcon() {
