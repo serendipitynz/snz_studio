@@ -542,6 +542,40 @@ func TestMultiAgentMessagesAreStoredNotAnswered(t *testing.T) {
 	}
 }
 
+// TestMultiAgentInterventionCallIsStored covers TASK-34 AC #6 on the human's
+// side: both message routes run the name match over the intervention and store
+// whom it called on, so the weighted rule can answer "Alice, go on".
+func TestMultiAgentInterventionCallIsStored(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Intervention Call Project")
+	chatID := createMultiAgentChat(t, h, projectID, "")
+	aliceID := addParticipant(t, h, chatID, "アリス", "")
+	bobID := addParticipant(t, h, chatID, "ボブ", "")
+
+	rec := doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": "アリス、もう少し詳しく"})
+	wantStatus(t, rec, http.StatusCreated)
+	var stored struct {
+		Content                 string   `json:"content"`
+		AddressedParticipantIDs []string `json:"addressedParticipantIds"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "message", &stored)
+	if stored.Content != "アリス、もう少し詳しく" || len(stored.AddressedParticipantIDs) != 1 || stored.AddressedParticipantIDs[0] != aliceID {
+		t.Fatalf("stored = %+v, want the body kept and the call on アリス (%s)", stored, aliceID)
+	}
+
+	rec = doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages/stream", map[string]any{"content": "アリスとボブ、どう思う？"})
+	wantStatus(t, rec, http.StatusOK)
+	var messages []struct {
+		AddressedParticipantIDs []string `json:"addressedParticipantIds"`
+	}
+	if err := json.Unmarshal(doneFrame(t, rec)["messages"], &messages); err != nil {
+		t.Fatalf("decode done.messages: %v", err)
+	}
+	if got := messages[len(messages)-1].AddressedParticipantIDs; len(got) != 2 || got[0] != aliceID || got[1] != bobID {
+		t.Fatalf("streamed intervention called %v, want both participants", got)
+	}
+}
+
 // TestMultiAgentPresets covers the preset half of TASK-5 AC #1: the bundled
 // list is served, a presetId creates the chat with the preset's rule, scene and
 // roster in preset order, and an inline preset goes through the same parser.
