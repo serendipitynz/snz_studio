@@ -190,8 +190,8 @@ func main() {
 		// talkativeness を定数係数として入れたときに、値の低い参加者が締め出されないかを見る。
 		{name: "talkativeness: 全員 1.0 (基準)", roster: gmRoster("GM", "A", "B", "C"), turns: 60, addressRate: 0.3, seed: 9},
 		{name: "talkativeness: C=0.8 (控えめ)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.8), turns: 60, addressRate: 0.3, seed: 9},
-		{name: "talkativeness: C=0.5 (かなり控えめ)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.5), turns: 60, addressRate: 0.3, seed: 10},
-		{name: "talkativeness: C=0.2 (ほぼ黙る)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.2), turns: 60, addressRate: 0.3, seed: 11},
+		{name: "talkativeness: C=0.5 (かなり控えめ)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.5), turns: 60, addressRate: 0.3, seed: 9},
+		{name: "talkativeness: C=0.2 (ほぼ黙る)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.2), turns: 60, addressRate: 0.3, seed: 9},
 		// 進行役の免除を talkativeness で置き換えられるかを見る (免除なし + GM を上げる)。
 		{name: "進行役の免除なし + GM=1.176", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1.176, 1, 1, 1), turns: 60, seed: 12},
 		// 「編成の全員を呼ぶ」介入を捨てるか残すかで挙動が変わるかを見る。
@@ -215,7 +215,10 @@ func rules() []rule {
 	// participant it did, so it only pre-resolved ties, while raising the boost a
 	// call needs from 1/0.85 to 1/(0.85×0.95).
 	adopted := withoutRosterNext(windowedCall(proposed, -1, 1.2, true))
-	tweak := func(f func(coefficients) coefficients) coefficients { return f(adopted) }
+	// The same three coefficients with the call read from the last message alone.
+	// It is the only row that isolates the window: 起票時の原案 differs by both the
+	// window and the roster-order term, so the window's case cannot rest on it.
+	lastMessageOnly := withWindow(withRosterNext(adopted, 1.0), 0)
 
 	return []rule{
 		{name: "採用", pick: weighted(adopted, humanIsCurrentSpeaker, byLongestSilence)},
@@ -231,8 +234,9 @@ func rules() []rule {
 		{name: "採用・介入時も×0.2", pick: weighted(adopted, penalizeLastParticipant, byLongestSilence)},
 		{name: "採用・介入後は進行役", pick: weighted(adopted, facilitatorAnswersHuman, byLongestSilence)},
 		{name: "採用・名指し無し介入は進行役", pick: weighted(adopted, facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "採用・直近抑制なし", pick: weighted(tweak(func(c coefficients) coefficients { return withRecent(c, 1.0) }), humanIsCurrentSpeaker, byLongestSilence)},
-		{name: "採用・進行役の免除なし", pick: weighted(tweak(withoutExemption), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・直近抑制なし", pick: weighted(withRecent(adopted, 1.0), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・進行役の免除なし", pick: weighted(withoutExemption(adopted), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "窓なし(末尾のみ)・他は採用と同じ", pick: weighted(lastMessageOnly, humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "採用・沈黙を連続量", pick: weighted(continuousSilence(adopted, 0.15), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "起票時の原案(末尾のみ・他を×0.5・名簿順あり)", pick: weighted(proposed, humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "呼びかけ最優先(先頭)", pick: addressedFirst},
@@ -246,10 +250,12 @@ func rules() []rule {
 func withRecent(c coefficients, v float64) coefficients { c.recentSpeaker = v; return c }
 func withoutExemption(c coefficients) coefficients      { c.facilitatorExemptRecent = false; return c }
 
-// withoutRosterNext drops the roster-order coefficient. It is a candidate for
-// removal on two grounds: it is what raises the call's required boost from
-// 1/0.85 to 1/(0.85×0.95), and in the no-call steady state it points at the same
-// participant the longest-silence tie-break does, so the two may be redundant.
+// withoutRosterNext drops the roster-order coefficient, which the adopted rule
+// does not have (§4.6.1). It was removed on two measured grounds: in the no-call
+// steady state it pointed at the same participant the longest-silence tie-break
+// does, so it only pre-resolved ties, and it raised the boost a call needs from
+// 1/0.85 to 1/(0.85×0.95). It stays here so the row that puts it back can be
+// measured.
 func withoutRosterNext(c coefficients) coefficients         { c.notRosterNext = 1.0; return c }
 func withRosterNext(c coefficients, v float64) coefficients { c.notRosterNext = v; return c }
 func withBoost(c coefficients, v float64) coefficients      { c.callBoost = v; return c }
@@ -264,7 +270,7 @@ func continuousSilence(c coefficients, gain float64) coefficients {
 // windowedCall replaces the last-message-only call with one that stays in effect
 // for the last `window` participant utterances.
 func windowedCall(c coefficients, window int, boost float64, expires bool) coefficients {
-	c.notAddressee, c.addresseeBoost = 1.0, 1.0
+	c.notAddressee, c.addresseeBoost = 1.0, boost
 	c.callWindow, c.callBoost, c.callExpiresOnAnswer = window, boost, expires
 	return c
 }
@@ -626,6 +632,9 @@ func run(sc scenario, rl rule) measurement {
 func buildCallSchedule(sc scenario) [][]int {
 	rng := rand.New(rand.NewSource(sc.seed))
 	size := len(sc.roster)
+	// Indexed by turn number, which starts at 1, so entry 0 is drawn and never
+	// read. It is left in deliberately: skipping it shifts every later draw, which
+	// moves every figure quoted in §4.6.3 without changing any rule's behaviour.
 	schedule := make([][]int, sc.turns+1)
 	for turn := range schedule {
 		if sc.addressRate <= 0 || rng.Float64() >= sc.addressRate {
