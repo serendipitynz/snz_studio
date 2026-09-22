@@ -1,10 +1,10 @@
 ---
 id: TASK-28
 title: '多人数会話: 自然な会話の流れを再現するターン規則 (スコア方式) を設計する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-21 03:23'
-updated_date: '2026-09-22 05:27'
+updated_date: '2026-09-22 05:33'
 labels: []
 dependencies: []
 references:
