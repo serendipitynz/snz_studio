@@ -163,6 +163,7 @@ SSE の書き込み失敗も無視される（[handlers.go](../internal/httpapi/
    ワークスペース設定をフィールドごとに独立して継承するので、参加者の生の値で確認すると、継承した側が
    空文字のまま渡り（`EnsureModelLoaded` は空のモデル名を常に拒否する）、エラー文も継承した側が空白になって
    何を試して失敗したのか読めない。失敗はターンをエラーで返す（他の参加者へのフォールバックはしない）。
+   確認を通ったら、選んだ話者を SSE の `speaker` イベントで通知する（§4.6.6）。
 3. プロンプトを組み立てる（§4.3）。
 4. `CompletionTarget{BaseURL, Model}` を渡して `CreateChatCompletionStream` を実行、delta を SSE 転送。
 5. 完了した発言を `messages` に保存（`participant_id`・`model_name`・既存の生成メトリクス列）。
@@ -640,17 +641,24 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
 
 #### 4.6.6 次の話者と重みの内訳をどう画面に出すか
 
-現在 [turnOrder.ts](../frontend/src/api/turnOrder.ts) の `predictNextSpeaker` がエンジンと同じ導出を複製している。
+TASK-33 まではフロントの `turnOrder.ts` の `predictNextSpeaker` がエンジンと同じ導出を複製していた（TASK-33 で削除）。
 `weighted` を足すと複製は 3 係数と同点規則の分まで増え、検出結果（`addressed_participant_ids`）をフロントへ
 流す必要も出る。算術を二重に持つべきではない。
 
 **決定: ターンの SSE に、生成開始の直前で `speaker` イベントを 1 つ足す。** 内容は選ばれた話者と**重みの内訳**
 （参加者ごとの重みと、その重みに掛かった係数の一覧）。フロントの導出は消す。重みの内訳を同じイベントに
 載せるのは、それが話者を決めた計算そのもので、話者と同じ瞬間に確定しているからである。
-画面は「なぜこの人が話しているか」を、係数の名前と値の並びとして観戦ビューに出せる（UI は TASK-33 で決める）。
+画面は「なぜこの人が話しているか」を、係数の名前と値の並びとして観戦ビューに出す。TASK-33 で決めた形は、
+生成中の発言の吹き出しに畳んだ「この話者になった理由」を置き、開くと参加者ごとに `重み = 係数名 ×値 · …` を 1 行ずつ
+並べるもの。内訳が空の規則（`round_robin` / `manual` / `facilitator_alternating`）では何も出さない。
+内訳は発言と一緒には保存しないので、生成が終わると消える。
+
+イベントの形は `{ participant, modelName, weights }`。`participant` は参加者の行そのもの（走行中に追加された参加者でも
+フロントが名前を引ける）、`modelName` は継承を解決した後の実際のモデル名、`weights` は
+`[{ participantId, weight, factors: [{ name, value }] }]` で、内訳を持たない規則では空配列（`null` にはしない）。
 
 イベントを足す位置は**ターン前の確認をすべて通した後**でなければならない。`handleRunTurnStream`
-（[multiagent.go](../internal/httpapi/multiagent.go)）は最初の delta が来るまで SSE ライタを開かず、
+（[multiagent.go](../internal/httpapi/multiagent.go)）は TASK-33 以前は最初の delta が来るまで SSE ライタを開かず（現在は `speaker` で開く）、
 ストリームが開く前の失敗だけが HTTP ステータスとして返るためである。`RunTurn` は話者選択 → 接続先解決 →
 `endpointAccepts` の順に進むので、`endpointAccepts` の直後に置けば、そこまでに決まるステータスはすべて残る:
 ターンの重複 409、chat 不在・参加者不在 404、規則と指名の不整合・除籍済みの指名 400、エンドポイント不通 502。
@@ -781,7 +789,7 @@ C だけ係数を下げ、**基準行を含む全行を同じ seed で回した*
 | `POST /api/chats/{chatId}/participants` | 参加者追加。任意で `receivesProjectMaterial`（省略時は `true` = 渡す） |
 | `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序・`receivesProjectMaterial`） |
 | `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
-| `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。当該 chat のターンが実行中なら 409 |
+| `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。ターン前の拒否はステータスで返る: 実行中のターンと重なれば 409、chat・指名した参加者が無ければ 404、規則と指名の不整合・除籍済みの指名・空の編成は 400、接続先不通は 502。通れば `speaker`（§4.6.6）→ `delta`… → `done` を流し、それより後の失敗（生成・保存）はストリーム内の `error` になる |
 | `GET /api/messages/{messageId}/memory-draft` | 発言のメモリ保存の下書き `{ draft: { content, kind } }`（§4.4）。発言が無ければ 404、単独 assistant の chat は 400、一時チャットは 409 |
 | `POST /api/messages/{messageId}/memory` | 発言のメモリ保存。body: `{ content, kind?, locked? }`（`kind` 省略時は推定、`locked` 既定 `true`）。拒否は下書きと同じ。応答は `{ memory }`（`source = multi_agent`、`sharedWithAll` は真） |
 | `PATCH /api/documents/{documentId}/shared` | ドキュメントを共通プロジェクト資料に入れる / 外す（§4.4）。body: `{ sharedWithAll: boolean }`。真偽値でなければ 400、未知の id は 404 |
@@ -834,8 +842,8 @@ C だけ係数を下げ、**基準行を含む全行を同じ seed で回した*
   アイコンボタンと、真のときだけ出るバッジを置く。ドキュメント詳細モーダルにはチェックボックスと 1 行の説明も置く。
   下書き + 保存ボタンにしないのは、切り替える値が真偽値 1 つで、カテゴリのように候補から選ぶものではないため。
 - **観戦ビュー**: ChatPage のストリーミング表示を踏襲し、発言者の表示名・モデル名を発言に付す。進行コントロールは「1 ターン進める」「自動進行の開始 / 停止」（= フロントのループ、§4.1）「（manual 時）次の発言者の指名」。
-  生成中の話者名は `frontend/src/api/turnOrder.ts` がエンジンと同じ規則で先に導出する（`facilitator_alternating` を含む）。
-  導出に使うのは、クライアントが既に持っている編成・transcript・chat の進行役だけである。
+  生成中の話者名・モデル名はターンの SSE の `speaker` イベントだけで決まる（§4.6.6）。フロントは規則を複製せず、
+  `speaker` が届くまでは「ターン実行中」とだけ出す。`manual` の指名候補は編成から直接並べる。
 - **markdown エクスポート**: 観戦ビューのヘッダから `GET /api/chats/{chatId}/export/markdown` を呼び、見出し（chat タイトル・
   プロジェクト名・出力日時）、場面設定、ターン進行ルール、編成、話者名つきの発言を 1 枚の markdown として保存する。
   生成は `internal/service/export.go`。ルートは chat 単位で単独アシスタントの chat にも効き、その場合は場面設定・
@@ -917,7 +925,7 @@ Phase A〜C は完了している（A: migration 10 + ターンエンジン + AP
 - **進行役を挟むターン規則の、進行役不在時と人間の介入発言後の扱い → `round_robin` への縮退と、進行役が応じる**
   （2026-09-22、TASK-21、ユーザー判断）: 起票時に着手時判断として残っていた 2 点。決めた内容と理由は §4.5 にある。
   実装は `selectSpeaker`（[turnengine.go](../internal/service/turnengine.go)）と
-  [turnOrder.ts](../frontend/src/api/turnOrder.ts) の両方に同じ導出として置き、
+  フロントの `turnOrder.ts` の両方に同じ導出として置き（`turnOrder.ts` は TASK-33 で削除し、話者は `speaker` イベントで受け取る形に替えた）、
   画面は進行役が編成に居ないことを編成パネルと観戦ビューの双方に出す（§6）。
 
 ### 8.2 将来拡張で判断する事項
