@@ -924,8 +924,8 @@ Phase A〜C は完了している（A: migration 10 + ターンエンジン + AP
 
 - **進行役を挟むターン規則の、進行役不在時と人間の介入発言後の扱い → `round_robin` への縮退と、進行役が応じる**
   （2026-09-22、TASK-21、ユーザー判断）: 起票時に着手時判断として残っていた 2 点。決めた内容と理由は §4.5 にある。
-  実装は `selectSpeaker`（[turnengine.go](../internal/service/turnengine.go)）と
-  フロントの `turnOrder.ts` の両方に同じ導出として置き（`turnOrder.ts` は TASK-33 で削除し、話者は `speaker` イベントで受け取る形に替えた）、
+  導出は `selectSpeaker`（[turnengine.go](../internal/service/turnengine.go)）だけにあり、フロントは話者を
+  `speaker` イベントで受け取る（当初はフロントの `turnOrder.ts` にも同じ導出を複製していたが、TASK-33 で削除した）。
   画面は進行役が編成に居ないことを編成パネルと観戦ビューの双方に出す（§6）。
 
 ### 8.2 将来拡張で判断する事項

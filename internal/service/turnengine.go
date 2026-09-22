@@ -162,6 +162,9 @@ type SpeakerChoice struct {
 }
 
 // SpeakerWeight is one participant's weight and the factors multiplied into it.
+// It names the participant by id only, so a participant added after the client
+// last read the roster shows as its id in the breakdown; whether to carry the
+// display name as SpeakerChoice does is left to the rule that first fills this.
 type SpeakerWeight struct {
 	ParticipantID string         `json:"participantId"`
 	Weight        float64        `json:"weight"`
