@@ -1,10 +1,10 @@
 ---
 id: TASK-24
 title: モーダルのキーボード操作とフォーカス管理を全モーダルで揃える
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-20 02:10'
-updated_date: '2026-09-22 10:40'
+updated_date: '2026-09-22 10:56'
 labels: []
 milestone: m-1
 dependencies: []
