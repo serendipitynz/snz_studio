@@ -365,7 +365,7 @@ export function MultiAgentChatPage() {
     setMemoryError("");
     try {
       const response = await api.getMessageMemoryDraft(message.id);
-      setMemoryDraft({
+      openMemoryDraft({
         origin: { type: "message", message },
         anchorMessageId: message.id,
         content: response.draft.content,
@@ -379,6 +379,14 @@ export function MultiAgentChatPage() {
     }
   }
 
+  // Both draft flows await the server before opening the one dialog, so a
+  // response arriving after the other flow already opened it must not replace
+  // what the user is editing there. The buttons also exclude each other while
+  // a draft is being prepared; this covers what slips past that.
+  function openMemoryDraft(next: MemoryDraft) {
+    setMemoryDraft((current) => current ?? next);
+  }
+
   // A conclusion draft opens the same save dialog, so it is generated even in a
   // temporary chat — only the save stays closed there (design §4.4). A range
   // over the limit is refused by the server rather than clipped, and the view
@@ -390,7 +398,7 @@ export function MultiAgentChatPage() {
     try {
       const response = await api.draftConclusion(chatId, fromMessageId);
       setMemoryError("");
-      setMemoryDraft({
+      openMemoryDraft({
         origin: { type: "conclusion", messageCount: response.messageCount },
         anchorMessageId: response.anchorMessageId,
         content: response.draft.content,
@@ -506,7 +514,7 @@ export function MultiAgentChatPage() {
               type="button"
               variant="ghost"
               title={t("multiAgent.concludeTitle")}
-              disabled={concluding || state.messages.length === 0}
+              disabled={concluding || memoryPreparing || memorySaving || state.messages.length === 0}
               onClick={(event) => void handleDraftConclusion(event.currentTarget)}
             >
               {t("multiAgent.conclude")}
@@ -558,7 +566,7 @@ export function MultiAgentChatPage() {
                         type="button"
                         aria-label={t("multiAgent.concludeFromHere")}
                         title={t("multiAgent.concludeFromHere")}
-                        disabled={concluding}
+                        disabled={concluding || memoryPreparing || memorySaving}
                         onClick={(event) => void handleDraftConclusion(event.currentTarget, message.id)}
                         style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
                       >
@@ -570,7 +578,7 @@ export function MultiAgentChatPage() {
                         type="button"
                         aria-label={t("multiAgent.saveMemory")}
                         title={memorySaveBlocked ? t("multiAgent.temporaryNoSave") : t("multiAgent.saveMemoryTitle")}
-                        disabled={memorySaveBlocked || memoryPreparing || memorySaving}
+                        disabled={memorySaveBlocked || memoryPreparing || memorySaving || concluding}
                         onClick={(event) => void handleOpenMemoryDialog(message, event.currentTarget)}
                         style={{
                           width: 24,
