@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -803,5 +804,104 @@ func TestMessageWriteIsNotTheTurnSlot(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("a human message waited on a turn in flight")
+	}
+}
+
+// TestTurnEngineWeighted covers TASK-34 AC #1, #6 and #7 end to end: under the
+// weighted rule the directive is asked for in the reminder, stripped from the
+// stored utterance and resolved to participant ids at store time, and the call it
+// made decides the next turn. The speaker event carries the breakdown.
+func TestTurnEngineWeighted(t *testing.T) {
+	srv := newTurnLLMServer(t, "扉が開いた。\n[次: Bob]", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleWeighted, "", srv.URL, "GM", "Alice", "Bob")
+	gm, bob := roster[0], roster[2]
+	g.setFacilitator(t, chat.ID, gm.ID)
+
+	var choices []SpeakerChoice
+	onSpeaker := func(choice SpeakerChoice) { choices = append(choices, choice) }
+
+	// Nobody has spoken, so everyone weighs 1 and sort_order takes GM.
+	first, err := g.engine.RunTurn(chat.ID, "", onSpeaker, nil)
+	if err != nil {
+		t.Fatalf("RunTurn #1: %v", err)
+	}
+	if *first.ParticipantID != gm.ID || first.Content != "扉が開いた。" || !reflect.DeepEqual(first.AddressedParticipantIDs, []string{bob.ID}) {
+		t.Fatalf("turn #1 = (%s, %q, %v), want GM calling Bob with the directive stripped", *first.ParticipantID, first.Content, first.AddressedParticipantIDs)
+	}
+
+	// GM called on Bob, so Bob's ×1.2 beats Alice's 1.0. Bob's own directive
+	// names himself and is dropped, but the line is still stripped.
+	second, err := g.engine.RunTurn(chat.ID, "", onSpeaker, nil)
+	if err != nil {
+		t.Fatalf("RunTurn #2: %v", err)
+	}
+	if *second.ParticipantID != bob.ID || second.Content != "扉が開いた。" || len(second.AddressedParticipantIDs) != 0 {
+		t.Fatalf("turn #2 = (%s, %q, %v), want Bob answering, calling no one", *second.ParticipantID, second.Content, second.AddressedParticipantIDs)
+	}
+
+	stored, err := g.chats.ListMessages(chat.ID)
+	if err != nil || len(stored) != 2 || !reflect.DeepEqual(stored[0].AddressedParticipantIDs, []string{bob.ID}) {
+		t.Fatalf("stored = %+v, %v, want the call read back from the database", stored, err)
+	}
+
+	if len(choices) != 2 || len(choices[1].Weights) != len(roster) {
+		t.Fatalf("speaker events = %+v, want one weight per participant", choices)
+	}
+	if w := choices[1].Weights[2]; w.ParticipantID != bob.ID || w.DisplayName != "Bob" || len(w.Factors) != 1 || w.Factors[0].Name != callFactor {
+		t.Fatalf("Bob's breakdown = %+v, want the call factor alone", w)
+	}
+
+	for i, req := range srv.captured() {
+		if !strings.Contains(req.Messages[0].Content, "[次: 表示名]") {
+			t.Fatalf("completion #%d system prompt lacks the directive instruction", i+1)
+		}
+	}
+}
+
+// TestTurnEngineExistingRulesIgnoreCalls covers TASK-34 AC #3: a call stored on a
+// message moves none of the existing rules, and their prompts do not ask for the
+// directive. The directive a model writes anyway is still stripped and stored,
+// so a chat switched to weighted later reads it.
+func TestTurnEngineExistingRulesIgnoreCalls(t *testing.T) {
+	srv := newTurnLLMServer(t, "賛成です。\n[次: Carol]", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL, "Alice", "Bob", "Carol")
+	alice, bob, carol := roster[0], roster[1], roster[2]
+
+	g.runTurns(t, chat.ID, []model.Participant{alice, bob, carol, alice})
+
+	stored, err := g.chats.ListMessages(chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored[0].Content != "賛成です。" || !reflect.DeepEqual(stored[0].AddressedParticipantIDs, []string{carol.ID}) {
+		t.Fatalf("first turn stored as (%q, %v), want the directive stripped and resolved", stored[0].Content, stored[0].AddressedParticipantIDs)
+	}
+	for i, req := range srv.captured() {
+		if strings.Contains(req.Messages[0].Content, "[次:") {
+			t.Fatalf("completion #%d under round_robin asks for the directive", i+1)
+		}
+	}
+
+	facilitated, roster := g.newMultiAgentChat(t, model.TurnRuleFacilitatorAlternating, "", srv.URL, "GM", "P1", "P2")
+	g.setFacilitator(t, facilitated.ID, roster[0].ID)
+	g.addMessage(t, facilitated.ID, "user", "P2、どう？", nil)
+	g.runTurns(t, facilitated.ID, []model.Participant{roster[0], roster[1], roster[0], roster[2]})
+}
+
+// TestTurnEngineDirectiveOnlyUtteranceFails: a reply that is nothing but the
+// directive would store an empty utterance, which the engine refuses the way it
+// refuses an empty completion — a turn with no content must not enter the
+// transcript.
+func TestTurnEngineDirectiveOnlyUtteranceFails(t *testing.T) {
+	srv := newTurnLLMServer(t, "[次: Bob]", nil)
+	g := newTurnGraph(t)
+	chat, _ := g.newMultiAgentChat(t, model.TurnRuleWeighted, "", srv.URL, "Alice", "Bob")
+	if _, err := g.engine.RunTurn(chat.ID, "", nil, nil); !errors.Is(err, ErrUtteranceOnlyDirective) {
+		t.Fatalf("RunTurn = %v, want ErrUtteranceOnlyDirective", err)
+	}
+	if stored, _ := g.chats.ListMessages(chat.ID); len(stored) != 0 {
+		t.Fatalf("stored %d messages, want none", len(stored))
 	}
 }

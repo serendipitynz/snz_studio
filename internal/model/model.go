@@ -56,6 +56,11 @@ const (
 	// (docs/multi-agent-chat-design.md §2). It is not the future rule where a
 	// facilitator model names the next speaker (§7).
 	TurnRuleFacilitatorAlternating = "facilitator_alternating"
+	// TurnRuleWeighted gives every roster participant a weight — the product of
+	// the factors that apply to it — and the heaviest speaks, ties going to the
+	// longest silent and then to sort_order (§4.6.1). A call a message made
+	// raises its addressees while it is unanswered.
+	TurnRuleWeighted = "weighted"
 )
 
 // Chat mirrors the Chat interface. Kind is "assistant" (the single-assistant
@@ -65,7 +70,8 @@ const (
 // FacilitatorID names the participant TurnRuleFacilitatorAlternating
 // interleaves. Empty means unset, and the id may also name a participant that
 // has since left the roster; both make the rule fall back to round_robin's
-// derivation (§4.2 step 1).
+// derivation (§4.2 step 1). TurnRuleWeighted reads the same setting to exempt
+// the facilitator from the recent-speaker factor, and without one exempts no one.
 type Chat struct {
 	ID            string `json:"id"`
 	ProjectID     string `json:"projectId"`
