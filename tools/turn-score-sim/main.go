@@ -27,6 +27,19 @@ const speakerHuman = -1
 type participant struct {
 	name        string
 	facilitator bool
+	// talkativeness is SillyTavern's per-character "how likely to speak" setting
+	// (_sandbox/sillytavern-natural-order.md) expressed the only way this engine
+	// can: a constant factor on the weight, not a probability. 0 means unset and is
+	// read as 1.0. The question it is here to answer is whether a constant factor
+	// starves a quiet participant outright, which a lottery never does.
+	talkativeness float64
+}
+
+func (p participant) factor() float64 {
+	if p.talkativeness == 0 {
+		return 1
+	}
+	return p.talkativeness
 }
 
 // utterance is one stored message: who spoke, and whom that message called on.
@@ -118,6 +131,19 @@ type coefficients struct {
 	// call by degrees, which is what "the call influences the score" would mean.
 	silenceGain float64
 
+	// callWindow widens the call from the last message alone to the last N
+	// participant utterances, so a call that has not been answered yet still
+	// counts. 0 keeps the last-message-only form. It is what lets the second
+	// participant of "A, B, what do you think?" keep its advantage after A speaks;
+	// without it the call leaves the transcript's view the moment anyone answers.
+	callWindow int
+	// callBoost is what a participant with an outstanding call is multiplied by.
+	callBoost float64
+	// callExpiresOnAnswer drops the boost once the participant has spoken since the
+	// call. Without it a participant that has already answered keeps the advantage
+	// and sits on the turn.
+	callExpiresOnAnswer bool
+
 	// facilitatorExemptRecent leaves the facilitator out of recentSpeaker, which
 	// is what lets it come back every other turn.
 	facilitatorExemptRecent bool
@@ -155,6 +181,12 @@ func main() {
 		{name: "3人・進行役なし・呼びかけ3割+介入", roster: plainRoster("A", "B", "C"), turns: 60, addressRate: 0.3, humanEvery: 7, seed: 6},
 		{name: "4人・進行役あり・介入が直前の話者を呼ぶ", roster: gmRoster("GM", "A", "B", "C"), turns: 60, humanEvery: 5, humanCallsLast: true, seed: 7},
 		{name: "4人・進行役あり・呼びかけ4割 (半分は2人呼び)", roster: gmRoster("GM", "A", "B", "C"), turns: 60, addressRate: 0.4, multiCallRate: 0.5, seed: 8},
+		// talkativeness を定数係数として入れたときに、値の低い参加者が締め出されないかを見る。
+		{name: "talkativeness: C=0.8 (控えめ)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.8), turns: 60, addressRate: 0.3, seed: 9},
+		{name: "talkativeness: C=0.5 (かなり控えめ)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.5), turns: 60, addressRate: 0.3, seed: 10},
+		{name: "talkativeness: C=0.2 (ほぼ黙る)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.2), turns: 60, addressRate: 0.3, seed: 11},
+		// 進行役の免除を talkativeness で置き換えられるかを見る (免除なし + GM を上げる)。
+		{name: "進行役の免除なし + GM=1.15", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1.15, 1, 1, 1), turns: 60, seed: 12},
 	}
 
 	for _, sc := range scenarios {
@@ -188,13 +220,19 @@ func rules() []rule {
 		{name: "呼びかけ×1.1", pick: weighted(tuned(1.1), facilitatorAnswersPlainHuman, byLongestSilence)},
 		{name: "呼びかけ係数なし", pick: weighted(tuned(1.0), facilitatorAnswersPlainHuman, byLongestSilence)},
 		{name: "沈黙を連続量+呼びかけ×1.3", pick: weighted(continuousSilence(tuned(1.3), 0.15), facilitatorAnswersPlainHuman, byLongestSilence)},
-		{name: "沈黙を連続量+呼びかけ×2.0", pick: weighted(continuousSilence(tuned(2.0), 0.15), facilitatorAnswersPlainHuman, byLongestSilence)},
+		{name: "窓4・×1.2・応答で消える", pick: weighted(windowedCall(proposed, 4, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "窓4・×1.2・応答でも残る", pick: weighted(windowedCall(proposed, 4, 1.2, false), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "窓4・×1.1・応答でも残る", pick: weighted(windowedCall(proposed, 4, 1.1, false), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "窓2・×1.2・応答で消える", pick: weighted(windowedCall(proposed, 2, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "窓4・×1.5・応答で消える", pick: weighted(windowedCall(proposed, 4, 1.5, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "窓4・×2.0・応答で消える", pick: weighted(windowedCall(proposed, 4, 2.0, true), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "直近抑制なし", pick: weighted(withRecent(proposed, 1.0), humanIsCurrentSpeaker, byRosterOrder)},
 		{name: "進行役の免除なし", pick: weighted(withoutExemption(proposed), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "採用(仕様どおり)", pick: weighted(proposed, humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "採用+名指し無し介入は進行役", pick: weighted(proposed, facilitatorAnswersPlainHuman, byLongestSilence)},
 		{name: "呼びかけ最優先(先頭)", pick: addressedFirst},
 		{name: "呼びかけ最優先(沈黙が長い側)", pick: addressedLongestSilent},
+		{name: "呼びかけ最優先(窓4・未応答・沈黙が長い側)", pick: addressedOutstandingLongestSilent},
 		{name: "round_robin", pick: roundRobin},
 		{name: "facilitator交互", pick: facilitatorAlternating},
 	}
@@ -206,6 +244,49 @@ func withoutExemption(c coefficients) coefficients      { c.facilitatorExemptRec
 func continuousSilence(c coefficients, gain float64) coefficients {
 	c.silenceGain = gain
 	return c
+}
+
+// windowedCall replaces the last-message-only call with one that stays in effect
+// for the last `window` participant utterances.
+func windowedCall(c coefficients, window int, boost float64, expires bool) coefficients {
+	c.notAddressee, c.addresseeBoost = 1.0, 1.0
+	c.callWindow, c.callBoost, c.callExpiresOnAnswer = window, boost, expires
+	return c
+}
+
+// outstandingCall answers whether this participant was called on inside the
+// window and, when expires is set, has not spoken since that call.
+//
+// The window is counted in participant utterances and the human's interventions
+// do not consume it, the same way the silence window is counted: an interjection
+// is not a turn anyone took, so letting it push a call out of the window would
+// make the coefficient depend on how often the human speaks. A call the human
+// made is still read — it is the message's content, not whose turn it was.
+func outstandingCall(history []utterance, participant, window int, expires bool) bool {
+	seen := 0
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].calls(participant) {
+			if !expires {
+				return true
+			}
+			// Only the most recent call matters: if the participant has spoken since
+			// it, every older call is staler still and was answered by the same
+			// utterance or an earlier one.
+			for j := i + 1; j < len(history); j++ {
+				if history[j].speaker == participant {
+					return false
+				}
+			}
+			return true
+		}
+		if history[i].speaker != speakerHuman {
+			seen++
+			if seen >= window {
+				return false
+			}
+		}
+	}
+	return false
 }
 
 // weighted is the score rule: every participant's weight is the product of the
@@ -262,7 +343,11 @@ func weighted(c coefficients, human humanPolicy, tie tieBreak) func(roster, []ut
 			} else if spokeWithin(history, i, window) && !(c.facilitatorExemptRecent && r[i].facilitator) {
 				w *= c.recentSpeaker
 			}
-			if len(called.addressees) > 0 {
+			if c.callWindow > 0 {
+				if outstandingCall(history, i, c.callWindow, c.callExpiresOnAnswer) {
+					w *= c.callBoost
+				}
+			} else if len(called.addressees) > 0 {
 				if called.calls(i) {
 					w *= c.addresseeBoost
 				} else {
@@ -272,6 +357,7 @@ func weighted(c coefficients, human humanPolicy, tie tieBreak) func(roster, []ut
 			if i != next {
 				w *= c.notRosterNext
 			}
+			w *= r[i].factor()
 			weights[i] = w
 		}
 		return argmax(weights, history, tie), weights
@@ -354,6 +440,30 @@ func addressedLongestSilent(r roster, history []utterance) (int, []float64) {
 				rank, best = s, called
 			}
 		}
+		return best, nil
+	}
+	return addressedFallback(r, history)
+}
+
+// addressedOutstandingLongestSilent is the ordered rule given the same window the
+// score gets: among the participants with a call that is still unanswered inside
+// the window, the one that has waited longest speaks. Without this variant the
+// comparison would credit the score for the window itself rather than for
+// blending the call with the other pressures.
+func addressedOutstandingLongestSilent(r roster, history []utterance) (int, []float64) {
+	if len(r) == 0 {
+		return -1, nil
+	}
+	best, rank := -1, -1
+	for i := range r {
+		if !outstandingCall(history, i, len(r), true) {
+			continue
+		}
+		if s := silenceRank(history, i); s > rank {
+			rank, best = s, i
+		}
+	}
+	if best >= 0 {
 		return best, nil
 	}
 	return addressedFallback(r, history)
@@ -445,7 +555,9 @@ type measurement struct {
 	passTurns     int     // 一巡ターン数 (最大)
 	gmGapMin      int     // 進行役の間隔 (最小)
 	gmGapMax      int     // 進行役の間隔 (最大)
+	topShare      string  // 最も多く話した参加者の発言シェア (均等なら 1/人数)
 	addressFollow string  // 呼びかけ追従率
+	callWait      string  // 呼びかけから呼ばれた側が話すまでのターン数 (最悪) と未応答件数
 	secondWait    string  // 複数呼びかけで後回しになった側が話すまでのターン数 (最悪)
 	ties          int     // 同点が起きたターン数
 	order         string
@@ -547,7 +659,9 @@ func measure(r roster, history []utterance, ties int) measurement {
 	m := measurement{
 		repeatRate:    repeatRate,
 		passTurns:     longestPass(spoken, len(r)),
+		topShare:      topSpeakerShare(r, spoken),
 		addressFollow: followRate(history),
+		callWait:      callAnswerWait(history, 1),
 		secondWait:    secondCallWait(history),
 		ties:          ties,
 		order:         strings.Join(order[:min(len(order), 24)], " "),
@@ -601,6 +715,28 @@ func facilitatorGaps(r roster, spoken []int) (int, int) {
 	return low, high
 }
 
+// topSpeakerShare is the share of participant utterances taken by whoever spoke
+// most, against the even share for the roster size. It is what answers "does this
+// coefficient let someone sit on the conversation" — the follow rate and the pass
+// length can both look healthy while one participant takes a third of the turns.
+func topSpeakerShare(r roster, spoken []int) string {
+	if len(spoken) == 0 {
+		return "-"
+	}
+	counts := make([]int, len(r))
+	for _, s := range spoken {
+		counts[s]++
+	}
+	top, who := 0, 0
+	for i, n := range counts {
+		if n > top {
+			top, who = n, i
+		}
+	}
+	return fmt.Sprintf("%.0f%% (%s, 均等 %.0f%%)",
+		float64(top)/float64(len(spoken))*100, r[who].name, 100/float64(len(r)))
+}
+
 // followRate counts only the calls whose answer is actually in the transcript. A
 // call in the last utterance has not been answered yet rather than answered
 // wrongly, and counting it as a miss would charge every rule for where the run
@@ -628,6 +764,48 @@ func followRate(history []utterance) string {
 		return "-"
 	}
 	return fmt.Sprintf("%d/%d", followed, observed)
+}
+
+// callAnswerWait is how long a call waits to be answered, over every call naming
+// at least minNamed participants. The follow rate only asks whether the addressee
+// spoke on the very next turn, which a windowed call deliberately allows it not
+// to — so without this, widening the window reads as a regression when what
+// actually happened is that the call was honoured a turn or two later.
+func callAnswerWait(history []utterance, minNamed int) string {
+	worst, calls, unanswered := 0, 0, 0
+	for i, u := range history {
+		if len(u.addressees) < minNamed {
+			continue
+		}
+		for _, called := range u.addressees {
+			calls++
+			wait, answered := 0, false
+			for j := i + 1; j < len(history); j++ {
+				if history[j].speaker == speakerHuman {
+					continue
+				}
+				wait++
+				if history[j].speaker == called {
+					answered = true
+					break
+				}
+			}
+			if !answered {
+				unanswered++
+				continue
+			}
+			if wait > worst {
+				worst = wait
+			}
+		}
+	}
+	if calls == 0 {
+		return "-"
+	}
+	if unanswered > 0 {
+		return fmt.Sprintf("%d (未応答 %d/%d)", worst, unanswered, calls)
+	}
+	return fmt.Sprintf("%d (%d件)", worst, calls)
 }
 
 // secondCallWait answers what happens to the other participants a call named: for
@@ -677,7 +855,7 @@ func secondCallWait(history []utterance) string {
 
 func report(sc scenario, rules []rule) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "規則\t連続発言率\t一巡ターン数\t進行役の間隔\t呼びかけ追従\t複数呼びかけ待ち\t同点\t発言順 (先頭24)")
+	fmt.Fprintln(w, "規則\t連続発言率\t最大シェア\t一巡ターン数\t進行役の間隔\t即時追従\t呼びかけ応答待ち\t複数呼びかけ待ち\t同点\t発言順 (先頭24)")
 	for _, rl := range rules {
 		m := run(sc, rl)
 		gap := "-"
@@ -688,10 +866,22 @@ func report(sc scenario, rules []rule) {
 		if m.passTurns < 0 {
 			pass = "一巡せず"
 		}
-		fmt.Fprintf(w, "%s\t%.0f%%\t%s\t%s\t%s\t%s\t%d\t%s\n",
-			rl.name, m.repeatRate, pass, gap, m.addressFollow, m.secondWait, m.ties, m.order)
+		fmt.Fprintf(w, "%s\t%.0f%%\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
+			rl.name, m.repeatRate, m.topShare, pass, gap, m.addressFollow, m.callWait, m.secondWait, m.ties, m.order)
 	}
 	w.Flush()
+}
+
+// withTalkativeness sets the per-participant factor by roster position.
+func withTalkativeness(r roster, factors ...float64) roster {
+	out := make(roster, len(r))
+	copy(out, r)
+	for i := range out {
+		if i < len(factors) {
+			out[i].talkativeness = factors[i]
+		}
+	}
+	return out
 }
 
 func plainRoster(names ...string) roster {
