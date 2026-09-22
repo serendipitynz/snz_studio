@@ -263,6 +263,8 @@ Dashboard の `Configuration` から接続先、モデル、`LLM Response Format
 - `POST /api/chats/:chatId/turns/stream`（1 ターン実行・SSE。`speaker` → `delta` … → `done` の順に流す。実行中の重複呼び出しは 409）
 - `GET /api/messages/:messageId/memory-draft` / `POST /api/messages/:messageId/memory`（多人数会話の発言 1 件を
   プロジェクトのメモリとして保存。多人数会話は自動でメモリを抽出しない）
+- `POST /api/chats/:chatId/conclusion-draft`（会話全体または選んだ発言以降の結論を既定 LLM で下書きする。
+  保存は上の保存ルートで行い、下書き自体は何も永続化しない）
 
 ## 今後の拡張ポイント
 

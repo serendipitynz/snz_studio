@@ -1,6 +1,6 @@
 import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
+import { api, ApiError, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
 import { CopyMessageButton } from "../components/CopyMessageButton";
 import { Dialog, DialogTitle } from "../components/Dialog";
@@ -77,10 +77,12 @@ interface TurnDonePayload {
   participants?: Participant[];
 }
 
-// The save dialog's contents: which utterance is being saved and what the user
-// has made of the draft so far (design §4.4).
+// The save dialog's contents: where the draft came from and what the user has
+// made of it so far (design §4.4). A conclusion draft saves through the last
+// utterance of its range, since the save route only needs the message's chat.
 interface MemoryDraft {
-  message: MessageRecord;
+  origin: { type: "message"; message: MessageRecord } | { type: "conclusion"; messageCount: number };
+  anchorMessageId: string;
   content: string;
   kind: MemoryKind;
   locked: boolean;
@@ -121,6 +123,8 @@ export function MultiAgentChatPage() {
   const [memorySaving, setMemorySaving] = useState(false);
   const [memoryError, setMemoryError] = useState("");
   const [memorySavedTitle, setMemorySavedTitle] = useState("");
+  const [concluding, setConcluding] = useState(false);
+  const [conclusionError, setConclusionError] = useState("");
   // The button that opened the save dialog. The dialog opens only after the
   // server's draft arrives, so by then focus is no longer reliably on it.
   const memoryOpenerRef = useRef<HTMLButtonElement | null>(null);
@@ -361,11 +365,56 @@ export function MultiAgentChatPage() {
     setMemoryError("");
     try {
       const response = await api.getMessageMemoryDraft(message.id);
-      setMemoryDraft({ message, content: response.draft.content, kind: response.draft.kind, locked: true });
+      openMemoryDraft({
+        origin: { type: "message", message },
+        anchorMessageId: message.id,
+        content: response.draft.content,
+        kind: response.draft.kind,
+        locked: true
+      });
     } catch (nextError) {
       setMemoryError(nextError instanceof Error ? nextError.message : t("multiAgent.saveMemoryDraftError"));
     } finally {
       setMemoryPreparing(false);
+    }
+  }
+
+  // Both draft flows await the server before opening the one dialog, so a
+  // response arriving after the other flow already opened it must not replace
+  // what the user is editing there. The buttons also exclude each other while
+  // a draft is being prepared; this covers what slips past that.
+  function openMemoryDraft(next: MemoryDraft) {
+    setMemoryDraft((current) => current ?? next);
+  }
+
+  // A conclusion draft opens the same save dialog, so it is generated even in a
+  // temporary chat — only the save stays closed there (design §4.4). A range
+  // over the limit is refused by the server rather than clipped, and the view
+  // turns that into asking for a later starting utterance.
+  async function handleDraftConclusion(opener: HTMLButtonElement, fromMessageId?: string) {
+    memoryOpenerRef.current = opener;
+    setConcluding(true);
+    setConclusionError("");
+    try {
+      const response = await api.draftConclusion(chatId, fromMessageId);
+      setMemoryError("");
+      openMemoryDraft({
+        origin: { type: "conclusion", messageCount: response.messageCount },
+        anchorMessageId: response.anchorMessageId,
+        content: response.draft.content,
+        kind: response.draft.kind,
+        locked: true
+      });
+    } catch (nextError) {
+      if (nextError instanceof ApiError && nextError.status === 422 && nextError.body) {
+        setConclusionError(
+          t("multiAgent.concludeTooLong", { chars: Number(nextError.body.chars), limit: Number(nextError.body.limit) })
+        );
+      } else {
+        setConclusionError(nextError instanceof Error ? nextError.message : t("multiAgent.concludeError"));
+      }
+    } finally {
+      setConcluding(false);
     }
   }
 
@@ -390,7 +439,7 @@ export function MultiAgentChatPage() {
     setMemorySaving(true);
     setMemoryError("");
     try {
-      const response = await api.saveMessageMemory(memoryDraft.message.id, {
+      const response = await api.saveMessageMemory(memoryDraft.anchorMessageId, {
         content,
         kind: memoryDraft.kind,
         locked: memoryDraft.locked
@@ -461,6 +510,15 @@ export function MultiAgentChatPage() {
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
           <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+            <IconButton
+              type="button"
+              aria-label={t("multiAgent.conclude")}
+              title={t("multiAgent.concludeTitle")}
+              disabled={concluding || memoryPreparing || memorySaving || state.messages.length === 0}
+              onClick={(event) => void handleDraftConclusion(event.currentTarget)}
+            >
+              <SummaryIcon />
+            </IconButton>
             <ExportChatButton chatId={state.chat.id} chatTitle={state.chat.title} onError={setError} />
             <IconButton
               type="button"
@@ -504,13 +562,23 @@ export function MultiAgentChatPage() {
                     <MessageReferences references={message.references} />
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
                       <CopyMessageButton content={message.content} onError={setError} />
+                      <IconButton
+                        type="button"
+                        aria-label={t("multiAgent.concludeFromHere")}
+                        title={t("multiAgent.concludeFromHere")}
+                        disabled={concluding || memoryPreparing || memorySaving}
+                        onClick={(event) => void handleDraftConclusion(event.currentTarget, message.id)}
+                        style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
+                      >
+                        <SummaryIcon />
+                      </IconButton>
                       {/* Same bare 24px icon button as the single-assistant page's review and
                           copy actions, so the per-message actions read alike across chat kinds. */}
                       <IconButton
                         type="button"
                         aria-label={t("multiAgent.saveMemory")}
                         title={memorySaveBlocked ? t("multiAgent.temporaryNoSave") : t("multiAgent.saveMemoryTitle")}
-                        disabled={memorySaveBlocked || memoryPreparing || memorySaving}
+                        disabled={memorySaveBlocked || memoryPreparing || memorySaving || concluding}
                         onClick={(event) => void handleOpenMemoryDialog(message, event.currentTarget)}
                         style={{
                           width: 24,
@@ -621,6 +689,13 @@ export function MultiAgentChatPage() {
                 ) : null}
                 {autoRunning ? <MetaText>{t("multiAgent.autoRunning")}</MetaText> : null}
                 {stopPending ? <MetaText>{t("multiAgent.stopPending")}</MetaText> : null}
+                {concluding ? (
+                  <Row style={{ alignItems: "center", gap: 8 }}>
+                    <SpinnerIcon />
+                    <MetaText>{t("multiAgent.concluding")}</MetaText>
+                  </Row>
+                ) : null}
+                {conclusionError ? <ErrorText>{conclusionError}</ErrorText> : null}
                 {memorySavedTitle ? <MetaText>{t("multiAgent.saveMemorySaved", { title: memorySavedTitle })}</MetaText> : null}
                 {memorySaveBlocked ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
                 <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoBoundaryNote")}</MetaText>
@@ -676,8 +751,17 @@ export function MultiAgentChatPage() {
         >
           <form onSubmit={handleSaveMemory}>
             <Stack>
-              <DialogTitle>{t("multiAgent.saveMemoryTitle")}</DialogTitle>
-              <Subtle>{t("multiAgent.saveMemoryFrom", { name: speakerLabel(memoryDraft.message) })}</Subtle>
+              {memoryDraft.origin.type === "message" ? (
+                <>
+                  <DialogTitle>{t("multiAgent.saveMemoryTitle")}</DialogTitle>
+                  <Subtle>{t("multiAgent.saveMemoryFrom", { name: speakerLabel(memoryDraft.origin.message) })}</Subtle>
+                </>
+              ) : (
+                <>
+                  <DialogTitle>{t("multiAgent.concludeDialogTitle")}</DialogTitle>
+                  <Subtle>{t("multiAgent.concludeFrom", { count: memoryDraft.origin.messageCount })}</Subtle>
+                </>
+              )}
               <Field>
                 {t("project.kind")}
                 <Select
@@ -713,12 +797,13 @@ export function MultiAgentChatPage() {
                 <span>{t("project.lockHint")}</span>
               </label>
               <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.saveMemoryNote")}</MetaText>
+              {memorySaveBlocked ? <MetaText>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
               {memoryError ? <ErrorText>{memoryError}</ErrorText> : null}
               <Row style={{ justifyContent: "flex-end" }}>
                 <Button type="button" variant="ghost" onClick={closeMemoryDialog} disabled={memorySaving}>
                   {t("common.cancel")}
                 </Button>
-                <Button type="submit" disabled={memorySaving || !memoryDraft.content.trim()}>
+                <Button type="submit" disabled={memorySaveBlocked || memorySaving || !memoryDraft.content.trim()}>
                   {memorySaving ? t("multiAgent.saveMemorySaving") : t("multiAgent.saveMemoryConfirm")}
                 </Button>
               </Row>
@@ -788,6 +873,30 @@ function MemoryStickIcon() {
       <path d="M8 12v-2" />
       <path d="M8 18v-2" />
       <rect x="2" y="6" width="20" height="10" rx="2" />
+    </svg>
+  );
+}
+
+// Lucide "summary" (ISC, see THIRD_PARTY_NOTICES.md), sized to the 16px grid
+// the other per-message icons use.
+function SummaryIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 4H7" />
+      <path d="m18 16 3 3-3 3" />
+      <path d="M3 4v13a2 2 0 0 0 2 2h16" />
+      <path d="M7 14h7" />
+      <path d="M7 9h12" />
     </svg>
   );
 }

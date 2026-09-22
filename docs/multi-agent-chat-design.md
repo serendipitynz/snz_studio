@@ -319,7 +319,29 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
   画面では保存ボタンを無効にし、理由を composer の注記に出す。一時チャットの意味を「読むが書かない」に揃えるため、
   作成フォームのチェックボックスは多人数会話でも有効（TASK-17 の無効化を戻した）。
 - ファシリテーター参加者による自律的なメモリ書き込みと、参加者が「これは記録に値する」と提案する仕組みは入れない
-  （帰属と方針の問題に対して初期価値が小さい）。複数の発言にまたがる結論を要約して保存の下書きにする経路は別タスク。
+  （帰属と方針の問題に対して初期価値が小さい）。
+
+複数の発言にまたがる結論は、**結論の下書き**として同じ保存ダイアログに入れる（2026-09-22、TASK-27）。
+「結論の下書き」とは、参加者が合意した、または人間が採用した判断とその理由を「決定」「未決」に分けて短くまとめた編集可能な文で、
+人間が保存するまでどこにも永続化しないものを指す
+（[conclusion.go](../internal/service/conclusion.go)、`POST /api/chats/{chatId}/conclusion-draft`）。
+
+- **範囲**は会話全体か、人間が選んだ発言から最新まで。画面ではヘッダの「結論を要約」が前者、発言ごとの「ここから要約」が後者。
+- **生成するモデル**はワークスペースの既定 LLM（`SummaryService` が持つ `LLMClient`）で、参加者の接続先ではない。
+  `SummaryService.UpdateSummary` は流用しない。直近 8 件・1 件 220 字に切る前提で、結論に要る範囲全体を見られないため。
+  結果は `chat_summaries` に書かない（§8.1 の「履歴圧縮に要約を使わない」を保つ）。
+- **プロンプト**は、範囲内で発言した参加者の表示名と役割プロンプトの要旨（160 字）を渡し、「誰が何を言ったか」ではなく
+  「決定」「未決」を分けて書かせる。役割（反対役・批判役など）に沿って出た反論は、他の参加者の同意か人間の採用が無い限り
+  決定に入れず未決に書かせる。**Why**: 小型モデルは最後に出た強い反論を結論として書きやすい。
+- **上限**: 範囲の transcript（`表示名: 本文` の行）の総文字数が **12000 字**を超えると 422（`{ chars, limit }`）で断り、
+  画面は「もっと後の発言を選び、その発言の『ここから要約』を押す」よう促す。先頭を黙って切り捨てない。
+  **Why（値）**: 同じ既定 LLM に文書全文を渡すときの予算 `fullDocumentCharLimit`（12000 字）と揃え、アプリが既に
+  そのモデルに渡している量を超えないようにした。**Why（切り捨てない）**: 議論の前提は先頭にあり、前提を欠いた下書きは
+  欠けていることが読み手に分からない。
+- **保存**は既存の `POST /api/messages/{messageId}/memory` を範囲の最後の発言 id で呼ぶ。保存ルートが発言から使うのは
+  chat と project だけなので、ルートを増やさずに `source = multi_agent` と一時チャットの拒否がそのまま効く。
+  既定の kind は semantic。ワンクリック保存はしない（未検証の推測・役割由来の反論が混ざるため、発言の保存と同じ理由）。
+- **一時チャット**でも下書きの生成と表示はできる（書き込みが無いため）。保存だけがダイアログ上で無効になる。
 
 ### 4.5 進行役を挟むターン規則（`facilitator_alternating`）
 
@@ -1087,6 +1109,7 @@ spike 時点では人間が介入発言に出目を書くことはできるが�
 | `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
 | `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。ターン前の拒否はステータスで返る: 実行中のターンと重なれば 409、chat・指名した参加者が無ければ 404、規則と指名の不整合・除籍済みの指名・空の編成は 400、接続先不通は 502。通れば `speaker`（§4.6.6）→ `delta`… → `done` を流し、それより後の失敗（生成・保存）はストリーム内の `error` になる |
 | `GET /api/messages/{messageId}/memory-draft` | 発言のメモリ保存の下書き `{ draft: { content, kind } }`（§4.4）。発言が無ければ 404、単独 assistant の chat は 400、一時チャットは 409 |
+| `POST /api/chats/{chatId}/conclusion-draft` | 結論の下書きを既定 LLM で生成する（§4.4）。body: `{ fromMessageId? }`（省略時は会話全体）。応答は `{ draft: { content, kind: "semantic" }, anchorMessageId, messageCount }`（`anchorMessageId` は範囲の最後の発言で、保存はこの id で下の保存ルートを呼ぶ）。何も永続化しない。単独 assistant の chat は 400、`fromMessageId` がその chat に無ければ 404、発言 0 件は 409、範囲が 12000 字を超えれば 422（`{ error, chars, limit }`）、生成失敗は 502。一時チャットでも生成できる |
 | `POST /api/messages/{messageId}/memory` | 発言のメモリ保存。body: `{ content, kind?, locked? }`（`kind` 省略時は推定、`locked` 既定 `true`）。拒否は下書きと同じ。応答は `{ memory }`（`source = multi_agent`、`sharedWithAll` は真） |
 | `PATCH /api/documents/{documentId}/shared` | ドキュメントを共通プロジェクト資料に入れる / 外す（§4.4）。body: `{ sharedWithAll: boolean }`。真偽値でなければ 400、未知の id は 404 |
 | `PATCH /api/memories/{memoryId}/shared` | メモリを共通プロジェクト資料に入れる / 外す。body・拒否はドキュメントと同じ |

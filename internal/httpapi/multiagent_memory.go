@@ -6,6 +6,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -124,4 +125,71 @@ func (s *Server) requireMemorySaveableMessage(w http.ResponseWriter, messageID s
 		return nil, nil, false
 	}
 	return message, chat, true
+}
+
+// handleDraftConclusion generates what the save dialog opens with when the
+// human saves a conversation's outcome rather than one utterance: the default
+// model's draft of what was decided and what is still open, over the whole
+// conversation or from fromMessageId to the latest (design §4.4). It is a POST
+// because every call runs the model, and it is allowed in a temporary chat —
+// reading the draft writes nothing; only the save route refuses there.
+//
+// anchorMessageId is the last utterance of the range, which the dialog saves
+// through: the save route takes a message id only to resolve its chat.
+func (s *Server) handleDraftConclusion(w http.ResponseWriter, r *http.Request) {
+	chat, ok := s.requireMultiAgentChat(w, r.PathValue("chatId"))
+	if !ok {
+		return
+	}
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	messages, err := s.chats.ListMessages(chat.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if fromID := bodyString(m, "fromMessageId"); fromID != "" {
+		start := -1
+		for i, message := range messages {
+			if message.ID == fromID {
+				start = i
+				break
+			}
+		}
+		if start < 0 {
+			writeError(w, http.StatusNotFound, "message not found in this chat")
+			return
+		}
+		messages = messages[start:]
+	}
+	participants, err := s.participants.ListAll(chat.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+
+	content, err := s.summary.DraftConclusion(messages, participants)
+	var tooLong *service.ConclusionTooLongError
+	switch {
+	case errors.Is(err, service.ErrNothingToConclude):
+		writeError(w, http.StatusConflict, "the conversation has no utterances to summarize")
+		return
+	case errors.As(err, &tooLong):
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": tooLong.Error(),
+			"chars": tooLong.Chars,
+			"limit": tooLong.Limit,
+		})
+		return
+	case err != nil:
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"draft":           map[string]string{"content": content, "kind": "semantic"},
+		"anchorMessageId": messages[len(messages)-1].ID,
+		"messageCount":    len(messages),
+	})
 }

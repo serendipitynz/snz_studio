@@ -286,6 +286,9 @@ message, which is still useful for checking which references were selected.
   `delta` events and `done`; a duplicate call while one is running returns 409)
 - `GET /api/messages/:messageId/memory-draft` / `POST /api/messages/:messageId/memory` (save one
   multi-agent utterance as a project memory; a multi-agent chat never extracts memories on its own)
+- `POST /api/chats/:chatId/conclusion-draft` (drafts, with the default LLM, what the whole conversation
+  or the part from a chosen utterance decided and left open; saving goes through the route above, and the
+  draft itself is never stored)
 
 ## Future extension points
 
