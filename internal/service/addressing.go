@@ -38,14 +38,14 @@ var nameAnnotation = regexp.MustCompile(`\s*[(（][^()（）]*[)）]\s*$`)
 const minMatchedNameLength = 2
 
 // detectAddressees fixes, at store time, whom a message calls on, and returns the
-// content with the directive line removed (design §4.6.5). speakerID is the
+// content with the directive removed (design §4.6.5). speakerID is the
 // participant that wrote the message, empty for the human; a call on oneself is
 // dropped.
 //
-// A directive on the last line decides the call on its own: its names that are
-// on the roster are the addressees, the others are dropped one by one, and the
-// line is removed even when none of them match, so no control syntax is left in
-// the transcript. Only without a directive does the name match run, over the last
+// A directive that ends the utterance, with or without a line break before it,
+// decides the call on its own: its names that are on the roster are the
+// addressees, the others are dropped one by one, and the directive is removed
+// even when none of them match, so no control syntax is left in the transcript. Only without a directive does the name match run, over the last
 // sentence alone. Every roster name found there counts, the whole roster included
 // — a call on everyone still lets the ones who have not answered keep their
 // boost after the others have.
