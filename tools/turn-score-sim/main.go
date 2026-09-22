@@ -188,6 +188,7 @@ func main() {
 		{name: "4人・進行役あり・介入が直前の話者を呼ぶ", roster: gmRoster("GM", "A", "B", "C"), turns: 60, humanEvery: 5, humanCallsLast: true, seed: 7},
 		{name: "4人・進行役あり・呼びかけ4割 (半分は2人呼び)", roster: gmRoster("GM", "A", "B", "C"), turns: 60, addressRate: 0.4, multiCallRate: 0.5, seed: 8},
 		// talkativeness を定数係数として入れたときに、値の低い参加者が締め出されないかを見る。
+		{name: "talkativeness: 全員 1.0 (基準)", roster: gmRoster("GM", "A", "B", "C"), turns: 60, addressRate: 0.3, seed: 9},
 		{name: "talkativeness: C=0.8 (控えめ)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.8), turns: 60, addressRate: 0.3, seed: 9},
 		{name: "talkativeness: C=0.5 (かなり控えめ)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.5), turns: 60, addressRate: 0.3, seed: 10},
 		{name: "talkativeness: C=0.2 (ほぼ黙る)", roster: withTalkativeness(gmRoster("GM", "A", "B", "C"), 1, 1, 1, 0.2), turns: 60, addressRate: 0.3, seed: 11},
@@ -230,6 +231,7 @@ func rules() []rule {
 		{name: "採用・加点なし", pick: weighted(windowedCall(proposed, -1, 1.0, true), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "採用・応答でも残る", pick: weighted(windowedCall(proposed, -1, 1.2, false), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "採用・窓2固定", pick: weighted(windowedCall(proposed, 2, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
+		{name: "採用・窓8固定", pick: weighted(windowedCall(proposed, 8, 1.2, true), humanIsCurrentSpeaker, byLongestSilence)},
 		{name: "採用・同点=名簿順", pick: weighted(adopted, humanIsCurrentSpeaker, byRosterOrder)},
 		{name: "採用・介入時も×0.2", pick: weighted(adopted, penalizeLastParticipant, byLongestSilence)},
 		{name: "採用・介入後は進行役", pick: weighted(adopted, facilitatorAnswersHuman, byLongestSilence)},
@@ -578,7 +580,7 @@ type measurement struct {
 }
 
 func run(sc scenario, rl rule) measurement {
-	rng := rand.New(rand.NewSource(sc.seed))
+	schedule := buildCallSchedule(sc)
 	history := make([]utterance, 0, sc.turns)
 	ties := 0
 
@@ -603,31 +605,54 @@ func run(sc scenario, rl rule) measurement {
 		if tiedAtTop(weights) {
 			ties++
 		}
-		history = append(history, utterance{speaker: speaker, addressees: drawAddressees(rng, sc, speaker)})
+		history = append(history, utterance{speaker: speaker, addressees: addresseesFor(schedule[turn], len(sc.roster), speaker)})
 	}
 	return measure(sc.roster, history, ties)
 }
 
-// drawAddressees picks whom the utterance calls on. A speaker never calls on
-// itself, which is what the detection of §4.6 would discard anyway. With
-// multiCallRate set, some calls name two participants instead of one.
-func drawAddressees(rng *rand.Rand, sc scenario, speaker int) []int {
-	if sc.addressRate <= 0 || rng.Float64() >= sc.addressRate {
-		return nil
+// buildCallSchedule decides, once per scenario and before any rule runs, which
+// turns carry a call and how many participants each names. It stores offsets from
+// whoever ends up speaking rather than participant ids, so the schedule is the
+// same for every rule while a speaker still never calls on itself.
+//
+// Why not draw at the point of use: the draw then happens after the rule has
+// picked its speaker, and rejection-sampling "anyone but the speaker" consumes a
+// number of draws that depends on who that was. The call schedule diverged per
+// rule, so a row with 22 calls was being compared against a row with 17 — not the
+// same test. Offsets in [1, len(roster)-1] need no rejection at all.
+func buildCallSchedule(sc scenario) [][]int {
+	rng := rand.New(rand.NewSource(sc.seed))
+	size := len(sc.roster)
+	schedule := make([][]int, sc.turns+1)
+	for turn := range schedule {
+		if sc.addressRate <= 0 || rng.Float64() >= sc.addressRate {
+			continue
+		}
+		first := 1 + rng.Intn(size-1)
+		if sc.multiCallRate <= 0 || size < 3 || rng.Float64() >= sc.multiCallRate {
+			schedule[turn] = []int{first}
+			continue
+		}
+		second := 1 + rng.Intn(size-2)
+		if second >= first {
+			second++
+		}
+		schedule[turn] = []int{first, second}
 	}
-	first := drawOther(rng, len(sc.roster), speaker, -1)
-	if sc.multiCallRate <= 0 || len(sc.roster) < 3 || rng.Float64() >= sc.multiCallRate {
-		return []int{first}
-	}
-	return []int{first, drawOther(rng, len(sc.roster), speaker, first)}
+	return schedule
 }
 
-func drawOther(rng *rand.Rand, size, speaker, taken int) int {
-	for {
-		if candidate := rng.Intn(size); candidate != speaker && candidate != taken {
-			return candidate
-		}
+// addresseesFor resolves a turn's scheduled offsets against the participant that
+// actually spoke.
+func addresseesFor(offsets []int, size, speaker int) []int {
+	if len(offsets) == 0 {
+		return nil
 	}
+	called := make([]int, len(offsets))
+	for i, off := range offsets {
+		called[i] = (speaker + off) % size
+	}
+	return called
 }
 
 func tiedAtTop(weights []float64) bool {
@@ -681,8 +706,8 @@ func measure(r roster, history []utterance, ties int) measurement {
 		passTurns:     longestPass(spoken, len(r)),
 		topShare:      topSpeakerShare(r, spoken),
 		addressFollow: followRate(history),
-		callWait:      callAnswerWait(history, 1),
-		secondWait:    secondCallWait(history),
+		callWait:      callAnswerWait(history, 1, len(r)),
+		secondWait:    secondCallWait(history, len(r)),
 		ties:          ties,
 		order:         strings.Join(order[:min(len(order), 24)], " "),
 	}
@@ -791,10 +816,18 @@ func followRate(history []utterance) string {
 // spoke on the very next turn, which a windowed call deliberately allows it not
 // to — so without this, widening the window reads as a regression when what
 // actually happened is that the call was honoured a turn or two later.
-func callAnswerWait(history []utterance, minNamed int) string {
+func callAnswerWait(history []utterance, minNamed, window int) string {
 	worst, calls, unanswered := 0, 0, 0
 	for i, u := range history {
 		if len(u.addressees) < minNamed {
+			continue
+		}
+		// A call with fewer than `window` participant utterances after it has not
+		// been left unanswered — the run stopped before the window it was promised
+		// (4.6.1) could elapse. followRate was corrected for the same artifact in
+		// the first review round; these two were not, and the ×1.2-over-×1.3 choice
+		// was being made on the residual queue at turn 60.
+		if remainingTurns(history, i) < window {
 			continue
 		}
 		for _, called := range u.addressees {
@@ -828,14 +861,29 @@ func callAnswerWait(history []utterance, minNamed int) string {
 	return fmt.Sprintf("%d (%d件)", worst, calls)
 }
 
-// secondCallWait answers what happens to the other participants a call named: for
-// every call on two or more, how many turns pass before each of the ones that did
-// not go first has spoken. It is reported as the worst case, since the question is
-// whether anyone is left hanging, not what the average is.
-func secondCallWait(history []utterance) string {
+// remainingTurns counts the participant utterances stored after index i.
+func remainingTurns(history []utterance, i int) int {
+	n := 0
+	for j := i + 1; j < len(history); j++ {
+		if history[j].speaker != speakerHuman {
+			n++
+		}
+	}
+	return n
+}
+
+// secondCallWait answers what happens to every participant a call on two or more
+// named: how many turns pass before each of them has spoken, reported as the worst
+// case, since the question is whether anyone is left hanging rather than what the
+// average is. The participant that answered first cannot hold that maximum, so it
+// is left in rather than special-cased.
+func secondCallWait(history []utterance, window int) string {
 	worst, calls, unanswered := 0, 0, 0
 	for i, u := range history {
 		if len(u.addressees) < 2 {
+			continue
+		}
+		if remainingTurns(history, i) < window {
 			continue
 		}
 		for _, called := range u.addressees {
