@@ -33,11 +33,12 @@ type participant struct {
 // The addressees are fixed when the message is stored and never re-derived, which
 // is what keeps the next speaker the same across a restart (design §2).
 //
-// There can be more than one — "A, B, what do you think?" calls on two — and the
-// score keeps them all rather than discarding the utterance: every participant
-// called on escapes the notAddressee coefficient, and the remaining coefficients
-// decide which of them speaks first. An ordered rule cannot express that; it has
-// to pick one and drop the rest.
+// There can be more than one — "A, B, what do you think?" calls on two. Every
+// participant called on escapes the notAddressee coefficient, and the remaining
+// coefficients decide which of them speaks first. An ordered rule can read the
+// set too (addressedLongestSilent does), so this is not something only the score
+// can express; and neither form carries a call that went unanswered past the next
+// utterance, since the addressees are read from the last message alone.
 type utterance struct {
 	speaker    int
 	addressees []int
@@ -328,9 +329,10 @@ func addressedFirst(r roster, history []utterance) (int, []float64) {
 	// itself is discarded when the utterance is stored, so an addressee that spoke
 	// last can only come from the human asking that speaker to go on.
 	//
-	// Several addressees leave an ordered rule with nothing to order them by, so it
-	// takes the first and the rest fall back to the rotation — which is the gap the
-	// score does not have.
+	// Taking the first of several addressees is this variant's choice, not a limit
+	// of ordered rules — addressedLongestSilent orders the same set by silence. The
+	// two are measured separately because that choice, and not the ordered form,
+	// is what makes the rest wait out the rotation.
 	if n := len(history); n > 0 && len(history[n-1].addressees) > 0 {
 		return history[n-1].addressees[0], nil
 	}
