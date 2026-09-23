@@ -57,7 +57,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     reviewModel: "",
     embeddingBaseUrl: "",
     embeddingModel: "",
-    embeddingMode: "internal" as "internal" | "external"
+    embeddingMode: "internal" as "internal" | "external",
+    imageDescriptionBaseUrl: "",
+    imageDescriptionModel: ""
   });
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +70,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [loadingLlmModels, setLoadingLlmModels] = useState(false);
   const [loadingReviewModels, setLoadingReviewModels] = useState(false);
   const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false);
+  const [imageDescriptionModelOptions, setImageDescriptionModelOptions] = useState<string[]>([]);
+  const [loadingImageDescriptionModels, setLoadingImageDescriptionModels] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -86,7 +90,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           reviewModel: response.configuration.reviewModel,
           embeddingBaseUrl: response.configuration.embeddingBaseUrl,
           embeddingModel: response.configuration.embeddingModel,
-          embeddingMode: response.configuration.embeddingMode
+          embeddingMode: response.configuration.embeddingMode,
+          imageDescriptionBaseUrl: response.configuration.imageDescriptionBaseUrl,
+          imageDescriptionModel: response.configuration.imageDescriptionModel
         });
       })
       .catch((nextError) => {
@@ -181,6 +187,27 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     return () => window.clearTimeout(timeout);
   }, [configDraft.embeddingBaseUrl]);
 
+  // An empty image-description endpoint follows the LLM endpoint, so the candidates
+  // come from whichever one will actually be called.
+  const imageDescriptionEndpoint = configDraft.imageDescriptionBaseUrl.trim() || configDraft.llmBaseUrl.trim();
+
+  useEffect(() => {
+    if (!imageDescriptionEndpoint) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setLoadingImageDescriptionModels(true);
+      api
+        .listConfigurationModels({ kind: "llm", baseUrl: imageDescriptionEndpoint })
+        .then((response) => setImageDescriptionModelOptions(response.models))
+        .catch(() => setImageDescriptionModelOptions([]))
+        .finally(() => setLoadingImageDescriptionModels(false));
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [imageDescriptionEndpoint]);
+
   async function handleConfigurationSubmit(event: FormEvent) {
     event.preventDefault();
     setSavingConfig(true);
@@ -197,7 +224,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         reviewModel: response.configuration.reviewModel,
         embeddingBaseUrl: response.configuration.embeddingBaseUrl,
         embeddingModel: response.configuration.embeddingModel,
-        embeddingMode: response.configuration.embeddingMode
+        embeddingMode: response.configuration.embeddingMode,
+        imageDescriptionBaseUrl: response.configuration.imageDescriptionBaseUrl,
+        imageDescriptionModel: response.configuration.imageDescriptionModel
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : t("settings.saveError"));
@@ -385,6 +414,34 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 </Field>
               </>
             ) : null}
+            <Field>
+              {t("settings.imageDescriptionEndpoint")}
+              <Input
+                value={configDraft.imageDescriptionBaseUrl}
+                onChange={(event) =>
+                  setConfigDraft((current) => ({ ...current, imageDescriptionBaseUrl: event.target.value }))
+                }
+                placeholder={t("settings.imageDescriptionEndpointPlaceholder")}
+              />
+            </Field>
+            <Field>
+              {t("settings.imageDescriptionModel")}
+              <Input
+                list="settings-image-description-model-options"
+                value={configDraft.imageDescriptionModel}
+                onChange={(event) =>
+                  setConfigDraft((current) => ({ ...current, imageDescriptionModel: event.target.value }))
+                }
+                placeholder={t("settings.imageDescriptionModelPlaceholder")}
+              />
+              <datalist id="settings-image-description-model-options">
+                {imageDescriptionModelOptions.map((model) => (
+                  <option key={model} value={model} />
+                ))}
+              </datalist>
+              <Subtle>{modelCandidatesLabel(loadingImageDescriptionModels, imageDescriptionModelOptions)}</Subtle>
+              <Subtle>{t("settings.imageDescriptionModelNote")}</Subtle>
+            </Field>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <Button type="submit" disabled={savingConfig || loading}>
                 {savingConfig ? t("settings.saving") : t("settings.save")}

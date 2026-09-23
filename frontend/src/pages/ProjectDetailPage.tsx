@@ -16,6 +16,7 @@ import {
 } from "../api/client";
 import { useConfirm } from "../components/ConfirmDialog";
 import { Dialog, DialogTitle } from "../components/Dialog";
+import { ImageDocumentDialog } from "../components/ImageDocumentDialog";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { PresetChoice, PresetPicker } from "../components/PresetPicker";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
@@ -81,6 +82,7 @@ export function ProjectDetailPage() {
   const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null);
   const [documentCategoryDraft, setDocumentCategoryDraft] = useState<DocumentCategory>("misc");
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
+  const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
   const [isSystemPromptModalOpen, setIsSystemPromptModalOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -571,9 +573,20 @@ export function ProjectDetailPage() {
                 <Stack>
                   <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                     <SectionTitle>{t("project.documents")}</SectionTitle>
-                    <IconButton type="button" onClick={() => fileInputRef.current?.click()} aria-label={t("project.addDocument")} disabled={busy}>
-                      <PlusIcon />
-                    </IconButton>
+                    <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                      <IconButton
+                        type="button"
+                        onClick={() => setIsImageDialogOpen(true)}
+                        aria-label={t("project.addImage")}
+                        title={t("project.addImage")}
+                        disabled={busy}
+                      >
+                        <ImageIcon />
+                      </IconButton>
+                      <IconButton type="button" onClick={() => fileInputRef.current?.click()} aria-label={t("project.addDocument")} disabled={busy}>
+                        <PlusIcon />
+                      </IconButton>
+                    </Row>
                   </Row>
                   {uploadStatus ? (
                     <Row style={{ alignItems: "center", gap: 10 }}>
@@ -979,6 +992,18 @@ export function ProjectDetailPage() {
         </Dialog>
       ) : null}
 
+      {isImageDialogOpen ? (
+        <ImageDocumentDialog
+          projectId={state.project.id}
+          documents={state.documents}
+          onClose={() => setIsImageDialogOpen(false)}
+          onCreated={() => {
+            setIsImageDialogOpen(false);
+            void load();
+          }}
+        />
+      ) : null}
+
       {isMemoryModalOpen ? (
         <Dialog onClose={() => setIsMemoryModalOpen(false)}>
           <Stack>
@@ -1192,6 +1217,16 @@ function describeDocument(t: (key: MessageKey) => string, document: DocumentReco
   }
 
   return document.note || document.contentText.slice(0, 140) || t("project.textDocument");
+}
+
+function ImageIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="6" cy="6.5" r="1.1" stroke="currentColor" strokeWidth="1.1" />
+      <path d="m3 11.5 3.2-3 2.3 2.1 1.6-1.4 2.9 2.6" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function PlusIcon() {
