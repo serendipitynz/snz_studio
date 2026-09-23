@@ -59,6 +59,11 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 	embeddingBaseURL := strings.TrimSpace(bodyString(m, "embeddingBaseUrl"))
 	embeddingModel := strings.TrimSpace(bodyString(m, "embeddingModel"))
 	embeddingMode := strings.TrimSpace(bodyString(m, "embeddingMode"))
+	// Unlike the review fields these stay empty rather than being filled from the
+	// LLM values: an empty URL keeps following the LLM endpoint at use time, and an
+	// empty model is what disables image description.
+	imageDescriptionBaseURL := strings.TrimSpace(bodyString(m, "imageDescriptionBaseUrl"))
+	imageDescriptionModel := strings.TrimSpace(bodyString(m, "imageDescriptionModel"))
 
 	if llmBaseURL == "" {
 		writeError(w, http.StatusBadRequest, "LLM endpoint is required")
@@ -74,6 +79,9 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 		EmbeddingBaseURL:  embeddingBaseURL,
 		EmbeddingModel:    embeddingModel,
 		EmbeddingMode:     embeddingMode,
+
+		ImageDescriptionBaseURL: imageDescriptionBaseURL,
+		ImageDescriptionModel:   imageDescriptionModel,
 	})
 	if err != nil {
 		fail(w, err)
