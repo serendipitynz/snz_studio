@@ -125,13 +125,7 @@ func (r *DocumentRepository) CreateDocument(input CreateDocumentInput) (model.Do
 
 	category := input.Category
 	if category == "" {
-		category = doccategory.Infer(doccategory.Input{
-			FileName:    ptrString(input.FilePath),
-			Title:       input.Title,
-			Note:        input.Note,
-			ContentText: input.ContentText,
-			DerivedText: input.DerivedText,
-		})
+		category = inferDocumentCategory(input.FilePath, input.Title, input.Note, input.ContentText, input.DerivedText)
 	}
 
 	tags := input.Tags
@@ -176,8 +170,22 @@ func (r *DocumentRepository) CreateDocument(input CreateDocumentInput) (model.Do
 		return model.DocumentRecord{}, err
 	}
 
-	if err := deleteChunks(tx, doc.ID); err != nil {
+	if err := writeDocumentIndex(tx, doc, createdAt); err != nil {
 		return model.DocumentRecord{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return model.DocumentRecord{}, err
+	}
+	return doc, nil
+}
+
+// writeDocumentIndex replaces a document's chunk rows and pre-tokenized FTS rows
+// with ones built from doc. Create and update both go through it, so the same
+// content always yields the same index.
+func writeDocumentIndex(tx *sql.Tx, doc model.DocumentRecord, createdAt string) error {
+	if err := deleteChunks(tx, doc.ID); err != nil {
+		return err
 	}
 
 	// Combined search body: note the ", " join here vs the " " join for the FTS
@@ -212,21 +220,86 @@ func (r *DocumentRepository) CreateDocument(input CreateDocumentInput) (model.Do
 
 	if len(chunks) == 0 {
 		// A single empty chunk keeps the document searchable on its metadata.
-		if err := insertChunk(0, "", ""); err != nil {
-			return model.DocumentRecord{}, err
+		return insertChunk(0, "", "")
+	}
+	for index, c := range chunks {
+		if err := insertChunk(index, c, search.BuildSearchText(c)); err != nil {
+			return err
 		}
-	} else {
-		for index, c := range chunks {
-			if err := insertChunk(index, c, search.BuildSearchText(c)); err != nil {
-				return model.DocumentRecord{}, err
-			}
-		}
+	}
+	return nil
+}
+
+func inferDocumentCategory(filePath *string, title, note, contentText, derivedText string) string {
+	return doccategory.Infer(doccategory.Input{
+		FileName:    ptrString(filePath),
+		Title:       title,
+		Note:        note,
+		ContentText: contentText,
+		DerivedText: derivedText,
+	})
+}
+
+// UpdateDocumentContentInput carries the fields UpdateDocumentContent replaces.
+// Title, type, content text and the stored file are not editable.
+type UpdateDocumentContentInput struct {
+	Note        string
+	Tags        []string
+	DerivedText string
+}
+
+// UpdateDocumentContent replaces a document's note, tags and derived text and
+// rebuilds its chunk and FTS rows, returning (nil, nil) if the document does not
+// exist. Rebuilding gives the chunks new ids, so their embeddings go with the old
+// rows (ON DELETE CASCADE) and the caller has to sync them again.
+//
+// A "misc" category is inferred again from the updated content, because an
+// update takes the document out of BackfillInferredCategories (which only looks
+// at rows whose updated_at is still created_at): an image added without a
+// description usually lands in misc, and this is the one point a description
+// added later can move it. Any other category — inferred or chosen — is kept.
+func (r *DocumentRepository) UpdateDocumentContent(documentID string, input UpdateDocumentContentInput) (*model.DocumentRecord, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	existing, err := scanDocument(tx.QueryRow("SELECT "+documentColumns+" FROM documents WHERE id = ?", documentID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	if err := tx.Commit(); err != nil {
-		return model.DocumentRecord{}, err
+	doc := existing
+	doc.Note = strings.TrimSpace(input.Note)
+	doc.Tags = input.Tags
+	if doc.Tags == nil {
+		doc.Tags = []string{}
 	}
-	return doc, nil
+	doc.DerivedText = strings.TrimSpace(input.DerivedText)
+	if doc.Category == "misc" {
+		doc.Category = inferDocumentCategory(doc.FilePath, doc.Title, doc.Note, doc.ContentText, doc.DerivedText)
+	}
+	doc.UpdatedAt = util.NowISO()
+
+	tagsJSON, err := json.Marshal(doc.Tags)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec("UPDATE documents SET category = ?, note = ?, tags_json = ?, derived_text = ?, updated_at = ? WHERE id = ?",
+		doc.Category, doc.Note, string(tagsJSON), doc.DerivedText, doc.UpdatedAt, doc.ID); err != nil {
+		return nil, err
+	}
+	if err := writeDocumentIndex(tx, doc, doc.UpdatedAt); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &doc, nil
 }
 
 // UpdateDocumentCategory sets a document's category, returning (nil, nil) if the

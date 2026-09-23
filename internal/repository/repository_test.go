@@ -3,6 +3,8 @@ package repository
 import (
 	"database/sql"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -872,5 +874,158 @@ func TestParticipantRepository(t *testing.T) {
 	}
 	if rows, err := participants.ListAll(chat.ID); err != nil || len(rows) != 0 {
 		t.Errorf("participants not cascaded: %d rows, %v", len(rows), err)
+	}
+}
+
+// documentIndex returns a document's chunk contents and FTS rows in chunk order,
+// without the per-row ids, so two documents' indexes can be compared.
+func documentIndex(t *testing.T, d *sql.DB, documentID string) []string {
+	t.Helper()
+	rows, err := d.Query(`
+		SELECT c.chunk_index, c.content, f.title, f.note, f.tags, f.derived_text, f.content
+		FROM document_chunks c
+		JOIN document_chunks_fts f ON f.chunk_id = c.id
+		WHERE c.document_id = ?
+		ORDER BY c.chunk_index`, documentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var (
+			index                                        int
+			content, title, note, tags, derived, ftsBody string
+		)
+		if err := rows.Scan(&index, &content, &title, &note, &tags, &derived, &ftsBody); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, strings.Join([]string{strconv.Itoa(index), content, title, note, tags, derived, ftsBody}, "|"))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestDocumentUpdateContentRebuildsIndex(t *testing.T) {
+	d := newTestDB(t)
+	projects := NewProjectRepository(d)
+	docs := NewDocumentRepository(d)
+	proj, err := projects.CreateProject(CreateProjectInput{Title: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filePath := "/files/a.png"
+	doc, err := docs.CreateDocument(CreateDocumentInput{
+		ProjectID: proj.ID, Type: "image", Title: "写真", Note: "旧メモ", Tags: []string{"旧タグ"},
+		DerivedText: "灯台の写真", FilePath: &filePath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := docs.ListChunksForEmbedding(doc.ID)
+	if err != nil || len(chunks) == 0 {
+		t.Fatalf("ListChunksForEmbedding = %d, %v", len(chunks), err)
+	}
+	if err := docs.UpsertChunkEmbeddings([]ChunkEmbedding{{
+		ChunkID: chunks[0].ChunkID, DocumentID: doc.ID, ProjectID: proj.ID, Embedding: []float64{0.1}, Model: "test",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	tick()
+	updated, err := docs.UpdateDocumentContent(doc.ID, UpdateDocumentContentInput{
+		Note: "  新メモ  ", Tags: []string{"港"}, DerivedText: "\n夕暮れの桟橋\n",
+	})
+	if err != nil || updated == nil {
+		t.Fatalf("UpdateDocumentContent = %v, %v", updated, err)
+	}
+	if updated.Note != "新メモ" || updated.DerivedText != "夕暮れの桟橋" || len(updated.Tags) != 1 || updated.Tags[0] != "港" {
+		t.Fatalf("updated fields = %+v", updated)
+	}
+	if updated.UpdatedAt == updated.CreatedAt {
+		t.Error("updated_at was not advanced")
+	}
+	stored, err := docs.GetDocument(doc.ID)
+	if err != nil || stored == nil || stored.DerivedText != "夕暮れの桟橋" || stored.Title != "写真" || stored.Type != "image" {
+		t.Fatalf("stored = %+v, %v", stored, err)
+	}
+
+	for _, term := range []string{"桟橋", "新メモ", "港"} {
+		if ids := ftsDocIDs(t, d, term); !ids[doc.ID] {
+			t.Errorf("FTS for %q did not find the updated document", term)
+		}
+	}
+	for _, term := range []string{"灯台", "旧メモ", "旧タグ"} {
+		if ids := ftsDocIDs(t, d, term); ids[doc.ID] {
+			t.Errorf("FTS for %q still finds the old content", term)
+		}
+	}
+
+	// The rebuilt chunks are new rows, so the old vectors went with the old ones.
+	var embeddings int
+	if err := d.QueryRow("SELECT COUNT(*) FROM document_chunk_embeddings WHERE document_id = ?", doc.ID).Scan(&embeddings); err != nil {
+		t.Fatal(err)
+	}
+	if embeddings != 0 {
+		t.Errorf("embeddings left after update = %d, want 0", embeddings)
+	}
+
+	// Same content through create and through update gives the same index.
+	twin, err := docs.CreateDocument(CreateDocumentInput{
+		ProjectID: proj.ID, Type: "image", Title: "写真", Note: "新メモ", Tags: []string{"港"},
+		DerivedText: "夕暮れの桟橋", FilePath: &filePath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, want := documentIndex(t, d, doc.ID), documentIndex(t, d, twin.ID)
+	if len(got) == 0 || strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("updated index differs from created one:\nupdated %q\ncreated %q", got, want)
+	}
+
+	if missing, err := docs.UpdateDocumentContent("nope", UpdateDocumentContentInput{}); err != nil || missing != nil {
+		t.Errorf("UpdateDocumentContent(missing) = %v, %v", missing, err)
+	}
+}
+
+func TestDocumentUpdateContentReinfersOnlyMisc(t *testing.T) {
+	d := newTestDB(t)
+	projects := NewProjectRepository(d)
+	docs := NewDocumentRepository(d)
+	proj, err := projects.CreateProject(CreateProjectInput{Title: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filePath := "/files/b.png"
+	// An image with no description: nothing to classify, so it lands in misc.
+	blank, err := docs.CreateDocument(CreateDocumentInput{ProjectID: proj.ID, Type: "image", Title: "b.png", FilePath: &filePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blank.Category != "misc" {
+		t.Fatalf("precondition: category = %q, want misc", blank.Category)
+	}
+	const worldText = "世界設定と魔法体系の詳細"
+	updated, err := docs.UpdateDocumentContent(blank.ID, UpdateDocumentContentInput{DerivedText: worldText})
+	if err != nil || updated == nil {
+		t.Fatalf("UpdateDocumentContent = %v, %v", updated, err)
+	}
+	if updated.Category != "world" {
+		t.Errorf("misc document category after update = %q, want world", updated.Category)
+	}
+	if stored, _ := docs.GetDocument(blank.ID); stored == nil || stored.Category != "world" {
+		t.Errorf("stored category = %+v, want world", stored)
+	}
+
+	// A category other than misc stays, whatever the new content suggests.
+	chosen, err := docs.CreateDocument(CreateDocumentInput{ProjectID: proj.ID, Type: "image", Category: "character", Title: "c.png", FilePath: &filePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err = docs.UpdateDocumentContent(chosen.ID, UpdateDocumentContentInput{DerivedText: worldText})
+	if err != nil || updated == nil || updated.Category != "character" {
+		t.Errorf("non-misc category after update = %+v, %v, want character", updated, err)
 	}
 }

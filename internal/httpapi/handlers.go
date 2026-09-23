@@ -763,6 +763,63 @@ func (s *Server) handleUpdateDocumentSharedWithAll(w http.ResponseWriter, r *htt
 	writeJSON(w, http.StatusOK, map[string]any{"document": document})
 }
 
+// handleUpdateDocumentContent replaces an image document's note, tags and
+// derived text. All three are required so a client that omits one does not clear
+// it by accident. Other document types are refused: editing a markdown or text
+// document's note and tags without its body would be a half-built editor, and
+// lifting this check is all that body editing needs later.
+func (s *Server) handleUpdateDocumentContent(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	note, noteOK := m["note"].(string)
+	tags, tagsOK := m["tags"].(string)
+	derivedText, derivedOK := m["derivedText"].(string)
+	if !noteOK || !tagsOK || !derivedOK {
+		writeError(w, http.StatusBadRequest, "note, tags and derivedText must be strings")
+		return
+	}
+
+	documentID := r.PathValue("documentId")
+	existing, err := s.documents.GetDocument(documentID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if existing == nil {
+		writeError(w, http.StatusNotFound, "document not found")
+		return
+	}
+	if existing.Type != "image" {
+		writeError(w, http.StatusBadRequest, "only image documents can be edited")
+		return
+	}
+
+	document, err := s.documents.UpdateDocumentContent(documentID, repository.UpdateDocumentContentInput{
+		Note:        note,
+		Tags:        util.ParseTags(tags),
+		DerivedText: derivedText,
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if document == nil {
+		writeError(w, http.StatusNotFound, "document not found")
+		return
+	}
+
+	// Best-effort for the same reason as on create: the update is saved. Until a
+	// sync succeeds the document has no vectors — the rebuilt chunks took the old
+	// ones with them — and is found by FTS alone, which beats vectors that no
+	// longer match its text.
+	if err := s.embeddingSync.SyncDocument(document.ID); err != nil {
+		log.Printf("update document %s: embedding sync skipped: %v", document.ID, err)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"document": document})
+}
+
 // --- Chats -------------------------------------------------------------------
 
 func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
