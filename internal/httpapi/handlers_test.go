@@ -805,3 +805,25 @@ func mapEventNames(events map[string]string) []string {
 	}
 	return names
 }
+
+// The image add dialog sends its textareas as multipart fields, which browsers encode
+// with CRLF newlines; the stored text must use LF like documents read from files.
+func TestCreateDocumentStoresFormTextWithLF(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "p")
+	rec := doMultipart(t, h, "/api/projects/"+projectID+"/documents", map[string]string{
+		"type": "image", "title": "map", "note": "a\r\nb", "derivedText": "line 1\r\nline 2",
+	}, "file", "map.png", []byte("\x89PNG\r\n\x1a\n"), "image/png")
+	var body struct {
+		Document struct {
+			Note        string `json:"note"`
+			DerivedText string `json:"derivedText"`
+		} `json:"document"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+	if body.Document.Note != "a\nb" || body.Document.DerivedText != "line 1\nline 2" {
+		t.Fatalf("note/derivedText = %q / %q, want LF newlines", body.Document.Note, body.Document.DerivedText)
+	}
+}
