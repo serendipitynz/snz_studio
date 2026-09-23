@@ -1,10 +1,10 @@
 ---
 id: TASK-38
 title: 画像ドキュメントの追加フォームを作り、マルチモーダルモデルで derived_text の下書きを生成する
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-22 20:47'
-updated_date: '2026-09-23 06:30'
+updated_date: '2026-09-23 09:02'
 labels: []
 dependencies: []
 references:
