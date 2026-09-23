@@ -4,7 +4,7 @@ title: 画像ドキュメントの追加フォームを作り、マルチモー�
 status: In Review
 assignee: []
 created_date: '2026-09-22 20:47'
-updated_date: '2026-09-23 03:38'
+updated_date: '2026-09-23 03:46'
 labels: []
 dependencies: []
 references:
@@ -159,4 +159,7 @@ ordinal: 38000
 - Wails の WebView (WKWebView) 上での操作。検証は Chromium 系のブラウザペインで行った。特に canvas 縮小 (`image.decode()` / `toBlob`) と WebP のデコードは WKWebView で未確認。
 - 埋め込み検索でのヒット。検証用サーバは埋め込み無効 (FTS のみ) で動かした。
 - タイムアウトの UI 表示はユニットテストのみ (実機で 180 s 超を再現していない)。上限超過の UI 無効化も、縮小後に 10 MiB を超える画像を作れず UI では未再現 (判定はサービス・ハンドラのテストで確認)。
+
+## レビュー対応 (PR #37)
+- R1 [P2] 縮小時に WebP を JPEG へ再エンコードしていたため、透過 WebP の透明部分が黒で合成され、黒い文字や線画がモデルに届かない。JPEG 元画像だけ JPEG、PNG・WebP は PNG で出すよう修正。ブラウザペインで 1600x900 の透過 WebP (黒文字) を確認: 修正前は送信画像の全 1,048,320 px が不透明な黒、修正後は PNG で背景 alpha 0・文字の不透明な黒 18,564 px。フロントにテストランナーが無いため自動テストは追加していない (依存追加になる)。
 <!-- SECTION:NOTES:END -->
