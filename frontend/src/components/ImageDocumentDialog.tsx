@@ -251,9 +251,10 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
 }
 
 // prepareForDescription returns the image to send for description: the file itself
-// when it is within MAX_DESCRIPTION_PIXELS, otherwise a downscaled copy (PNG stays
-// PNG to keep text crisp; anything else becomes JPEG). The stored document keeps the
-// original file either way.
+// when it is within MAX_DESCRIPTION_PIXELS, otherwise a downscaled copy. Only a JPEG
+// source is re-encoded as JPEG: PNG and WebP can carry transparency, and a JPEG
+// encode composites it onto black, which would hide dark text or line art on a
+// transparent background from the model. The stored document keeps the original.
 async function prepareForDescription(file: File): Promise<Blob> {
   const url = URL.createObjectURL(file);
   try {
@@ -273,7 +274,7 @@ async function prepareForDescription(file: File): Promise<Blob> {
       throw new Error("canvas 2d context is unavailable");
     }
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const type = file.type === "image/png" ? "image/png" : "image/jpeg";
+    const type = file.type === "image/jpeg" ? "image/jpeg" : "image/png";
     return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("image could not be re-encoded"))), type, 0.9)
     );
