@@ -22,7 +22,7 @@ const exportTimeLayout = "2006-01-02 15:04"
 // participant that has since left the roster, and its speaker still has to be
 // named (docs/multi-agent-chat-design.md §3).
 //
-// The scene, turn rule and roster sections carry no meaning for a
+// The scene, state, turn rule and roster sections carry no meaning for a
 // single-assistant chat, so they are emitted only for a multi-agent one; the
 // heading and the transcript are common to both kinds.
 func BuildChatMarkdown(project *model.Project, chat *model.Chat, participants []model.Participant, messages []model.Message, now time.Time) string {
@@ -40,6 +40,7 @@ func BuildChatMarkdown(project *model.Project, chat *model.Chat, participants []
 
 	if chat.Kind == model.ChatKindMultiAgent {
 		writeSceneSection(&b, chat)
+		writeStateSection(&b, chat, participants)
 		writeTurnRuleSection(&b, chat, participants)
 		writeRosterSection(&b, participants)
 	}
@@ -56,6 +57,43 @@ func writeSceneSection(b *strings.Builder, chat *model.Chat) {
 	} else {
 		b.WriteString("（未設定）\n")
 	}
+}
+
+// writeStateSection exports the state as it stands now, in the order the turn
+// prompt carries it (§4.7.3 item 3). Like the prompt's section it is left out
+// when every sheet is empty, so a conversation that never used state exports
+// as it did before the sheets existed.
+func writeStateSection(b *strings.Builder, chat *model.Chat, participants []model.Participant) {
+	blocks := make([]string, 0, len(participants)+1)
+	if shared := strings.TrimSpace(chat.StateSheet); shared != "" {
+		blocks = append(blocks, "### 共通\n\n"+stateSheetList(shared))
+	}
+	for _, p := range participants {
+		if p.DeletedAt != nil {
+			continue
+		}
+		if sheet := strings.TrimSpace(p.StateSheet); sheet != "" {
+			blocks = append(blocks, fmt.Sprintf("### %s\n\n%s", participantLabel(p), stateSheetList(sheet)))
+		}
+	}
+	if len(blocks) == 0 {
+		return
+	}
+	b.WriteString("\n## 現在の状態\n\n")
+	b.WriteString(strings.Join(blocks, "\n"))
+}
+
+// stateSheetList writes a sheet one list item per line. A sheet is lines of
+// "name: value" rather than markdown, and left as it is a renderer would join
+// the lines into one paragraph.
+func stateSheetList(sheet string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(sheet, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			b.WriteString("- " + line + "\n")
+		}
+	}
+	return b.String()
 }
 
 func writeTurnRuleSection(b *strings.Builder, chat *model.Chat, participants []model.Participant) {
