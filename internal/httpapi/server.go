@@ -51,6 +51,8 @@ type Server struct {
 	reviewService *service.ReviewService
 	turnEngine    *service.TurnEngine
 
+	imageDescription *service.ImageDescriptionService
+
 	// embedManager owns the bundled embedding sidecar (download + llama-server). It
 	// is nil in tests that don't exercise internal embeddings; all uses are
 	// nil-guarded. Its ready/lost callbacks drive config's internal overlay.
@@ -116,8 +118,10 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 		chatService:   chatService,
 		reviewService: reviewService,
 		turnEngine:    turnEngine,
-		embedManager:  embedManager,
-		uploadDir:     uploadDir,
+
+		imageDescription: service.NewImageDescriptionService(cfg),
+		embedManager:     embedManager,
+		uploadDir:        uploadDir,
 	}
 
 	// Wire the sidecar lifecycle to config's internal-embedding overlay: when the
@@ -219,6 +223,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/documents/{documentId}", s.handleDeleteDocument)
 	mux.HandleFunc("PATCH /api/documents/{documentId}/category", s.handleUpdateDocumentCategory)
 	mux.HandleFunc("PATCH /api/documents/{documentId}/shared", s.handleUpdateDocumentSharedWithAll)
+	mux.HandleFunc("GET /api/image-description", s.handleGetImageDescription)
+	mux.HandleFunc("POST /api/image-description", s.handleDescribeImage)
 
 	// Chats
 	mux.HandleFunc("GET /api/chats/{chatId}", s.handleGetChat)

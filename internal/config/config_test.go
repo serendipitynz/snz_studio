@@ -187,3 +187,39 @@ func TestEmbeddingModeRoundTripAndKeepCurrent(t *testing.T) {
 		t.Fatalf("empty-mode update flipped mode to %q, want external kept", m)
 	}
 }
+
+func TestImageDescriptionSettings(t *testing.T) {
+	t.Setenv("LLM_MODEL", "chat-model")
+	t.Setenv("LLM_TIMEOUT_MS", "1234")
+	os.Unsetenv("IMAGE_DESCRIPTION_BASE_URL")
+	os.Unsetenv("IMAGE_DESCRIPTION_MODEL")
+	os.Unsetenv("IMAGE_DESCRIPTION_TIMEOUT_MS")
+
+	s := Defaults()
+	// The model must not inherit LLM_MODEL (that would describe images with a
+	// model that may not see them), and the timeout must not inherit LLM_TIMEOUT_MS.
+	if s.ImageDescriptionModel != "" || s.ImageDescriptionBaseURL != "" {
+		t.Fatalf("image description = %q / %q, want both empty", s.ImageDescriptionBaseURL, s.ImageDescriptionModel)
+	}
+	if s.ImageDescriptionTimeoutMs != DefaultImageDescriptionTimeoutMs {
+		t.Fatalf("timeout = %d, want %d", s.ImageDescriptionTimeoutMs, DefaultImageDescriptionTimeoutMs)
+	}
+
+	t.Setenv("IMAGE_DESCRIPTION_TIMEOUT_MS", "5000")
+	if got := Defaults().ImageDescriptionTimeoutMs; got != 5000 {
+		t.Fatalf("timeout = %d, want 5000 from IMAGE_DESCRIPTION_TIMEOUT_MS", got)
+	}
+
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	c := New(Defaults(), path)
+	editable := c.GetEditable()
+	editable.ImageDescriptionBaseURL = " http://vision/v1 "
+	editable.ImageDescriptionModel = " gemma "
+	if _, err := c.UpdateEditable(editable); err != nil {
+		t.Fatalf("UpdateEditable: %v", err)
+	}
+	reloaded := Load(path).Get()
+	if reloaded.ImageDescriptionBaseURL != "http://vision/v1" || reloaded.ImageDescriptionModel != "gemma" {
+		t.Fatalf("reloaded = %q / %q, want trimmed persisted values", reloaded.ImageDescriptionBaseURL, reloaded.ImageDescriptionModel)
+	}
+}

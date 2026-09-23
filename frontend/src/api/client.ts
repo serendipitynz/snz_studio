@@ -184,6 +184,8 @@ export interface WorkspaceConfiguration {
   embeddingBaseUrl: string;
   embeddingModel: string;
   embeddingMode: "internal" | "external";
+  imageDescriptionBaseUrl: string;
+  imageDescriptionModel: string;
   llmConnected: boolean;
   reviewConnected: boolean;
   embeddingConnected: boolean;
@@ -198,6 +200,14 @@ export interface EmbeddingStatus {
   downloaded: number;
   total: number;
   error?: string;
+}
+
+// ImageDescriptionAvailability mirrors GET /api/image-description: whether a model
+// is configured, and the size and formats the server accepts for a description.
+export interface ImageDescriptionAvailability {
+  enabled: boolean;
+  maxBytes: number;
+  formats: string[];
 }
 
 export interface ReviewResponse {
@@ -274,6 +284,8 @@ export const api = {
     embeddingBaseUrl: string;
     embeddingModel: string;
     embeddingMode: "internal" | "external";
+    imageDescriptionBaseUrl: string;
+    imageDescriptionModel: string;
   }) =>
     request<{ configuration: WorkspaceConfiguration }>("/api/configuration", {
       method: "PUT",
@@ -401,6 +413,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ plan })
     }),
+  getImageDescription: () => request<ImageDescriptionAvailability>("/api/image-description"),
+  describeImage: (image: Blob, signal?: AbortSignal) => {
+    const formData = new FormData();
+    formData.set("file", image);
+    return request<{ description: string }>("/api/image-description", { method: "POST", body: formData, signal });
+  },
   createDocument: (projectId: string, formData: FormData) =>
     request<{ document: DocumentRecord }>(`/api/projects/${projectId}/documents`, {
       method: "POST",

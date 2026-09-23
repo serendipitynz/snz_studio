@@ -1,10 +1,10 @@
 ---
 id: TASK-38
 title: 画像ドキュメントの追加フォームを作り、マルチモーダルモデルで derived_text の下書きを生成する
-status: To Do
+status: In Review
 assignee: []
 created_date: '2026-09-22 20:47'
-updated_date: '2026-09-22 22:37'
+updated_date: '2026-09-23 06:30'
 labels: []
 dependencies: []
 references:
@@ -108,13 +108,64 @@ ordinal: 38000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 画像の追加フォームから title・note・tags・derived_text を入力して画像ドキュメントを作成できる。同じ title の既存ドキュメントがあれば確認ダイアログを経て上書きされ、拒否すれば作成されずフォームが保たれる。既存の一括アップロードは従来どおり動く
-- [ ] #2 追加フォームで「説明文を生成」を押すと、画像が生成用エンドポイントに multipart で送られ、マルチモーダルモデルの説明文が derived_text 欄に下書きとして入る。生成時点ではサーバに画像もドキュメントも保存されない
-- [ ] #3 生成結果は人間が編集して作成操作をするまで永続化されない
-- [ ] #4 画像説明用の設定が .env 既定値 + 設定画面で編集でき、接続先 URL は LLM_BASE_URL にフォールバックし、モデル名が空なら生成操作が無効化され理由が表示される。タイムアウトは専用の env 値で、既定値と根拠が記録されている
-- [ ] #5 生成対象外の画像形式 (svg / heic など) と上限超過のサイズでは生成操作が無効化され理由が表示される。生成サービス関数は先頭バイトで形式を判定し、許可リスト (png / jpeg / webp など) に無い形式と上限超過を sentinel error で拒否し、ハンドラはそれを 400 系で返す。この判定にテストがある。サイズ上限・縮小の扱いと、保存経路との非対称の理由が記録されている
-- [ ] #6 接続失敗・タイムアウト・エラー応答でエラーが表示され、フォームの入力内容が失われない
-- [ ] #7 説明文の生成は画像のバイト列だけを受けるサービス関数にまとまっており (形式は引数で受けず関数内で判定する)、multipart ハンドラはサイズの事前チェック・関数の呼び出し・エラーの写像だけを行う
-- [ ] #8 既存のチャット・多人数会話の LLM 呼び出しは文字列 content のまま変わらない
-- [ ] #9 マルチモーダルモデルで実機確認し、追加フォームで生成・保存した derived_text で画像ドキュメントが検索・チャットの参照にヒットすることを確認している (#1〜#3 の保存経路が前提)
+- [x] #1 画像の追加フォームから title・note・tags・derived_text を入力して画像ドキュメントを作成できる。同じ title の既存ドキュメントがあれば確認ダイアログを経て上書きされ、拒否すれば作成されずフォームが保たれる。既存の一括アップロードは従来どおり動く
+- [x] #2 追加フォームで「説明文を生成」を押すと、画像が生成用エンドポイントに multipart で送られ、マルチモーダルモデルの説明文が derived_text 欄に下書きとして入る。生成時点ではサーバに画像もドキュメントも保存されない
+- [x] #3 生成結果は人間が編集して作成操作をするまで永続化されない
+- [x] #4 画像説明用の設定が .env 既定値 + 設定画面で編集でき、接続先 URL は LLM_BASE_URL にフォールバックし、モデル名が空なら生成操作が無効化され理由が表示される。タイムアウトは専用の env 値で、既定値と根拠が記録されている
+- [x] #5 生成対象外の画像形式 (svg / heic など) と上限超過のサイズでは生成操作が無効化され理由が表示される。生成サービス関数は先頭バイトで形式を判定し、許可リスト (png / jpeg / webp など) に無い形式と上限超過を sentinel error で拒否し、ハンドラはそれを 400 系で返す。この判定にテストがある。サイズ上限・縮小の扱いと、保存経路との非対称の理由が記録されている
+- [x] #6 接続失敗・タイムアウト・エラー応答でエラーが表示され、フォームの入力内容が失われない
+- [x] #7 説明文の生成は画像のバイト列だけを受けるサービス関数にまとまっており (形式は引数で受けず関数内で判定する)、multipart ハンドラはサイズの事前チェック・関数の呼び出し・エラーの写像だけを行う
+- [x] #8 既存のチャット・多人数会話の LLM 呼び出しは文字列 content のまま変わらない
+- [x] #9 マルチモーダルモデルで実機確認し、追加フォームで生成・保存した derived_text で画像ドキュメントが検索・チャットの参照にヒットすることを確認している (#1〜#3 の保存経路が前提)
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. config: Editable に imageDescriptionBaseUrl / imageDescriptionModel、Settings に ImageDescriptionTimeoutMs (env IMAGE_DESCRIPTION_BASE_URL / _MODEL / _TIMEOUT_MS)。URL は空なら利用時に LLMBaseURL へフォールバック、モデルは空なら無効
+2. service/imagedescription.go: DescribeImage(ctx, []byte) — 無効/上限/形式 (http.DetectContentType + 許可リスト png/jpeg/webp) を sentinel error で返し、data URL の image_url パーツで専用の multimodal リクエストを送る。既存 chatMessage は触らない
+3. httpapi: GET /api/image-description (有効可否・上限・許可形式) と POST /api/image-description (multipart, Content-Length 事前チェック, errors.Is で 4xx 写像)
+4. frontend: ImageDocumentDialog を新設 (title/note/tags/derived_text + 説明文を生成 + 同名確認)、ドキュメント欄に画像追加ボタン、SettingsModal に画像説明モデル欄
+5. テスト (service の判定・ハンドラの写像・config)、.env.example / README 更新、LM Studio の vision モデルで実機確認
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## 実装
+- 設定: `IMAGE_DESCRIPTION_BASE_URL` / `IMAGE_DESCRIPTION_MODEL` (設定画面で編集・app-config.json に永続化) と env 専用の `IMAGE_DESCRIPTION_TIMEOUT_MS`。URL は保存時に LLM の値で埋めず空のまま持ち、利用時に `LLMBaseURL` へフォールバックする (review 系は保存時に埋めるが、それだと後で LLM エンドポイントを変えても追従しないため)。モデルはフォールバックしない。
+- 生成: `service.ImageDescriptionService.DescribeImage(ctx, []byte)`。無効 / 上限超過 / 形式 (`http.DetectContentType` + 許可リスト png・jpeg・webp) を sentinel error で返す。リクエストは専用の `visionMessage` 型で組み、既存の `chatMessage` (文字列 content) には触れていない (#8)。
+- API: `GET /api/image-description` (有効可否・上限・許可形式) と `POST /api/image-description` (multipart)。ハンドラは Content-Length の事前チェック + MaxBytesReader、関数呼び出し、`errors.Is` での写像 (無効 409 / 形式 415 / 上限 413 / エンドポイント失敗 502) だけ。
+- UI: `ImageDocumentDialog` (ドキュメント欄の画像アイコンから開く)。同名タイトルは一括経路と同じ確認ダイアログ → 削除 → 作成。既存の一括アップロードのコードは変更していない。
+- multipart のテキスト欄はブラウザが改行を CRLF にするため、作成ハンドラで note / derivedText を LF に揃えた (実機で CRLF 保存を確認して追加)。
+
+## 着手時に決めたこと
+- **サイズ上限 10 MiB (生成経路のみ)**。保存経路は無制限のままで、非対称は意図どおり (理由はコメントと .env.example)。
+- **縮小は UI で行う**。実測で LM Studio + google/gemma-4-12b-qat は 1024x1024・2048x512 (約 1MP) は通るが 1280x1280・1536x1536・1600x900・2048x2048 を `{"error":"terminated"}` (400) で即拒否し、自前で縮小しなかった。スマホ写真はそのままでは生成できないので、送信前に canvas で 1,048,576 px 以下へ縮小する (PNG は PNG、他は JPEG q0.9)。保存するのは元ファイル。Go 側で縮小しないのは WebP デコーダとリサンプラが標準ライブラリに無く依存追加になるため。**TASK-39 の id 指定経路はサーバで画像を読むので、この縮小を通らない**。TASK-39 では UI が保存済み画像を取得して同じ縮小を経由して POST する形にするか、サーバ側縮小を検討する必要がある。
+- **タイムアウト既定 180000 ms**。実測 (LM Studio, gemma-4-12b-qat, reasoning on): 800x500 PNG 64 s / 81 s、1024x1024 写真 94 s、UI 経由 900x600 PNG 82 s。大半は reasoning トークン (1024² 写真で 655 中 614)。遅い側の約 2 倍。
+
+## 検証
+- `go test ./...` / `go vet ./...` / `pnpm check:client` すべて通過。
+- 追加テスト: 形式判定 (svg / heic / gif / 空 / テキストを拒否、png / jpeg / webp は data URL の型が判定結果と一致)、上限超過、無効、URL フォールバック、エンドポイント失敗 (非対応モデル・LM Studio の文字列エラー・200 のエラー本文・非 JSON・空応答)、タイムアウト、ハンドラの写像 (409 / 415 / 413 事前チェック / 400 / 502)、生成後に uploads が空、CRLF→LF、config の env 既定と永続化。
+- 実機 (ローカル LM Studio、ビルド済み SPA と API を同一オリジンで配信する検証用サーバ + ブラウザペイン):
+  - モデル未設定で「説明文を生成」が無効になり理由表示 → 設定画面でモデル入力 (候補は LLM エンドポイントから 7 件) → 保存で app-config.json に永続化。
+  - SVG で無効化 + 理由表示。4032x3024 JPEG は 1182x886 (49 KB) に縮小して送信され生成成功。
+  - 生成直後は uploads 0 件・ドキュメント 0 件。下書きを編集して追加すると note・tags・編集後の derived_text・元画像が保存される。
+  - 同名タイトル: 確認ダイアログでキャンセル → フォーム保持・既存無傷、OK → 上書き (旧ファイル削除)。
+  - 接続失敗 (connection refused) と非対応モデル (gpt-oss-20b: "does not support image inputs") でエラー表示、入力保持。
+  - フォームで生成・手直し・保存した年表画像に対し、チャットで「ミレナが着任したのは何年？」→ 回答「1402年」、参照に画像ドキュメント (#9)。生成結果には「ミレナが」を「ミレナに」とする誤読が 1 か所あり、人間確認を必須にした方針の妥当性も確認できた。
+
+## 未確認 (人間の確認が要るもの)
+- Wails の WebView (WKWebView) 上での操作。検証は Chromium 系のブラウザペインで行った。特に canvas 縮小 (`image.decode()` / `toBlob`) と WebP のデコードは WKWebView で未確認。
+- 埋め込み検索でのヒット。検証用サーバは埋め込み無効 (FTS のみ) で動かした。
+- タイムアウトの UI 表示はユニットテストのみ (実機で 180 s 超を再現していない)。上限超過の UI 無効化も、縮小後に 10 MiB を超える画像を作れず UI では未再現 (判定はサービス・ハンドラのテストで確認)。
+
+## レビュー対応 (PR #37)
+- R1 [P2] 縮小時に WebP を JPEG へ再エンコードしていたため、透過 WebP の透明部分が黒で合成され、黒い文字や線画がモデルに届かない。JPEG 元画像だけ JPEG、PNG・WebP は PNG で出すよう修正。ブラウザペインで 1600x900 の透過 WebP (黒文字) を確認: 修正前は送信画像の全 1,048,320 px が不透明な黒、修正後は PNG で背景 alpha 0・文字の不透明な黒 18,564 px。フロントにテストランナーが無いため自動テストは追加していない (依存追加になる)。
+
+- 実機 (Wails アプリ, gemma-4-e4b-it-qat) で透過 WebP (黒文字) が「黒一色の画像」と説明された。上の修正で PNG は alpha を保っていたが、モデル側 (LM Studio) が alpha を捨てるため、透明画素の下地の黒が見えていた。PNG・WebP は縮小の要否にかかわらず白で塗った canvas に描き直して PNG で送るよう再修正 (小さい透過 PNG もそのまま送ると同じ問題になるため)。白地に白い線画の透過画像は判読できなくなるが、アプリのプレビューや一般の画像ビューアで人が見る背景が白系なのでそちらに合わせた。ブラウザペインで確認: 送信画像は PNG・背景 (255,255,255,255)、gemma-4-e4b-it-qat が文字列「霧鐘の塔 見取り図」「東門 → 螺旋階段 → 鐘楼」を読み取った (色は「黒背景に白文字」と誤記。送信画素は白地に黒文字であることを確認済み)。
+
+## 実機確認 (ユーザー, Wails アプリ / WKWebView, 2026-09-23)
+- スマホ写真 (IMG_8037.jpg) と 4032x3024 の JPEG・WebP で説明文を生成できた。1MP 超は LM Studio が拒否するので、WKWebView 上でも canvas 縮小が効いていることになる。WebP の追加・表示も確認済み。
+- 埋め込み検索は未確認のまま。開発 DB で新規ドキュメント (この PR 以前に追加した slides.md を含む) に埋め込みが 1 件も作られていない。原因は同梱サイドカー (llama-server, ubatch 512) が 512 トークンを超える入力を 500 で拒否し、EmbeddingClient が 1 回の失敗で自身を無効化して以後の同期を黙って飛ばすこと。TASK-38 の変更とは独立した既存の不具合なので、別タスクで扱う。
+<!-- SECTION:NOTES:END -->

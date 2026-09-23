@@ -59,6 +59,11 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 	embeddingBaseURL := strings.TrimSpace(bodyString(m, "embeddingBaseUrl"))
 	embeddingModel := strings.TrimSpace(bodyString(m, "embeddingModel"))
 	embeddingMode := strings.TrimSpace(bodyString(m, "embeddingMode"))
+	// Unlike the review fields these stay empty rather than being filled from the
+	// LLM values: an empty URL keeps following the LLM endpoint at use time, and an
+	// empty model is what disables image description.
+	imageDescriptionBaseURL := strings.TrimSpace(bodyString(m, "imageDescriptionBaseUrl"))
+	imageDescriptionModel := strings.TrimSpace(bodyString(m, "imageDescriptionModel"))
 
 	if llmBaseURL == "" {
 		writeError(w, http.StatusBadRequest, "LLM endpoint is required")
@@ -74,6 +79,9 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 		EmbeddingBaseURL:  embeddingBaseURL,
 		EmbeddingModel:    embeddingModel,
 		EmbeddingMode:     embeddingMode,
+
+		ImageDescriptionBaseURL: imageDescriptionBaseURL,
+		ImageDescriptionModel:   imageDescriptionModel,
 	})
 	if err != nil {
 		fail(w, err)
@@ -660,9 +668,9 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		Type:        docType,
 		Category:    category,
 		Title:       title,
-		Note:        r.FormValue("note"),
+		Note:        formText(r, "note"),
 		Tags:        util.ParseTags(r.FormValue("tags")),
-		DerivedText: r.FormValue("derivedText"),
+		DerivedText: formText(r, "derivedText"),
 		ContentText: contentText,
 		FilePath:    filePath,
 		MimeType:    mimeType,
@@ -685,6 +693,14 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		log.Printf("create document %s: embedding sync skipped: %v", document.ID, err)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"document": document})
+}
+
+// formText reads a multipart text field with LF line endings. A browser encodes
+// every newline in a form field as CRLF when it builds multipart/form-data, so a
+// note or description typed into a textarea would otherwise be stored with CRLF
+// while documents read from files keep LF.
+func formText(r *http.Request, key string) string {
+	return strings.ReplaceAll(r.FormValue(key), "\r\n", "\n")
 }
 
 func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
