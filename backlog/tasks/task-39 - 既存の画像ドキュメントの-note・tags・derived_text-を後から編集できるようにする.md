@@ -1,10 +1,10 @@
 ---
 id: TASK-39
 title: 既存の画像ドキュメントの note・tags・derived_text を後から編集できるようにする
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-22 22:13'
-updated_date: '2026-09-23 10:02'
+updated_date: '2026-09-23 10:43'
 labels: []
 dependencies:
   - TASK-38
