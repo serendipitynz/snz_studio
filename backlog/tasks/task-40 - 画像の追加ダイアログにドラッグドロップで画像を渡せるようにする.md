@@ -1,10 +1,10 @@
 ---
 id: TASK-40
 title: 画像の追加ダイアログにドラッグ&ドロップで画像を渡せるようにする
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-23 05:37'
-updated_date: '2026-09-23 10:49'
+updated_date: '2026-09-23 11:09'
 labels: []
 dependencies:
   - TASK-38
@@ -61,4 +61,6 @@ TASK-38 で追加した「説明付きで画像を追加」ダイアログ (`Ima
   - AC#3: ProjectDetailPage.tsx と DropZone のスタイルは差分なし。
   - pnpm check:client / pnpm build:client 通過。
 - 未確認: macOS の Finder から Wails の WebView へ実ファイルをドラッグする操作 (合成イベントでの確認のみ)。
+
+- マージ後: Finder から Wails のウィンドウへの実ファイルのドラッグ&ドロップはオーナーが確認済み。
 <!-- SECTION:NOTES:END -->
