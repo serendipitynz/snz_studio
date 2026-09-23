@@ -436,6 +436,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sharedWithAll })
     }),
+  // Image documents only; the server refuses other types. tags is the
+  // comma-separated form the add flow also sends.
+  updateDocumentContent: (documentId: string, input: { note: string; tags: string; derivedText: string }) =>
+    request<{ document: DocumentRecord }>(`/api/documents/${documentId}/content`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }),
   deleteDocument: (documentId: string) =>
     request<{ ok: boolean; document: DocumentRecord }>(`/api/documents/${documentId}`, {
       method: "DELETE"

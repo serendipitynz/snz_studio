@@ -223,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/documents/{documentId}", s.handleDeleteDocument)
 	mux.HandleFunc("PATCH /api/documents/{documentId}/category", s.handleUpdateDocumentCategory)
 	mux.HandleFunc("PATCH /api/documents/{documentId}/shared", s.handleUpdateDocumentSharedWithAll)
+	mux.HandleFunc("PATCH /api/documents/{documentId}/content", s.handleUpdateDocumentContent)
 	mux.HandleFunc("GET /api/image-description", s.handleGetImageDescription)
 	mux.HandleFunc("POST /api/image-description", s.handleDescribeImage)
 

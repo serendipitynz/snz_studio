@@ -249,6 +249,9 @@ memory retrieval becomes a hybrid of `FTS + embedding rerank`.
 Set `IMAGE_DESCRIPTION_MODEL` (or the image description model in Settings) to a model that accepts
 images to enable "Generate description" in the image add dialog. The image is sent once, and the
 returned text lands in the description field as a draft that is saved only when you add the image.
+An image already in the project can get one too: open it from the document list and choose "Edit note,
+tags and description", where the note, tags and description can be edited and saved, and the same
+generate action works on the stored image.
 The endpoint falls back to `LLM_BASE_URL`; the model has no fallback, so leaving it empty turns the
 action off. `IMAGE_DESCRIPTION_TIMEOUT_MS` defaults to 180000 (see `.env.example` for why).
 
