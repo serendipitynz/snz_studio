@@ -134,21 +134,22 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 }
 
 // onEmbeddingReady is the sidecar manager's ready callback. It overlays the internal
-// sidecar endpoint onto config, refreshes the embedding client, and rebuilds
-// embeddings exactly once per model (guarded so it does not re-embed on every
-// launch/restart of an already-embedded corpus).
+// sidecar endpoint onto config, refreshes the embedding client, and embeds whatever
+// lacks a vector for this model. Filling only the gaps keeps a launch or restart of
+// an already-embedded corpus cheap, while still catching up chunks that an earlier
+// run failed to embed (a run-once "any vector exists" guard left those unembedded
+// for good).
+//
+// baseURL is the sidecar's origin; the client posts to <base>/embeddings, and on
+// the bare origin that is llama-server's native endpoint, whose array response the
+// client cannot decode — so the OpenAI-compatible /v1 root is what gets overlaid.
 func (s *Server) onEmbeddingReady(baseURL, modelID string) {
-	s.cfg.SetInternalEmbedding(baseURL, modelID)
+	s.cfg.SetInternalEmbedding(strings.TrimRight(baseURL, "/")+"/v1", modelID)
 	s.embedding.RefreshConfiguration()
 
-	hasDoc, derr := s.documents.HasEmbeddingsForModel(modelID)
-	hasMem, merr := s.memories.HasEmbeddingsForModel(modelID)
-	if (derr == nil && hasDoc) || (merr == nil && hasMem) {
-		return // corpus already embedded for this model — skip the rebuild
-	}
 	go func() {
-		if err := s.embeddingSync.RebuildAll(); err != nil {
-			log.Printf("Embedding rebuild (internal sidecar ready) skipped: %v", err)
+		if err := s.embeddingSync.SyncMissing(); err != nil {
+			log.Printf("Embedding sync (internal sidecar ready) skipped: %v", err)
 		}
 	}()
 }

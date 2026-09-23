@@ -127,7 +127,7 @@ func (m *Manager) superviseSidecar(ctx context.Context, modelPath string) {
 		}
 
 		m.setState(StateStarting, "")
-		sc := newSidecar(m.binPath, modelPath, m.spec.Dim)
+		sc := newSidecar(m.binPath, modelPath, m.spec.Dim, m.spec.ContextLength)
 		if err := sc.Start(ctx); err != nil {
 			sc.Stop()
 			if ctx.Err() != nil {

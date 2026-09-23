@@ -328,8 +328,26 @@ func (r *MemoryRepository) ListForEmbedding(memoryIDs []string) ([]MemoryForEmbe
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return scanMemoriesForEmbedding(rows)
+}
 
+// ListMissingEmbedding returns the memories that have no stored embedding for
+// model. A memory whose embedding belongs to another model counts as missing.
+func (r *MemoryRepository) ListMissingEmbedding(model string) ([]MemoryForEmbedding, error) {
+	rows, err := r.db.Query(`
+		SELECT m.id, m.project_id, m.kind, m.title, m.content FROM memories m
+		WHERE NOT EXISTS (
+			SELECT 1 FROM memory_embeddings e WHERE e.memory_id = m.id AND e.model = ?
+		)
+		ORDER BY m.created_at ASC`, model)
+	if err != nil {
+		return nil, err
+	}
+	return scanMemoriesForEmbedding(rows)
+}
+
+func scanMemoriesForEmbedding(rows *sql.Rows) ([]MemoryForEmbedding, error) {
+	defer rows.Close()
 	out := []MemoryForEmbedding{}
 	for rows.Next() {
 		var m MemoryForEmbedding
@@ -381,17 +399,6 @@ func (r *MemoryRepository) UpsertMemoryEmbeddings(rows []MemoryEmbedding) error 
 		}
 	}
 	return tx.Commit()
-}
-
-// HasEmbeddingsForModel reports whether any memory embedding is stored for the given
-// model id. Paired with the document equivalent as the internal sidecar's run-once
-// rebuild guard.
-func (r *MemoryRepository) HasEmbeddingsForModel(model string) (bool, error) {
-	var exists int
-	if err := r.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM memory_embeddings WHERE model = ?)`, model).Scan(&exists); err != nil {
-		return false, err
-	}
-	return exists == 1, nil
 }
 
 // RebuildSearchIndex rebuilds memories_fts from scratch with current tokenization.

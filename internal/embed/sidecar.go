@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -21,6 +20,7 @@ type sidecar struct {
 	binPath   string
 	modelPath string
 	dim       int
+	ctxLen    int
 	client    *http.Client
 
 	mu      sync.Mutex
@@ -28,11 +28,12 @@ type sidecar struct {
 	baseURL string
 }
 
-func newSidecar(binPath, modelPath string, dim int) *sidecar {
+func newSidecar(binPath, modelPath string, dim, ctxLen int) *sidecar {
 	return &sidecar{
 		binPath:   binPath,
 		modelPath: modelPath,
 		dim:       dim,
+		ctxLen:    ctxLen,
 		client:    &http.Client{},
 	}
 }
@@ -48,22 +49,24 @@ func (s *sidecar) Start(ctx context.Context) error {
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
+	// -b/-ub match -c because an embedding input must fit one physical batch; at the
+	// default -ub 512 a single 1000-rune chunk plus its title/prefix was rejected.
+	ctxLen := strconv.Itoa(s.ctxLen)
 	args := []string{
 		"-m", s.modelPath,
 		"--embedding",
 		"--pooling", "mean", // ruri uses mean pooling
-		"-c", "2048",
+		"-c", ctxLen,
+		"-b", ctxLen,
+		"-ub", ctxLen,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(port),
 		// CPU-only: the 37M model is tiny, and this keeps the sidecar portable
 		// (matches the Windows CPU build) and free of GPU/JIT concerns.
 		"-ngl", "0",
 	}
-	cmd := exec.Command(s.binPath, args...)
-	configureSysProcAttr(cmd) // platform-specific process-group setup
-	// The official macOS build loads sibling dylibs via @rpath; make sure the
-	// dynamic loader can find them regardless of the launch cwd.
-	cmd.Env = append(os.Environ(), "DYLD_LIBRARY_PATH="+filepath.Dir(s.binPath))
+	cmd := sidecarCommand(s.binPath, args) // platform-specific parent-death guard
+	configureSysProcAttr(cmd)              // platform-specific process-group setup
 	cmd.Dir = filepath.Dir(s.binPath)
 	if err := cmd.Start(); err != nil {
 		return err

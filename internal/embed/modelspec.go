@@ -19,6 +19,11 @@ type ModelSpec struct {
 	SizeBytes int64  // exact size; a cheap pre-check before hashing
 	Dim       int    // embedding dimension; the sidecar probe asserts this
 
+	// ContextLength is the model's trained maximum input length in tokens. The
+	// sidecar sizes its context and batches to it: llama-server embeds a whole input
+	// in one physical batch and rejects anything longer than -ub.
+	ContextLength int
+
 	// QueryPrefix/DocumentPrefix implement ruri's asymmetric (1+3) retrieval scheme.
 	// They are baked into the stored vectors, so changing them requires RebuildAll.
 	QueryPrefix    string
@@ -48,6 +53,7 @@ var RuriV3_30m = ModelSpec{
 	SHA256:         "2a6cb2d9889140cd214bc4eaee14114f276a52afcf0a2fe65fae3d467f7480fe",
 	SizeBytes:      41569120,
 	Dim:            256,
+	ContextLength:  8192,
 	QueryPrefix:    "検索クエリ: ",
 	DocumentPrefix: "検索文書: ",
 }

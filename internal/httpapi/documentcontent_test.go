@@ -161,3 +161,44 @@ func TestUpdateDocumentContentSurvivesEmbeddingFailure(t *testing.T) {
 		t.Errorf("embeddings after a failed sync = %d, want 0", got)
 	}
 }
+
+// The internal sidecar reports its bare origin; embeddings must go to its
+// OpenAI-compatible /v1/embeddings, not llama-server's native /embeddings.
+func TestEmbeddingReadyUsesSidecarV1Endpoint(t *testing.T) {
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			writeJSON(w, http.StatusOK, []any{}) // native endpoint shape
+			return
+		}
+		var body struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		data := make([]map[string]any, len(body.Input))
+		for i := range body.Input {
+			data[i] = map[string]any{"embedding": []float64{0.5, 0.5}}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"data": data})
+	}))
+	t.Cleanup(sidecar.Close)
+	dir := t.TempDir()
+	d, err := db.Open(filepath.Join(dir, "app.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	cfg := config.New(config.Settings{
+		Editable:           config.Editable{EmbeddingMode: "internal"},
+		EmbeddingTimeoutMs: 500,
+	}, filepath.Join(dir, "app-config.json"))
+	srv := NewServer(d, cfg, filepath.Join(dir, "uploads"), nil)
+
+	srv.onEmbeddingReady(sidecar.URL, "ruri-v3-30m")
+
+	if got := srv.cfg.Get().EmbeddingBaseURL; got != sidecar.URL+"/v1" {
+		t.Fatalf("overlaid base URL = %q, want %q", got, sidecar.URL+"/v1")
+	}
+	if vec := srv.embedding.CreateEmbedding("probe"); vec == nil {
+		t.Fatal("embedding through the sidecar overlay failed")
+	}
+}

@@ -101,6 +101,49 @@ func (s *EmbeddingSyncService) SyncMemories(memoryIDs []string) error {
 	return s.memories.UpsertMemoryEmbeddings(toMemoryEmbeddings(memories, vectors, s.embeddings.GetModel()))
 }
 
+// SyncMissing embeds only the chunks and memories that have no embedding for the
+// active model — those left behind by an earlier failure, and everything after a
+// model switch. It is the startup catch-up; RebuildAll stays the explicit rebuild.
+func (s *EmbeddingSyncService) SyncMissing() error {
+	if !s.embeddings.IsEnabled() {
+		return nil
+	}
+	model := s.embeddings.GetModel()
+
+	chunks, err := s.documents.ListChunksMissingEmbedding(model)
+	if err != nil {
+		return err
+	}
+	if len(chunks) > 0 {
+		inputs := make([]string, len(chunks))
+		for i, chunk := range chunks {
+			inputs[i] = buildDocumentChunkEmbeddingText(chunk.Title, chunk.Note, chunk.Tags, chunk.DerivedText, chunk.Content)
+		}
+		if vectors := s.embedInBatches(inputs); vectors != nil {
+			if err := s.documents.UpsertChunkEmbeddings(toChunkEmbeddings(chunks, vectors, model)); err != nil {
+				return err
+			}
+		}
+	}
+
+	memories, err := s.memories.ListMissingEmbedding(model)
+	if err != nil {
+		return err
+	}
+	if len(memories) == 0 {
+		return nil
+	}
+	inputs := make([]string, len(memories))
+	for i, memory := range memories {
+		inputs[i] = buildMemoryEmbeddingText(memory.Kind, memory.Title, memory.Content)
+	}
+	vectors := s.embedInBatches(inputs)
+	if vectors == nil {
+		return nil
+	}
+	return s.memories.UpsertMemoryEmbeddings(toMemoryEmbeddings(memories, vectors, model))
+}
+
 // RebuildAll mirrors rebuildAll: re-embed every chunk and memory.
 func (s *EmbeddingSyncService) RebuildAll() error {
 	if !s.embeddings.IsEnabled() {
@@ -141,36 +184,48 @@ func (s *EmbeddingSyncService) RebuildAll() error {
 	return s.memories.UpsertMemoryEmbeddings(toMemoryEmbeddings(memories, vectors, s.embeddings.GetModel()))
 }
 
+// toChunkEmbeddings pairs chunks with their vectors, leaving out the chunks whose
+// vector is nil (the input failed on its own; see embedInBatches).
 func toChunkEmbeddings(chunks []repository.ChunkForEmbedding, vectors [][]float64, model string) []repository.ChunkEmbedding {
-	out := make([]repository.ChunkEmbedding, len(chunks))
+	out := make([]repository.ChunkEmbedding, 0, len(chunks))
 	for i, chunk := range chunks {
-		out[i] = repository.ChunkEmbedding{
+		if vectors[i] == nil {
+			continue
+		}
+		out = append(out, repository.ChunkEmbedding{
 			ChunkID:    chunk.ChunkID,
 			DocumentID: chunk.DocumentID,
 			ProjectID:  chunk.ProjectID,
 			Embedding:  vectors[i],
 			Model:      model,
-		}
+		})
 	}
 	return out
 }
 
+// toMemoryEmbeddings is the memory counterpart of toChunkEmbeddings.
 func toMemoryEmbeddings(memories []repository.MemoryForEmbedding, vectors [][]float64, model string) []repository.MemoryEmbedding {
-	out := make([]repository.MemoryEmbedding, len(memories))
+	out := make([]repository.MemoryEmbedding, 0, len(memories))
 	for i, memory := range memories {
-		out[i] = repository.MemoryEmbedding{
+		if vectors[i] == nil {
+			continue
+		}
+		out = append(out, repository.MemoryEmbedding{
 			MemoryID:  memory.ID,
 			ProjectID: memory.ProjectID,
 			Kind:      memory.Kind,
 			Embedding: vectors[i],
 			Model:     model,
-		}
+		})
 	}
 	return out
 }
 
-// embedInBatches mirrors embedInBatches: embeds inputs in chunks of 32, returning
-// nil as soon as any batch is unavailable.
+// embedInBatches embeds inputs in batches of 32 and returns one vector per input.
+// A failed batch is retried one input at a time, so an input the endpoint rejects
+// (e.g. one longer than the model accepts) leaves a nil at its own position rather
+// than dropping its 31 neighbours. Once the client disables itself the remaining
+// inputs stay nil. It returns nil only when no input was embedded.
 //
 // All inputs here are stored CORPUS items (document chunks and memories), so when
 // the active model uses an asymmetric prefix scheme (ruri) they get the DOCUMENT
@@ -179,6 +234,7 @@ func toMemoryEmbeddings(memories []repository.MemoryForEmbedding, vectors [][]fl
 func (s *EmbeddingSyncService) embedInBatches(inputs []string) [][]float64 {
 	docPrefix := s.embeddings.ActivePrefixScheme().Document
 	vectors := make([][]float64, 0, len(inputs))
+	embedded := 0
 	for start := 0; start < len(inputs); start += embeddingBatchSize {
 		end := start + embeddingBatchSize
 		if end > len(inputs) {
@@ -194,9 +250,23 @@ func (s *EmbeddingSyncService) embedInBatches(inputs []string) [][]float64 {
 		}
 		vecs := s.embeddings.CreateEmbeddings(batch)
 		if vecs == nil {
-			return nil
+			vecs = make([][]float64, len(batch))
+			for i, in := range batch {
+				if !s.embeddings.IsEnabled() {
+					break
+				}
+				vecs[i] = s.embeddings.CreateEmbedding(in)
+			}
+		}
+		for _, v := range vecs {
+			if v != nil {
+				embedded++
+			}
 		}
 		vectors = append(vectors, vecs...)
+	}
+	if embedded == 0 {
+		return nil
 	}
 	return vectors
 }
