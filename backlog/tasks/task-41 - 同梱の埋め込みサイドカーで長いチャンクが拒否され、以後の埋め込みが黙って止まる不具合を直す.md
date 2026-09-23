@@ -1,10 +1,10 @@
 ---
 id: TASK-41
 title: 同梱の埋め込みサイドカーで長いチャンクが拒否され、以後の埋め込みが黙って止まる不具合を直す
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-23 09:01'
-updated_date: '2026-09-23 20:17'
+updated_date: '2026-09-23 20:31'
 labels: []
 dependencies: []
 references:
