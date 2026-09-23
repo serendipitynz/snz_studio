@@ -77,6 +77,9 @@ export interface ChatRecord {
   // unset, and the id may name a participant that has since left the roster;
   // either way the rule falls back to round_robin.
   facilitatorId: string;
+  // The shared state sheet: "name: value" lines every participant's turn reads
+  // (design §4.7). At most CHAT_STATE_SHEET_MAX_CHARS characters.
+  stateSheet: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -96,8 +99,22 @@ export interface Participant {
   modelName: string;
   sortOrder: number;
   receivesProjectMaterial: boolean;
+  // This participant's state sheet. Unlike the project material it goes to every
+  // participant's turn. At most PARTICIPANT_STATE_SHEET_MAX_CHARS characters.
+  stateSheet: string;
   createdAt: string;
   deletedAt: string | null;
+}
+
+// The server's state sheet limits (model.ChatStateSheetMaxRunes /
+// ParticipantStateSheetMaxRunes). They count code points, which is what
+// stateSheetLength counts, so the panel's counter agrees with the 400 the
+// server answers past them.
+export const CHAT_STATE_SHEET_MAX_CHARS = 400;
+export const PARTICIPANT_STATE_SHEET_MAX_CHARS = 200;
+
+export function stateSheetLength(sheet: string): number {
+  return [...sheet.trim()].length;
 }
 
 export interface ChatSummary {
@@ -122,6 +139,7 @@ export interface MultiAgentPresetParticipant {
   // Marks the entry the facilitator_alternating rule interleaves. The chat
   // stores a participant id, which the preset cannot know before it is applied.
   facilitator?: boolean;
+  stateSheet?: string;
 }
 
 export interface MultiAgentPreset {
@@ -131,6 +149,7 @@ export interface MultiAgentPreset {
   group: PresetGroup | string;
   turnRule: TurnRule;
   scenePrompt: string;
+  stateSheet?: string;
   participants: MultiAgentPresetParticipant[];
 }
 
@@ -466,7 +485,7 @@ export const api = {
     }),
   updateChatMultiAgentSettings: (
     chatId: string,
-    input: { turnRule?: TurnRule; scenePrompt?: string; facilitatorId?: string }
+    input: { turnRule?: TurnRule; scenePrompt?: string; facilitatorId?: string; stateSheet?: string }
   ) =>
     request<{ chat: ChatRecord }>(`/api/chats/${chatId}`, {
       method: "PATCH",
@@ -505,6 +524,7 @@ export const api = {
       modelName?: string;
       sortOrder?: number;
       receivesProjectMaterial?: boolean;
+      stateSheet?: string;
     }
   ) =>
     request<{ participant: Participant }>(`/api/participants/${participantId}`, {
