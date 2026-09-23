@@ -232,6 +232,9 @@ An OpenAI-compatible API is assumed. The main `.env` settings are:
 - `EMBEDDING_MODEL`
 - `EMBEDDING_API_KEY`
 - `EMBEDDING_TIMEOUT_MS`
+- `IMAGE_DESCRIPTION_BASE_URL`
+- `IMAGE_DESCRIPTION_MODEL`
+- `IMAGE_DESCRIPTION_TIMEOUT_MS`
 - `DEBUG_CHAT_FLOW`
 - `DEBUG_RETRIEVAL`
 
@@ -242,6 +245,12 @@ For example:
 
 Set `EMBEDDING_MODEL` to use embeddings. Left unset, retrieval runs on FTS alone; set, document and
 memory retrieval becomes a hybrid of `FTS + embedding rerank`.
+
+Set `IMAGE_DESCRIPTION_MODEL` (or the image description model in Settings) to a model that accepts
+images to enable "Generate description" in the image add dialog. The image is sent once, and the
+returned text lands in the description field as a draft that is saved only when you add the image.
+The endpoint falls back to `LLM_BASE_URL`; the model has no fallback, so leaving it empty turns the
+action off. `IMAGE_DESCRIPTION_TIMEOUT_MS` defaults to 180000 (see `.env.example` for why).
 
 `DEBUG_CHAT_FLOW` / `DEBUG_RETRIEVAL` are accepted for compatibility, but the Go version keeps
 logging minimal and emits no verbose traces.

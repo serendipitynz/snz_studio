@@ -217,6 +217,9 @@ OpenAI 互換 API を前提にしています。`.env` の主な設定は以下�
 - `EMBEDDING_MODEL`
 - `EMBEDDING_API_KEY`
 - `EMBEDDING_TIMEOUT_MS`
+- `IMAGE_DESCRIPTION_BASE_URL`
+- `IMAGE_DESCRIPTION_MODEL`
+- `IMAGE_DESCRIPTION_TIMEOUT_MS`
 - `DEBUG_CHAT_FLOW`
 - `DEBUG_RETRIEVAL`
 
@@ -226,6 +229,12 @@ OpenAI 互換 API を前提にしています。`.env` の主な設定は以下�
 - Ollama OpenAI 互換 endpoint: その URL に差し替え
 
 embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未設定なら retrieval は FTS のみで動作します。設定されていれば、document / memory の retrieval は `FTS + embedding rerank` の hybrid になります。
+
+画像を入力できるモデルを `IMAGE_DESCRIPTION_MODEL` (または設定画面の画像説明用モデル) に設定すると、
+画像の追加ダイアログで「説明文を生成」が使えます。画像を 1 回だけモデルに送り、返った文を説明文欄に
+下書きとして入れます。保存されるのは追加操作をしたときだけです。エンドポイントは `LLM_BASE_URL` に
+フォールバックしますが、モデルはフォールバックしないので、空なら生成操作は無効になります。
+`IMAGE_DESCRIPTION_TIMEOUT_MS` の既定値は 180000 です (根拠は `.env.example`)。
 
 `DEBUG_CHAT_FLOW` / `DEBUG_RETRIEVAL` は互換のため受け付けますが、Go 版はログを最小限に保つ方針のため
 verbose トレースは出力しません。
