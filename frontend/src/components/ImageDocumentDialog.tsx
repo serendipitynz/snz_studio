@@ -250,11 +250,14 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
   );
 }
 
-// prepareForDescription returns the image to send for description: the file itself
-// when it is within MAX_DESCRIPTION_PIXELS, otherwise a downscaled copy. Only a JPEG
-// source is re-encoded as JPEG: PNG and WebP can carry transparency, and a JPEG
-// encode composites it onto black, which would hide dark text or line art on a
-// transparent background from the model. The stored document keeps the original.
+// prepareForDescription returns the image to send for description. A JPEG within
+// MAX_DESCRIPTION_PIXELS goes as it is; anything larger is downscaled. A PNG or WebP
+// is always redrawn onto white, because it can carry transparency and the model
+// runtime drops the alpha channel: LM Studio with Gemma 4 described a transparent
+// WebP with black text as an all-black image even when the PNG sent kept its alpha.
+// White is what a person sees behind a transparent image in this app and in most
+// viewers; white line art on a transparent background is the case this gives up.
+// The stored document keeps the original file either way.
 async function prepareForDescription(file: File): Promise<Blob> {
   const url = URL.createObjectURL(file);
   try {
@@ -262,10 +265,11 @@ async function prepareForDescription(file: File): Promise<Blob> {
     image.src = url;
     await image.decode();
     const pixels = image.naturalWidth * image.naturalHeight;
-    if (pixels <= MAX_DESCRIPTION_PIXELS) {
+    const isJpeg = file.type === "image/jpeg";
+    if (isJpeg && pixels <= MAX_DESCRIPTION_PIXELS) {
       return file;
     }
-    const scale = Math.sqrt(MAX_DESCRIPTION_PIXELS / pixels);
+    const scale = Math.min(1, Math.sqrt(MAX_DESCRIPTION_PIXELS / pixels));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.floor(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.floor(image.naturalHeight * scale));
@@ -273,8 +277,12 @@ async function prepareForDescription(file: File): Promise<Blob> {
     if (!context) {
       throw new Error("canvas 2d context is unavailable");
     }
+    if (!isJpeg) {
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const type = file.type === "image/jpeg" ? "image/jpeg" : "image/png";
+    const type = isJpeg ? "image/jpeg" : "image/png";
     return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("image could not be re-encoded"))), type, 0.9)
     );
