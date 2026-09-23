@@ -15,6 +15,13 @@ import (
 // a group via taskkill /T.
 const createNewProcessGroup = 0x00000200
 
+// sidecarCommand builds the plain llama-server command. Unlike the unix build it
+// has no guard against the app being killed outright; a Job object with
+// KILL_ON_JOB_CLOSE would be the Windows counterpart.
+func sidecarCommand(binPath string, args []string) *exec.Cmd {
+	return exec.Command(binPath, args...)
+}
+
 func configureSysProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup}
 }

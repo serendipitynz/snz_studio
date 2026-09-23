@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -59,11 +58,8 @@ func (s *sidecar) Start(ctx context.Context) error {
 		// (matches the Windows CPU build) and free of GPU/JIT concerns.
 		"-ngl", "0",
 	}
-	cmd := exec.Command(s.binPath, args...)
-	configureSysProcAttr(cmd) // platform-specific process-group setup
-	// The official macOS build loads sibling dylibs via @rpath; make sure the
-	// dynamic loader can find them regardless of the launch cwd.
-	cmd.Env = append(os.Environ(), "DYLD_LIBRARY_PATH="+filepath.Dir(s.binPath))
+	cmd := sidecarCommand(s.binPath, args) // platform-specific parent-death guard
+	configureSysProcAttr(cmd)              // platform-specific process-group setup
 	cmd.Dir = filepath.Dir(s.binPath)
 	if err := cmd.Start(); err != nil {
 		return err
