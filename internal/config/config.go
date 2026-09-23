@@ -37,6 +37,12 @@ type Editable struct {
 	// sidecar endpoint is overlaid at read time by Config.Get without touching the
 	// persisted EmbeddingBaseURL/Model.
 	EmbeddingMode string `json:"embeddingMode"`
+	// ImageDescriptionBaseURL falls back to LLMBaseURL at use time when empty.
+	// ImageDescriptionModel does not fall back: the chat model is not necessarily
+	// multimodal, and a text-only model would return a description of an image it
+	// never saw, so an empty model disables image description instead.
+	ImageDescriptionBaseURL string `json:"imageDescriptionBaseUrl"`
+	ImageDescriptionModel   string `json:"imageDescriptionModel"`
 }
 
 // Settings is an immutable snapshot of every config value the service layer reads.
@@ -48,8 +54,12 @@ type Settings struct {
 	LLMTimeoutMs       int
 	EmbeddingAPIKey    string
 	EmbeddingTimeoutMs int
-	DebugChatFlow      bool
-	DebugRetrieval     bool
+	// ImageDescriptionTimeoutMs is separate from LLMTimeoutMs because a local
+	// multimodal model spends far longer preprocessing an image than a chat turn
+	// takes; raising the chat timeout instead would delay detecting a stalled chat.
+	ImageDescriptionTimeoutMs int
+	DebugChatFlow             bool
+	DebugRetrieval            bool
 }
 
 // Config holds the current Settings snapshot and the path it persists edits to.
@@ -127,6 +137,10 @@ func normalizeEmbeddingMode(value string) string {
 	}
 }
 
+// DefaultImageDescriptionTimeoutMs is the IMAGE_DESCRIPTION_TIMEOUT_MS default.
+// See the .env.example entry for how the value was measured.
+const DefaultImageDescriptionTimeoutMs = 180000
+
 // Defaults builds the Settings from environment variables with the same defaults
 // and fallback chains as config.ts. It does not read app-config.json.
 func Defaults() Settings {
@@ -146,13 +160,17 @@ func Defaults() Settings {
 			EmbeddingBaseURL:  firstNonEmptyEnv("http://127.0.0.1:1234/v1", "EMBEDDING_BASE_URL", "LLM_BASE_URL"),
 			EmbeddingModel:    getenv("EMBEDDING_MODEL", ""),
 			EmbeddingMode:     embeddingMode,
+
+			ImageDescriptionBaseURL: getenv("IMAGE_DESCRIPTION_BASE_URL", ""),
+			ImageDescriptionModel:   getenv("IMAGE_DESCRIPTION_MODEL", ""),
 		},
-		LLMAPIKey:          getenv("LLM_API_KEY", ""),
-		LLMTimeoutMs:       llmTimeout,
-		EmbeddingAPIKey:    firstNonEmptyEnv("", "EMBEDDING_API_KEY", "LLM_API_KEY"),
-		EmbeddingTimeoutMs: parseIntEnv(firstNonEmptyEnv("", "EMBEDDING_TIMEOUT_MS", "LLM_TIMEOUT_MS"), 60000),
-		DebugChatFlow:      parseBoolFlag(getenv("DEBUG_CHAT_FLOW", "")),
-		DebugRetrieval:     parseBoolFlag(getenv("DEBUG_RETRIEVAL", "")),
+		LLMAPIKey:                 getenv("LLM_API_KEY", ""),
+		LLMTimeoutMs:              llmTimeout,
+		EmbeddingAPIKey:           firstNonEmptyEnv("", "EMBEDDING_API_KEY", "LLM_API_KEY"),
+		EmbeddingTimeoutMs:        parseIntEnv(firstNonEmptyEnv("", "EMBEDDING_TIMEOUT_MS", "LLM_TIMEOUT_MS"), 60000),
+		ImageDescriptionTimeoutMs: parseIntEnv(getenv("IMAGE_DESCRIPTION_TIMEOUT_MS", ""), DefaultImageDescriptionTimeoutMs),
+		DebugChatFlow:             parseBoolFlag(getenv("DEBUG_CHAT_FLOW", "")),
+		DebugRetrieval:            parseBoolFlag(getenv("DEBUG_RETRIEVAL", "")),
 	}
 }
 
@@ -227,6 +245,8 @@ func (c *Config) applyOverrides(path string) {
 	applyString("reviewModel", &c.settings.ReviewModel, true)
 	applyString("embeddingBaseUrl", &c.settings.EmbeddingBaseURL, true)
 	applyString("embeddingModel", &c.settings.EmbeddingModel, true)
+	applyString("imageDescriptionBaseUrl", &c.settings.ImageDescriptionBaseURL, true)
+	applyString("imageDescriptionModel", &c.settings.ImageDescriptionModel, true)
 
 	// embeddingMode override + migration. When the key is present we honour a
 	// valid value; an invalid value keeps the env default. When the key is ABSENT
@@ -310,6 +330,8 @@ func (c *Config) UpdateEditable(input Editable) (Editable, error) {
 	c.settings.ReviewModel = strings.TrimSpace(input.ReviewModel)
 	c.settings.EmbeddingBaseURL = strings.TrimSpace(input.EmbeddingBaseURL)
 	c.settings.EmbeddingModel = strings.TrimSpace(input.EmbeddingModel)
+	c.settings.ImageDescriptionBaseURL = strings.TrimSpace(input.ImageDescriptionBaseURL)
+	c.settings.ImageDescriptionModel = strings.TrimSpace(input.ImageDescriptionModel)
 	// Apply embeddingMode only when the payload carries a valid value; an empty or
 	// unrecognised value keeps the current mode so an older frontend that omits the
 	// field cannot silently flip an external user back to internal.
