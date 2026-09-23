@@ -11,6 +11,7 @@ interface ImageDocumentEditorProps {
   document: DocumentRecord;
   onSaved: (document: DocumentRecord) => void;
   onCancel: () => void;
+  onSavingChange: (saving: boolean) => void;
 }
 
 // ImageDocumentEditor edits a stored image document's note, tags and description.
@@ -19,7 +20,7 @@ interface ImageDocumentEditorProps {
 // file on disk: the model runtime refuses images above one megapixel and
 // blackens transparent ones, and only the browser can downscale and flatten
 // every accepted format without a new server dependency.
-export function ImageDocumentEditor({ document, onSaved, onCancel }: ImageDocumentEditorProps) {
+export function ImageDocumentEditor({ document, onSaved, onCancel, onSavingChange }: ImageDocumentEditorProps) {
   const { t } = useLanguage();
   const confirm = useConfirm();
   const generateAbortRef = useRef<AbortController | null>(null);
@@ -104,13 +105,16 @@ export function ImageDocumentEditor({ document, onSaved, onCancel }: ImageDocume
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
+    onSavingChange(true);
     setError("");
     try {
       const response = await api.updateDocumentContent(document.id, { note, tags, derivedText });
+      onSavingChange(false);
       onSaved(response.document);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : t("documentEditor.saveError"));
       setSaving(false);
+      onSavingChange(false);
     }
   }
 

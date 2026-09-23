@@ -83,6 +83,7 @@ export function ProjectDetailPage() {
   const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null);
   const [documentCategoryDraft, setDocumentCategoryDraft] = useState<DocumentCategory>("misc");
   const [isEditingDocument, setIsEditingDocument] = useState(false);
+  const [savingDocumentContent, setSavingDocumentContent] = useState(false);
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
@@ -441,8 +442,18 @@ export function ProjectDetailPage() {
         ? { ...current, documents: current.documents.map((item) => (item.id === document.id ? document : item)) }
         : current
     );
-    setSelectedDocument(document);
+    setSelectedDocument((current) => (current?.id === document.id ? document : current));
     setIsEditingDocument(false);
+  }
+
+  // The detail dialog stays open while an edit is being saved (the save waits on
+  // the embedding sync, which can be slow): its late response would otherwise
+  // land on whatever document the dialog shows by then and drop that draft.
+  function closeSelectedDocument() {
+    if (savingDocumentContent) {
+      return;
+    }
+    setSelectedDocument(null);
   }
 
   // The common project material is the one thing about a document or a memory the
@@ -864,7 +875,7 @@ export function ProjectDetailPage() {
       </WorkspaceShell>
 
       {selectedDocument ? (
-        <Dialog onClose={() => setSelectedDocument(null)}>
+        <Dialog onClose={closeSelectedDocument}>
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <div>
@@ -874,7 +885,7 @@ export function ProjectDetailPage() {
                   {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
                 </Subtle>
               </div>
-              <Button type="button" variant="ghost" onClick={() => setSelectedDocument(null)}>
+              <Button type="button" variant="ghost" onClick={closeSelectedDocument} disabled={savingDocumentContent}>
                 {t("common.close")}
               </Button>
             </Row>
@@ -885,6 +896,7 @@ export function ProjectDetailPage() {
                   document={selectedDocument}
                   onSaved={handleDocumentContentSaved}
                   onCancel={() => setIsEditingDocument(false)}
+                  onSavingChange={setSavingDocumentContent}
                 />
               </Card>
             ) : (
