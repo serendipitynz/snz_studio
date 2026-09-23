@@ -23,7 +23,7 @@ func NewParticipantRepository(db *sql.DB) *ParticipantRepository {
 	return &ParticipantRepository{db: db}
 }
 
-const participantColumns = `id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_project_material, created_at, deleted_at`
+const participantColumns = `id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_project_material, state_sheet, created_at, deleted_at`
 
 // participantOrder is the cycle round_robin walks, so it must be total: equal
 // sort_order values (two participants added in the same batch, or a row whose
@@ -36,7 +36,7 @@ func scanParticipant(s scanner) (model.Participant, error) {
 		receivesProjectMaterial int
 		deletedAt               sql.NullString
 	)
-	if err := s.Scan(&p.ID, &p.ChatID, &p.DisplayName, &p.RolePrompt, &p.BaseURL, &p.ModelName, &p.SortOrder, &receivesProjectMaterial, &p.CreatedAt, &deletedAt); err != nil {
+	if err := s.Scan(&p.ID, &p.ChatID, &p.DisplayName, &p.RolePrompt, &p.BaseURL, &p.ModelName, &p.SortOrder, &receivesProjectMaterial, &p.StateSheet, &p.CreatedAt, &deletedAt); err != nil {
 		return p, err
 	}
 	p.ReceivesProjectMaterial = receivesProjectMaterial != 0
@@ -107,6 +107,7 @@ type CreateParticipantInput struct {
 	BaseURL                 string
 	ModelName               string
 	ReceivesProjectMaterial *bool
+	StateSheet              string
 }
 
 // CreateParticipant appends a participant to the chat's roster, assigning the
@@ -131,12 +132,13 @@ func (r *ParticipantRepository) CreateParticipant(input CreateParticipantInput) 
 		ModelName:               strings.TrimSpace(input.ModelName),
 		SortOrder:               next,
 		ReceivesProjectMaterial: input.ReceivesProjectMaterial == nil || *input.ReceivesProjectMaterial,
+		StateSheet:              strings.TrimSpace(input.StateSheet),
 		CreatedAt:               util.NowISO(),
 	}
 	if _, err := r.db.Exec(`
-		INSERT INTO participants (id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_project_material, created_at, deleted_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-		p.ID, p.ChatID, p.DisplayName, p.RolePrompt, p.BaseURL, p.ModelName, p.SortOrder, boolToInt(p.ReceivesProjectMaterial), p.CreatedAt); err != nil {
+		INSERT INTO participants (id, chat_id, display_name, role_prompt, base_url, model_name, sort_order, receives_project_material, state_sheet, created_at, deleted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+		p.ID, p.ChatID, p.DisplayName, p.RolePrompt, p.BaseURL, p.ModelName, p.SortOrder, boolToInt(p.ReceivesProjectMaterial), p.StateSheet, p.CreatedAt); err != nil {
 		return model.Participant{}, err
 	}
 	return p, nil
@@ -152,6 +154,7 @@ type UpdateParticipantInput struct {
 	ModelName               *string
 	SortOrder               *int
 	ReceivesProjectMaterial *bool
+	StateSheet              *string
 }
 
 // UpdateParticipant applies the given fields and returns the updated row, or
@@ -166,10 +169,12 @@ func (r *ParticipantRepository) UpdateParticipant(input UpdateParticipantInput) 
 		    base_url = COALESCE(?, base_url),
 		    model_name = COALESCE(?, model_name),
 		    sort_order = COALESCE(?, sort_order),
-		    receives_project_material = COALESCE(?, receives_project_material)
+		    receives_project_material = COALESCE(?, receives_project_material),
+		    state_sheet = COALESCE(?, state_sheet)
 		WHERE id = ?`,
 		trimmedPtrArg(input.DisplayName), trimmedPtrArg(input.RolePrompt), trimmedPtrArg(input.BaseURL),
-		trimmedPtrArg(input.ModelName), ptrArg(input.SortOrder), boolPtrArg(input.ReceivesProjectMaterial), input.ParticipantID)
+		trimmedPtrArg(input.ModelName), ptrArg(input.SortOrder), boolPtrArg(input.ReceivesProjectMaterial),
+		trimmedPtrArg(input.StateSheet), input.ParticipantID)
 	if err != nil {
 		return nil, err
 	}

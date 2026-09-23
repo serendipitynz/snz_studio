@@ -64,7 +64,7 @@ const (
 )
 
 // Chat mirrors the Chat interface. Kind is "assistant" (the single-assistant
-// chat) or "multi_agent"; TurnRule, ScenePrompt and FacilitatorID only carry
+// chat) or "multi_agent"; TurnRule, ScenePrompt, FacilitatorID and StateSheet only carry
 // meaning for the latter (see docs/multi-agent-chat-design.md §3).
 //
 // FacilitatorID names the participant TurnRuleFacilitatorAlternating
@@ -81,6 +81,7 @@ type Chat struct {
 	TurnRule      string `json:"turnRule"`
 	ScenePrompt   string `json:"scenePrompt"`
 	FacilitatorID string `json:"facilitatorId"`
+	StateSheet    string `json:"stateSheet"`
 	CreatedAt     string `json:"createdAt"`
 	UpdatedAt     string `json:"updatedAt"`
 }
@@ -128,9 +129,18 @@ type Participant struct {
 	ModelName               string  `json:"modelName"`
 	SortOrder               int     `json:"sortOrder"`
 	ReceivesProjectMaterial bool    `json:"receivesProjectMaterial"`
+	StateSheet              string  `json:"stateSheet"`
 	CreatedAt               string  `json:"createdAt"`
 	DeletedAt               *string `json:"deletedAt"`
 }
+
+// The state sheet limits, counted in runes (design §4.7.3 item 4). They are
+// checked when a sheet is stored and never applied by truncating the prompt, so
+// what the panel shows is exactly what the model reads.
+const (
+	ChatStateSheetMaxRunes        = 400
+	ParticipantStateSheetMaxRunes = 200
+)
 
 // ChatSummary mirrors the ChatSummary interface.
 type ChatSummary struct {

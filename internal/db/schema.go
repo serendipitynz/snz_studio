@@ -380,6 +380,19 @@ var migrations = []migration{
 			ALTER TABLE messages ADD COLUMN addressed_participant_ids TEXT NOT NULL DEFAULT '[]';
 		`,
 	},
+	{
+		// state_sheet holds the state that changes as a conversation plays out —
+		// place and time on the chat, HP and inventory on a participant — as
+		// "name: value" lines (design §4.7, TASK-35). Plain text rather than JSON:
+		// the app only ever addresses one line by owner and name, and a human edits
+		// the sheet as it is shown. Empty is the default so every existing
+		// conversation's prompt stays as it was.
+		id: "016_state_sheets",
+		sql: `
+			ALTER TABLE chats ADD COLUMN state_sheet TEXT NOT NULL DEFAULT '';
+			ALTER TABLE participants ADD COLUMN state_sheet TEXT NOT NULL DEFAULT '';
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in
