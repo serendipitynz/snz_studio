@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { api, DocumentRecord, ImageDescriptionAvailability } from "../api/client";
 import { useLanguage } from "../i18n";
-import { Button, ErrorText, Field, Input, Row, Stack, Subtle, Textarea } from "../styles/ui";
+import { Button, DropZone, ErrorText, Field, Input, Row, Stack, Subtle, Textarea } from "../styles/ui";
 import { useConfirm } from "./ConfirmDialog";
 import { Dialog, DialogTitle } from "./Dialog";
 import { generateBlockerReason, PreparedImage, prepareForDescription } from "./prepareForDescription";
@@ -32,6 +32,8 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+  const [dropNotice, setDropNotice] = useState("");
 
   useEffect(() => {
     api
@@ -59,6 +61,7 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
     };
   }, [file]);
 
+  const busy = generating || saving;
   const generateBlocker = file && availability ? generateBlockerReason(t, availability, file.type || file.name, prepared) : "";
 
   function handleChooseFile(next: File | undefined) {
@@ -68,6 +71,38 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
     setFile(next);
     setTitle(next.name);
     setError("");
+    setDropNotice("");
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    if (busy) {
+      return;
+    }
+    const dropped = Array.from(event.dataTransfer.files);
+    const image = dropped.find((candidate) => candidate.type.startsWith("image/"));
+    if (!image) {
+      if (dropped.length > 0) {
+        setError(t("imageDialog.dropNotImage"));
+      }
+      return;
+    }
+    handleChooseFile(image);
+    if (dropped.length > 1) {
+      setDropNotice(t("imageDialog.dropOnlyFirst", { name: image.name, count: dropped.length }));
+    }
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(!busy);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setDragActive(false);
+    }
   }
 
   async function handleGenerate() {
@@ -142,8 +177,6 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
     onClose();
   }
 
-  const busy = generating || saving;
-
   return (
     <Dialog onClose={handleClose}>
       <form onSubmit={handleSubmit}>
@@ -167,12 +200,18 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
               event.target.value = "";
             }}
           />
-          <Row style={{ alignItems: "center" }}>
-            <Button type="button" variant="ghost" onClick={() => fileInputRef.current?.click()} disabled={busy} autoFocus>
-              {file ? t("imageDialog.changeFile") : t("imageDialog.chooseFile")}
-            </Button>
-            {file ? <Subtle>{file.name}</Subtle> : null}
-          </Row>
+          <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
+            <Stack>
+              <Row style={{ alignItems: "center" }}>
+                <Button type="button" variant="ghost" onClick={() => fileInputRef.current?.click()} disabled={busy} autoFocus>
+                  {file ? t("imageDialog.changeFile") : t("imageDialog.chooseFile")}
+                </Button>
+                {file ? <Subtle>{file.name}</Subtle> : null}
+              </Row>
+              <Subtle>{t("imageDialog.dropHint")}</Subtle>
+              {dropNotice ? <Subtle>{dropNotice}</Subtle> : null}
+            </Stack>
+          </DropZone>
           {previewUrl ? (
             <img src={previewUrl} alt="" style={{ maxWidth: "100%", maxHeight: 280, objectFit: "contain", borderRadius: 16 }} />
           ) : null}
