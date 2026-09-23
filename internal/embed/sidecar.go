@@ -20,6 +20,7 @@ type sidecar struct {
 	binPath   string
 	modelPath string
 	dim       int
+	ctxLen    int
 	client    *http.Client
 
 	mu      sync.Mutex
@@ -27,11 +28,12 @@ type sidecar struct {
 	baseURL string
 }
 
-func newSidecar(binPath, modelPath string, dim int) *sidecar {
+func newSidecar(binPath, modelPath string, dim, ctxLen int) *sidecar {
 	return &sidecar{
 		binPath:   binPath,
 		modelPath: modelPath,
 		dim:       dim,
+		ctxLen:    ctxLen,
 		client:    &http.Client{},
 	}
 }
@@ -47,11 +49,16 @@ func (s *sidecar) Start(ctx context.Context) error {
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
+	// -b/-ub match -c because an embedding input must fit one physical batch; at the
+	// default -ub 512 a single 1000-rune chunk plus its title/prefix was rejected.
+	ctxLen := strconv.Itoa(s.ctxLen)
 	args := []string{
 		"-m", s.modelPath,
 		"--embedding",
 		"--pooling", "mean", // ruri uses mean pooling
-		"-c", "2048",
+		"-c", ctxLen,
+		"-b", ctxLen,
+		"-ub", ctxLen,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(port),
 		// CPU-only: the 37M model is tiny, and this keeps the sidecar portable
