@@ -139,8 +139,12 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 // an already-embedded corpus cheap, while still catching up chunks that an earlier
 // run failed to embed (a run-once "any vector exists" guard left those unembedded
 // for good).
+//
+// baseURL is the sidecar's origin; the client posts to <base>/embeddings, and on
+// the bare origin that is llama-server's native endpoint, whose array response the
+// client cannot decode — so the OpenAI-compatible /v1 root is what gets overlaid.
 func (s *Server) onEmbeddingReady(baseURL, modelID string) {
-	s.cfg.SetInternalEmbedding(baseURL, modelID)
+	s.cfg.SetInternalEmbedding(strings.TrimRight(baseURL, "/")+"/v1", modelID)
 	s.embedding.RefreshConfiguration()
 
 	go func() {
