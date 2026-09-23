@@ -17,6 +17,7 @@ import {
 import { useConfirm } from "../components/ConfirmDialog";
 import { Dialog, DialogTitle } from "../components/Dialog";
 import { ImageDocumentDialog } from "../components/ImageDocumentDialog";
+import { ImageDocumentEditor } from "../components/ImageDocumentEditor";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { PresetChoice, PresetPicker } from "../components/PresetPicker";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
@@ -81,6 +82,7 @@ export function ProjectDetailPage() {
   const [pendingDeleteMemoryId, setPendingDeleteMemoryId] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null);
   const [documentCategoryDraft, setDocumentCategoryDraft] = useState<DocumentCategory>("misc");
+  const [isEditingDocument, setIsEditingDocument] = useState(false);
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
@@ -119,6 +121,10 @@ export function ProjectDetailPage() {
   useEffect(() => {
     setDocumentCategoryDraft(selectedDocument?.category ?? "misc");
   }, [selectedDocument]);
+
+  useEffect(() => {
+    setIsEditingDocument(false);
+  }, [selectedDocument?.id]);
 
   const groupedMemories = useMemo(() => {
     const base = {
@@ -423,6 +429,20 @@ export function ProjectDetailPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // The saved document replaces selectedDocument rather than being patched into
+  // it: a misc category may have been inferred again from the new description,
+  // and the category draft is reset from selectedDocument, so keeping the old
+  // record would leave "misc" in the draft for "Save category" to put back.
+  function handleDocumentContentSaved(document: DocumentRecord) {
+    setState((current) =>
+      current
+        ? { ...current, documents: current.documents.map((item) => (item.id === document.id ? document : item)) }
+        : current
+    );
+    setSelectedDocument(document);
+    setIsEditingDocument(false);
   }
 
   // The common project material is the one thing about a document or a memory the
@@ -859,8 +879,29 @@ export function ProjectDetailPage() {
               </Button>
             </Row>
 
-            {selectedDocument.tags.length ? <Subtle>{t("project.tags", { tags: selectedDocument.tags.join(", ") })}</Subtle> : null}
-            {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
+            {isEditingDocument ? (
+              <Card>
+                <ImageDocumentEditor
+                  document={selectedDocument}
+                  onSaved={handleDocumentContentSaved}
+                  onCancel={() => setIsEditingDocument(false)}
+                />
+              </Card>
+            ) : (
+              <>
+                {selectedDocument.tags.length ? (
+                  <Subtle>{t("project.tags", { tags: selectedDocument.tags.join(", ") })}</Subtle>
+                ) : null}
+                {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
+                {selectedDocument.type === "image" ? (
+                  <div>
+                    <Button type="button" variant="ghost" disabled={busy} onClick={() => setIsEditingDocument(true)}>
+                      {t("documentEditor.edit")}
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            )}
 
             <Card>
               <Stack>
@@ -921,7 +962,7 @@ export function ProjectDetailPage() {
                 <pre style={{ margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{selectedDocument.contentText}</pre>
               ) : null}
 
-              {selectedDocument.type === "image" && selectedDocument.derivedText ? (
+              {selectedDocument.type === "image" && selectedDocument.derivedText && !isEditingDocument ? (
                 <div style={{ marginTop: 14 }}>
                   <Badge tone="warm">{t("project.derivedText")}</Badge>
                   <div style={{ marginTop: 10, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{selectedDocument.derivedText}</div>
