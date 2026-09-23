@@ -410,8 +410,29 @@ func (r *DocumentRepository) ListChunksForEmbedding(documentID string) ([]ChunkF
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return scanChunksForEmbedding(rows)
+}
 
+// ListChunksMissingEmbedding returns the chunks (with document metadata) that have
+// no stored embedding for model, ordered like ListChunksForEmbedding. A chunk whose
+// embedding belongs to another model counts as missing.
+func (r *DocumentRepository) ListChunksMissingEmbedding(model string) ([]ChunkForEmbedding, error) {
+	rows, err := r.db.Query(`
+		SELECT c.id, c.document_id, c.project_id, c.chunk_index, c.content, d.title, d.note, d.tags_json, d.derived_text
+		FROM document_chunks c
+		JOIN documents d ON d.id = c.document_id
+		WHERE NOT EXISTS (
+			SELECT 1 FROM document_chunk_embeddings e WHERE e.chunk_id = c.id AND e.model = ?
+		)
+		ORDER BY d.created_at ASC, c.chunk_index ASC`, model)
+	if err != nil {
+		return nil, err
+	}
+	return scanChunksForEmbedding(rows)
+}
+
+func scanChunksForEmbedding(rows *sql.Rows) ([]ChunkForEmbedding, error) {
+	defer rows.Close()
 	out := []ChunkForEmbedding{}
 	for rows.Next() {
 		var (
@@ -467,17 +488,6 @@ func (r *DocumentRepository) UpsertChunkEmbeddings(rows []ChunkEmbedding) error 
 		}
 	}
 	return tx.Commit()
-}
-
-// HasEmbeddingsForModel reports whether any document chunk embedding is stored for
-// the given model id. Used as a run-once guard so the internal sidecar's ready
-// callback does not re-embed an already-embedded corpus on every launch.
-func (r *DocumentRepository) HasEmbeddingsForModel(model string) (bool, error) {
-	var exists int
-	if err := r.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM document_chunk_embeddings WHERE model = ?)`, model).Scan(&exists); err != nil {
-		return false, err
-	}
-	return exists == 1, nil
 }
 
 // RebuildSearchIndex rebuilds document_chunks_fts from scratch, re-tokenizing all

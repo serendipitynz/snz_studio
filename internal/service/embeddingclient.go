@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -16,8 +18,11 @@ import (
 )
 
 // EmbeddingClient ports embeddingClient.ts: an OpenAI-compatible embedding client
-// that disables itself on the first failure (returning nil thereafter) so that
-// retrieval silently degrades to FTS-only when no embedding endpoint is available.
+// that disables itself when the endpoint cannot be reached (returning nil
+// thereafter) so that retrieval silently degrades to FTS-only when no embedding
+// endpoint is available. Unlike the TS client, a request the endpoint answers with
+// an error does not disable it: one oversized input would otherwise stop every
+// later embedding until the configuration is refreshed.
 //
 // The TS client relied on JS being single-threaded to guard its disabled flag;
 // here a mutex protects the mutable state since Go callers may run concurrently.
@@ -253,9 +258,10 @@ func (c *EmbeddingClient) CheckConnection() bool {
 }
 
 // CreateEmbeddings mirrors createEmbeddings: returns the embedding vectors, or nil
-// when embeddings are disabled, there is nothing to embed, or the request fails (in
-// which case the client disables itself). It never returns an error to the caller —
-// callers treat nil as "skip", exactly like the TS `null` return.
+// when embeddings are disabled, there is nothing to embed, or the request fails.
+// Only a failure to reach the endpoint disables the client; an error response, a
+// timeout or a malformed body fails this request alone. It never returns an error
+// to the caller — callers treat nil as "skip", exactly like the TS `null` return.
 func (c *EmbeddingClient) CreateEmbeddings(inputs []string) [][]float64 {
 	cleaned := make([]string, 0, len(inputs))
 	for _, input := range inputs {
@@ -295,12 +301,17 @@ func (c *EmbeddingClient) CreateEmbeddings(inputs []string) [][]float64 {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		c.disable(err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			logRequestFailure(err)
+		} else {
+			c.disable(err)
+		}
 		return nil
 	}
 	defer resp.Body.Close()
 	if !respOK(resp) {
-		c.disable(fmt.Errorf("Embedding request failed with %d", resp.StatusCode))
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		logRequestFailure(fmt.Errorf("Embedding request failed with %d: %s", resp.StatusCode, bytes.TrimSpace(detail)))
 		return nil
 	}
 
@@ -310,7 +321,7 @@ func (c *EmbeddingClient) CreateEmbeddings(inputs []string) [][]float64 {
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		c.disable(err)
+		logRequestFailure(err)
 		return nil
 	}
 
@@ -319,12 +330,12 @@ func (c *EmbeddingClient) CreateEmbeddings(inputs []string) [][]float64 {
 		embeddings = append(embeddings, item.Embedding)
 	}
 	if len(embeddings) != len(cleaned) {
-		c.disable(fmt.Errorf("Embedding response did not contain valid vectors"))
+		logRequestFailure(fmt.Errorf("Embedding response did not contain valid vectors"))
 		return nil
 	}
 	for _, embedding := range embeddings {
 		if len(embedding) == 0 {
-			c.disable(fmt.Errorf("Embedding response did not contain valid vectors"))
+			logRequestFailure(fmt.Errorf("Embedding response did not contain valid vectors"))
 			return nil
 		}
 	}
@@ -339,6 +350,10 @@ func (c *EmbeddingClient) CreateEmbedding(input string) []float64 {
 		return nil
 	}
 	return embeddings[0]
+}
+
+func logRequestFailure(err error) {
+	log.Printf("Embedding request failed (embeddings stay enabled): %v", err)
 }
 
 // disable marks the client disabled and logs the reason once, mirroring the catch
