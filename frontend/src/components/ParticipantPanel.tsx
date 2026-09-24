@@ -92,7 +92,7 @@ const HintBubble = styled.span`
   z-index: 3;
   padding: 8px 10px;
   border: 1px solid ${({ theme }) => theme.lineMedium};
-  border-radius: 10px;
+  border-radius: ${({ theme }) => theme.radiusSm};
   background: ${({ theme }) => theme.surfacePane};
   box-shadow: ${({ theme }) => theme.shadowPopover};
   color: ${({ theme }) => theme.ink};
