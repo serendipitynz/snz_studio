@@ -109,6 +109,16 @@ Embedding はオプトイン方式（`EMBEDDING_MODEL` が未設定の場合は�
 UI はシンプルで構わないが、快適に使えるものにする。
 CLI のみの UX は不可。
 
+## 共通デザイン（snz-design）
+UI は snz-design リポジトリ（`serendipitynz/snz-design`）にある共通デザインの仕様に従う。
+snz-design は本リポジトリと並べて `../snz-design` に置く。
+
+- 画面を作る・直す前に、適用ガイド（snz-design の doc-16）と、snz_studio の適用記録
+  （snz-design の doc-17。画面ごとに何を適用済みか、どの例外を記録したかを持つ）を読む。
+- `frontend/src/styles/themes/snz-tokens.ts` は生成物の写しである。手で直さず、
+  `node ../snz-design/tokens/vendor.mjs copy <版> snz-tokens.ts <パス>` で置き直し、
+  `vendor.mjs verify` で照合する。
+
 ## 実装スタイル
 - 最小動作バージョンから始める
 - 抽象化より明快なコードを優先する
