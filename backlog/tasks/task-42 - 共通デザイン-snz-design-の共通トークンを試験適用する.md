@@ -4,7 +4,7 @@ title: '共通デザイン: snz-design の共通トークンを試験適用す�
 status: In Progress
 assignee: []
 created_date: '2026-09-24 06:30'
-updated_date: '2026-09-24 06:34'
+updated_date: '2026-09-24 06:52'
 labels:
   - design
 dependencies: []
@@ -29,7 +29,7 @@ Emotion と既存のテーマ設定 (`snz.theme.family` / `snz.theme.mode`) の�
 - [x] #1 配色系統に 標準 が加わり、標準 と Solarized の色値が snz-design の共通トークンから来ている
 - [x] #2 2 つのキーがどちらも無いときは 標準 + OS追従、片方だけ無いときは現状の既定 (Solarized / Light) で描かれ、保存値を書き換えない
 - [x] #3 localStorage へ書けないときも選んだ配色がその起動の間は効く
-- [ ] #4 設定モーダルと会話 (user と assistant の描き分け・生成中の発言) を 4 配色で確かめ、差異を snz-design へ返している
+- [x] #4 設定モーダルと会話 (user と assistant の描き分け・生成中の発言) を 4 配色で確かめ、差異を snz-design へ返している
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -54,4 +54,6 @@ Emotion と既存のテーマ設定 (`snz.theme.family` / `snz.theme.mode`) の�
 - 角丸は `ui.tsx` の大半が数値を直書きしており、テーマの `radius` を読むのは 1 か所だけ。共通の 10px は画面にほぼ反映されない。
 - 保存できなかったことを利用者へ伝える表示は無い。
 - Wails の WebView (WKWebView) では見ていない。
+
+snz-design へ返した差異は snz-design の doc-14 (Web系4アプリの試験適用の結果) にある。
 <!-- SECTION:NOTES:END -->
