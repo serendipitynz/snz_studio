@@ -4,6 +4,7 @@ title: '共通デザイン: チャットと複数エージェントチャット�
 status: To Do
 assignee: []
 created_date: '2026-09-24 20:12'
+updated_date: '2026-09-24 22:24'
 labels:
   - design
 dependencies:
@@ -31,4 +32,5 @@ snz-design の TASK-20 (snz_studio への共通デザインの本適用) が追�
 - [ ] #6 この画面の無効の操作部品が焦点を受け、無効の理由を語で持つ (doc-8 §5.4)。処理中のボタンは語と幅を保つ (doc-8 §6.1・doc-9 §5.6)
 - [ ] #7 4配色で doc-5 §3.2 の測定点の比を測り、キーボードだけで画面の全操作へ届くことを確かめ、測定環境 (doc-5 §5.3) とともに Implementation Notes に記録している。実窓 (WKWebView) の目視はオーナーの確認を記録する
 - [ ] #8 `pnpm check:client`・`pnpm build:client` が通る (Go を変えたときは `go test ./...` も)
+- [ ] #9 チャットのドロップゾーン (文書の追加) が、ファイルが上にある状態を色だけでなく語で述べ、受け付けない種類を述べる (doc-9 §6.13)。上書きの確認は既存のものを保つ
 <!-- AC:END -->
