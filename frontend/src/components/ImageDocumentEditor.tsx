@@ -146,7 +146,7 @@ export function ImageDocumentEditor({ document, onSaved, onCancel, onSavingChang
         <Row style={{ alignItems: "center" }}>
           <Button
             type="button"
-            variant="ghost"
+            variant="normal"
             onClick={() => void handleGenerate()}
             disabled={busy || !availability || !prepared || Boolean(generateBlocker)}
           >
@@ -156,7 +156,7 @@ export function ImageDocumentEditor({ document, onSaved, onCancel, onSavingChang
         </Row>
 
         <Row style={{ justifyContent: "flex-end" }}>
-          <Button type="button" variant="ghost" onClick={handleCancel} disabled={saving}>
+          <Button type="button" variant="normal" onClick={handleCancel} disabled={saving}>
             {t("common.cancel")}
           </Button>
           <Button type="submit" disabled={busy}>

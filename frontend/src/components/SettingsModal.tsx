@@ -247,7 +247,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       <Stack>
         <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
           <DialogTitle>{t("settings.title")}</DialogTitle>
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="normal" onClick={onClose}>
             {t("common.close")}
           </Button>
         </Row>

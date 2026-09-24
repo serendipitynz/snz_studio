@@ -183,7 +183,7 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
         <Stack>
           <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
             <DialogTitle>{t("imageDialog.title")}</DialogTitle>
-            <Button type="button" variant="ghost" onClick={handleClose} disabled={saving}>
+            <Button type="button" variant="normal" onClick={handleClose} disabled={saving}>
               {t("common.close")}
             </Button>
           </Row>
@@ -203,7 +203,7 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
           <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
             <Stack>
               <Row style={{ alignItems: "center" }}>
-                <Button type="button" variant="ghost" onClick={() => fileInputRef.current?.click()} disabled={busy} autoFocus>
+                <Button type="button" variant="normal" onClick={() => fileInputRef.current?.click()} disabled={busy} autoFocus>
                   {file ? t("imageDialog.changeFile") : t("imageDialog.chooseFile")}
                 </Button>
                 {file ? <Subtle>{file.name}</Subtle> : null}
@@ -242,7 +242,7 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
           <Row style={{ alignItems: "center" }}>
             <Button
               type="button"
-              variant="ghost"
+              variant="normal"
               onClick={() => void handleGenerate()}
               disabled={!file || busy || !availability || !prepared || Boolean(generateBlocker)}
             >

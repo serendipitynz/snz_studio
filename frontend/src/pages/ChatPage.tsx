@@ -869,7 +869,7 @@ export function ChatPage() {
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("chat.editTitleModal")}</DialogTitle>
-              <Button type="button" variant="ghost" onClick={() => setIsTitleModalOpen(false)}>
+              <Button type="button" variant="normal" onClick={() => setIsTitleModalOpen(false)}>
                 {t("common.close")}
               </Button>
             </Row>
@@ -908,7 +908,7 @@ export function ChatPage() {
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("chat.addDocumentModal")}</DialogTitle>
-              <Button type="button" variant="ghost" onClick={() => setIsDocumentModalOpen(false)}>
+              <Button type="button" variant="normal" onClick={() => setIsDocumentModalOpen(false)}>
                 {t("common.close")}
               </Button>
             </Row>
@@ -952,7 +952,7 @@ export function ChatPage() {
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("chat.editorialReview")}</DialogTitle>
-              <Button type="button" variant="ghost" onClick={closeReview}>
+              <Button type="button" variant="normal" onClick={closeReview}>
                 {t("common.close")}
               </Button>
             </Row>

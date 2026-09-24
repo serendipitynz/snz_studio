@@ -146,7 +146,7 @@ export function PresetPicker(props: PresetPickerProps) {
         </Subtle>
       ) : null}
       <Row style={{ alignItems: "center", gap: 10 }}>
-        <Button type="button" variant="ghost" disabled={props.disabled} onClick={() => fileRef.current?.click()}>
+        <Button type="button" variant="normal" disabled={props.disabled} onClick={() => fileRef.current?.click()}>
           {t("preset.import")}
         </Button>
       </Row>

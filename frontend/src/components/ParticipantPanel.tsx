@@ -510,7 +510,7 @@ function ScenePromptField(props: { value: string; disabled: boolean; onSave: (va
         />
       </Field>
       <div>
-        <Button type="button" variant="ghost" disabled={saving || props.disabled || draft === props.value} onClick={() => void handleSave()}>
+        <Button type="button" variant="normal" disabled={saving || props.disabled || draft === props.value} onClick={() => void handleSave()}>
           {saving ? t("participants.saving") : t("participants.save")}
         </Button>
       </div>
@@ -563,7 +563,7 @@ function StateSheetField(props: {
         />
       </Field>
       <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-        <Button type="button" variant="ghost" disabled={saving || over || draft === props.value} onClick={() => void handleSave()}>
+        <Button type="button" variant="normal" disabled={saving || over || draft === props.value} onClick={() => void handleSave()}>
           {saving ? t("participants.saving") : t("participants.save")}
         </Button>
         <StateSheetCounter over={over}>{t("participants.stateCount", { count: length, max: props.maxChars })}</StateSheetCounter>
@@ -713,7 +713,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
         <Row style={{ alignItems: "center" }}>
           <Button
             type="button"
-            variant="ghost"
+            variant="normal"
             disabled={!baseUrl.trim() || probe?.state === "checking"}
             onClick={() => void props.onProbe(baseUrl)}
           >
