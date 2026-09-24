@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -377,7 +378,7 @@ func TestMultiAgentChatSettings(t *testing.T) {
 
 	assistantChatID := createChat(t, h, projectID)
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+assistantChatID, map[string]any{"turnRule": "manual"}),
-		http.StatusBadRequest, "turnRule, scenePrompt and facilitatorId apply to multi-agent chats only")
+		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId and stateSheet apply to multi-agent chats only")
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/chat_missing", map[string]any{"title": "x"}),
 		http.StatusNotFound, "chat not found")
 }
@@ -434,7 +435,7 @@ func TestMultiAgentFacilitatorSetting(t *testing.T) {
 	}
 
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+createChat(t, h, projectID), map[string]any{"facilitatorId": gmID}),
-		http.StatusBadRequest, "turnRule, scenePrompt and facilitatorId apply to multi-agent chats only")
+		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId and stateSheet apply to multi-agent chats only")
 }
 
 // TestMultiAgentPresetFacilitator covers TASK-21 AC #5: the bundled TRPG preset
@@ -956,5 +957,119 @@ func TestMultiAgentTurnCarriesReferences(t *testing.T) {
 	refs := messages[0].References
 	if len(refs) != 1 || refs[0].SourceType != "project" || refs[0].SourceID != project.ID || refs[0].Label != "港町の物語" {
 		t.Fatalf("references = %+v, want the project description alone", refs)
+	}
+}
+
+// TestMultiAgentStateSheets covers TASK-35 AC #1 on the API side: both PATCH
+// routes (and participant creation) store a state sheet up to its limit in
+// runes and refuse one past it with 400, and a single-assistant chat has no
+// shared state to set (design §4.7.3 item 4).
+func TestMultiAgentStateSheets(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "State Project")
+	chatID := createMultiAgentChat(t, h, projectID, "")
+	participantID := addParticipant(t, h, chatID, "Ren", "http://127.0.0.1:1")
+
+	// Multi-byte text at exactly the limit, so a byte count would refuse it.
+	atChatLimit := strings.Repeat("あ", 400)
+	rec := doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"stateSheet": "  " + atChatLimit + "\n"})
+	wantStatus(t, rec, http.StatusOK)
+	var chat struct {
+		Title      string `json:"title"`
+		StateSheet string `json:"stateSheet"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+	if chat.StateSheet != atChatLimit || chat.Title != "Debate" {
+		t.Fatalf("after state update = %+v, want the trimmed sheet stored and the title kept", chat)
+	}
+	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"stateSheet": atChatLimit + "い"}),
+		http.StatusBadRequest, "stateSheet must be at most 400 characters")
+
+	atParticipantLimit := strings.Repeat("い", 200)
+	rec = doJSON(t, h, "PATCH", "/api/participants/"+participantID, map[string]any{"stateSheet": atParticipantLimit})
+	wantStatus(t, rec, http.StatusOK)
+	var participant struct {
+		DisplayName string `json:"displayName"`
+		StateSheet  string `json:"stateSheet"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "participant", &participant)
+	if participant.StateSheet != atParticipantLimit || participant.DisplayName != "Ren" {
+		t.Fatalf("after participant state update = %+v, want only the sheet changed", participant)
+	}
+	wantError(t, doJSON(t, h, "PATCH", "/api/participants/"+participantID, map[string]any{"stateSheet": atParticipantLimit + "う"}),
+		http.StatusBadRequest, "stateSheet must be at most 200 characters")
+	wantError(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/participants", map[string]any{"displayName": "Mira", "stateSheet": atParticipantLimit + "う"}),
+		http.StatusBadRequest, "stateSheet must be at most 200 characters")
+
+	// A refused sheet leaves the stored one as it was.
+	shape := readPresetChatShape(t, h, chatID)
+	var stored struct {
+		StateSheet string `json:"stateSheet"`
+	}
+	unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil)), "chat", &stored)
+	if stored.StateSheet != atChatLimit || len(shape.Participants) != 1 {
+		t.Fatalf("refusals changed the chat: sheet %q, %d participants", stored.StateSheet, len(shape.Participants))
+	}
+
+	assistantChatID := createChat(t, h, projectID)
+	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+assistantChatID, map[string]any{"stateSheet": "場所: 坑道"}),
+		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId and stateSheet apply to multi-agent chats only")
+}
+
+// TestMultiAgentPresetStateSheets covers the preset half of TASK-35 AC #4: the
+// bundled trpg-table starts its chat with the shared and per-participant sheets
+// it carries, whether named at creation or applied afterwards, and applying a
+// preset without sheets clears what the replaced line-up had.
+func TestMultiAgentPresetStateSheets(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Preset State Project")
+
+	type sheets struct {
+		Chat         string
+		Participants map[string]string
+	}
+	read := func(chatID string) sheets {
+		t.Helper()
+		var chat struct {
+			StateSheet string `json:"stateSheet"`
+		}
+		unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil)), "chat", &chat)
+		var participants []struct {
+			DisplayName string `json:"displayName"`
+			StateSheet  string `json:"stateSheet"`
+		}
+		unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID+"/participants", nil)), "participants", &participants)
+		got := sheets{Chat: chat.StateSheet, Participants: map[string]string{}}
+		for _, p := range participants {
+			got.Participants[p.DisplayName] = p.StateSheet
+		}
+		return got
+	}
+
+	rec := doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats", map[string]any{"kind": "multi_agent", "presetId": "trpg-table"})
+	wantStatus(t, rec, http.StatusCreated)
+	var created struct {
+		ID string `json:"id"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &created)
+	atCreation := read(created.ID)
+	if !strings.Contains(atCreation.Chat, "場所:") {
+		t.Fatalf("trpg-table chat sheet = %q, want an initial place", atCreation.Chat)
+	}
+	for _, name := range []string{"レン (斥候)", "ミラ (神官戦士)"} {
+		if !strings.Contains(atCreation.Participants[name], "HP:") {
+			t.Fatalf("trpg-table %s sheet = %q, want an initial HP", name, atCreation.Participants[name])
+		}
+	}
+
+	chatID := createEmptyMultiAgentChat(t, h, projectID, "")
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "trpg-table"}), http.StatusOK)
+	if applied := read(chatID); !reflect.DeepEqual(applied, atCreation) {
+		t.Fatalf("applied sheets = %+v, want those set at creation %+v", applied, atCreation)
+	}
+
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "debate"}), http.StatusOK)
+	if cleared := read(chatID); cleared.Chat != "" {
+		t.Fatalf("applying a preset without a sheet left the shared sheet %q", cleared.Chat)
 	}
 }

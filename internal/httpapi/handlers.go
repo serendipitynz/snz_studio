@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -395,6 +397,7 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 	if chosen != nil {
 		input.TurnRule = chosen.TurnRule
 		input.ScenePrompt = chosen.ScenePrompt
+		input.StateSheet = chosen.StateSheet
 		if strings.TrimSpace(title) == "" {
 			input.Title = chosen.Title
 		}
@@ -861,7 +864,8 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpdateChat applies the fields the body actually carries: the title, and
-// for a multi-agent chat the turn rule and scene prompt (design §5). Each field
+// for a multi-agent chat the turn rule, scene prompt, facilitator and shared
+// state sheet (design §5, §4.7). Each field
 // is keyed on its presence rather than on its value, so a body sent to change
 // the scene prompt alone does not blank the title.
 func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
@@ -874,6 +878,7 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 	turnRule := bodyStringPtr(m, "turnRule")
 	scenePrompt := bodyStringPtr(m, "scenePrompt")
 	facilitatorID := bodyStringPtr(m, "facilitatorId")
+	stateSheet := trimmedBodyStringPtr(m, "stateSheet")
 
 	chat, err := s.chats.GetChat(chatID)
 	if err != nil {
@@ -885,12 +890,12 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if turnRule != nil || scenePrompt != nil || facilitatorID != nil {
+	if turnRule != nil || scenePrompt != nil || facilitatorID != nil || stateSheet != nil {
 		// kind is fixed at creation, so a single-assistant chat can never reach a
 		// state where these fields mean anything; accepting them would store
 		// settings that nothing reads.
 		if chat.Kind != model.ChatKindMultiAgent {
-			writeError(w, http.StatusBadRequest, "turnRule, scenePrompt and facilitatorId apply to multi-agent chats only")
+			writeError(w, http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId and stateSheet apply to multi-agent chats only")
 			return
 		}
 		if turnRule != nil && !isKnownTurnRule(*turnRule) {
@@ -904,7 +909,15 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 		if facilitatorID != nil && *facilitatorID != "" && !s.isRosterMember(w, chatID, *facilitatorID) {
 			return
 		}
-		chat, err = s.chats.UpdateMultiAgentSettings(chatID, turnRule, scenePrompt, facilitatorID)
+		if !stateSheetFits(w, stateSheet, model.ChatStateSheetMaxRunes) {
+			return
+		}
+		chat, err = s.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{
+			TurnRule:      turnRule,
+			ScenePrompt:   scenePrompt,
+			FacilitatorID: facilitatorID,
+			StateSheet:    stateSheet,
+		})
 		if err != nil {
 			fail(w, err)
 			return
@@ -927,6 +940,29 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"chat": chat})
+}
+
+// stateSheetFits refuses a state sheet over its limit and writes the refusal
+// itself, so the caller only has to return. A nil sheet is absent from the body
+// and always fits. The sheet is refused rather than cut: the limit exists so the
+// prompt never has to truncate what the panel shows (design §4.7.3 item 4).
+func stateSheetFits(w http.ResponseWriter, sheet *string, maxRunes int) bool {
+	if sheet == nil || utf8.RuneCountInString(*sheet) <= maxRunes {
+		return true
+	}
+	writeError(w, http.StatusBadRequest, fmt.Sprintf("stateSheet must be at most %d characters", maxRunes))
+	return false
+}
+
+// trimmedBodyStringPtr is bodyStringPtr with the value trimmed, so the limit is
+// checked against exactly what is stored.
+func trimmedBodyStringPtr(m map[string]any, key string) *string {
+	value := bodyStringPtr(m, key)
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	return &trimmed
 }
 
 func isKnownTurnRule(turnRule string) bool {

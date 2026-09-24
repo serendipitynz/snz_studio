@@ -288,6 +288,86 @@ func TestTurnEnginePromptMapping(t *testing.T) {
 	}
 }
 
+// TestTurnEngineStateSection covers TASK-35 AC #2 and the prompt half of AC #3:
+// the 【現在の状態】 section sits between the scene and the role, carries the
+// shared sheet and then every roster participant's sheet in roster order —
+// including to a speaker cut off from the project material — and a sheet saved
+// between turns is what the next turn reads (design §4.7.3 item 3).
+func TestTurnEngineStateSection(t *testing.T) {
+	srv := newTurnLLMServer(t, "進みます", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleManual, "舞台: 廃鉱山", srv.URL, "GM", "Ren", "Mira", "Gone")
+	gm, ren, mira, gone := roster[0], roster[1], roster[2], roster[3]
+
+	shared := "場所: 坑道の入口\n時刻: 夕方"
+	if _, err := g.chats.UpdateMultiAgentSettings(chat.ID, repository.MultiAgentSettings{StateSheet: &shared}); err != nil {
+		t.Fatalf("UpdateMultiAgentSettings: %v", err)
+	}
+	cutOff := false
+	sheets := map[string]string{ren.ID: "HP: 7/10\n所持品: たいまつ 2 本", mira.ID: "HP: 14/14", gone.ID: "HP: 1/1"}
+	for id, sheet := range sheets {
+		input := repository.UpdateParticipantInput{ParticipantID: id, StateSheet: &sheet}
+		if id == mira.ID {
+			input.ReceivesProjectMaterial = &cutOff
+		}
+		if _, err := g.participants.UpdateParticipant(input); err != nil {
+			t.Fatalf("UpdateParticipant: %v", err)
+		}
+	}
+	if _, err := g.participants.RemoveParticipant(gone.ID); err != nil {
+		t.Fatalf("RemoveParticipant: %v", err)
+	}
+
+	if _, err := g.engine.RunTurn(chat.ID, mira.ID, nil, nil); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	system := srv.captured()[0].Messages[0].Content
+	wantSection := "【現在の状態】\n場所: 坑道の入口\n時刻: 夕方\n\n■ Ren\nHP: 7/10\n所持品: たいまつ 2 本\n\n■ Mira\nHP: 14/14"
+	section := strings.Index(system, wantSection)
+	if section < 0 {
+		t.Fatalf("system prompt lacks the state section %q:\n%s", wantSection, system)
+	}
+	if scene := strings.Index(system, "舞台: 廃鉱山"); scene < 0 || scene > section {
+		t.Fatalf("scene must precede the state section:\n%s", system)
+	}
+	if role := strings.Index(system, mira.RolePrompt); role < section+len(wantSection) {
+		t.Fatalf("role prompt must follow the state section:\n%s", system)
+	}
+	// GM's sheet is empty and gets no heading; a removed participant's sheet is
+	// not part of the table any more.
+	for _, absent := range []string{"■ " + gm.DisplayName, "■ Gone", "HP: 1/1"} {
+		if strings.Contains(system, absent) {
+			t.Fatalf("system prompt must not contain %q:\n%s", absent, system)
+		}
+	}
+
+	updated := "HP: 4/10\n所持品: たいまつ 1 本"
+	if _, err := g.participants.UpdateParticipant(repository.UpdateParticipantInput{ParticipantID: ren.ID, StateSheet: &updated}); err != nil {
+		t.Fatalf("UpdateParticipant: %v", err)
+	}
+	if _, err := g.engine.RunTurn(chat.ID, gm.ID, nil, nil); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	next := srv.captured()[1].Messages[0].Content
+	if !strings.Contains(next, "■ Ren\n"+updated) || strings.Contains(next, "HP: 7/10") {
+		t.Fatalf("next turn must read the saved sheet:\n%s", next)
+	}
+}
+
+// TestTurnEngineNoStateSectionWhenEmpty pins that a conversation without state
+// keeps the prompt it had before the sheets existed.
+func TestTurnEngineNoStateSectionWhenEmpty(t *testing.T) {
+	srv := newTurnLLMServer(t, "発言", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleManual, "論題", srv.URL, "Alice", "Bob")
+	if _, err := g.engine.RunTurn(chat.ID, roster[0].ID, nil, nil); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if system := srv.captured()[0].Messages[0].Content; strings.Contains(system, "【現在の状態】") {
+		t.Fatalf("empty sheets must leave the section out:\n%s", system)
+	}
+}
+
 // TestTurnEngineCueWhenNothingToAnswer covers the two turns whose prompt carries
 // no utterance for the speaker: the opening turn of an empty transcript, and a
 // manual re-nomination of the participant who just spoke. Both fall back to the
@@ -410,7 +490,7 @@ func TestTurnEngineRoundRobinAfterRemoval(t *testing.T) {
 // participant and returns the updated chat.
 func (g *turnGraph) setFacilitator(t *testing.T, chatID, participantID string) model.Chat {
 	t.Helper()
-	chat, err := g.chats.UpdateMultiAgentSettings(chatID, nil, nil, &participantID)
+	chat, err := g.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{FacilitatorID: &participantID})
 	if err != nil || chat == nil {
 		t.Fatalf("UpdateMultiAgentSettings(facilitator) = %v, %v", chat, err)
 	}

@@ -22,7 +22,7 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 }
 
 const (
-	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, created_at, updated_at`
+	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, created_at, updated_at`
 	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids`
 	summaryColumns = `chat_id, summary, updated_at`
 	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
@@ -33,7 +33,7 @@ func scanChat(s scanner) (model.Chat, error) {
 		c           model.Chat
 		isTemporary int64
 	)
-	if err := s.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := s.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return c, err
 	}
 	c.IsTemporary = isTemporary != 0
@@ -106,8 +106,8 @@ func (r *ChatRepository) GetChat(chatID string) (*model.Chat, error) {
 	return &c, nil
 }
 
-// CreateChatInput carries the fields for CreateChat. Kind, TurnRule and
-// ScenePrompt are optional: an empty Kind/TurnRule falls back to the column
+// CreateChatInput carries the fields for CreateChat. Kind, TurnRule,
+// ScenePrompt and StateSheet are optional: an empty Kind/TurnRule falls back to the column
 // defaults, so existing callers keep creating single-assistant chats. The
 // facilitator is not among them — it names a participant, and a chat has no
 // roster until after it exists (UpdateMultiAgentSettings sets it).
@@ -118,6 +118,7 @@ type CreateChatInput struct {
 	Kind        string
 	TurnRule    string
 	ScenePrompt string
+	StateSheet  string
 }
 
 // CreateChat inserts a chat and seeds an empty summary row. Mirrors createChat.
@@ -139,13 +140,14 @@ func (r *ChatRepository) CreateChat(input CreateChatInput) (model.Chat, error) {
 		Kind:        kind,
 		TurnRule:    turnRule,
 		ScenePrompt: input.ScenePrompt,
+		StateSheet:  input.StateSheet,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 	if _, err := r.db.Exec(`
-		INSERT INTO chats (id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.ProjectID, c.Title, boolToInt(c.IsTemporary), c.Kind, c.TurnRule, c.ScenePrompt, c.CreatedAt, c.UpdatedAt); err != nil {
+		INSERT INTO chats (id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, state_sheet, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.ProjectID, c.Title, boolToInt(c.IsTemporary), c.Kind, c.TurnRule, c.ScenePrompt, c.StateSheet, c.CreatedAt, c.UpdatedAt); err != nil {
 		return model.Chat{}, err
 	}
 	if err := r.UpsertSummary(c.ID, ""); err != nil {
@@ -188,19 +190,30 @@ func (r *ChatRepository) SetTemporary(chatID string, isTemporary bool) (*model.C
 	return r.GetChat(chatID)
 }
 
-// UpdateMultiAgentSettings updates a multi-agent chat's turn rule, scene prompt
-// and/or facilitator, leaving a nil argument untouched, and returns (nil, nil)
-// if the chat does not exist. The update is partial because PATCH
-// /api/chats/{chatId} accepts any of the fields on its own (design §5).
-func (r *ChatRepository) UpdateMultiAgentSettings(chatID string, turnRule, scenePrompt, facilitatorID *string) (*model.Chat, error) {
+// MultiAgentSettings carries the fields UpdateMultiAgentSettings writes. A nil
+// field is left untouched.
+type MultiAgentSettings struct {
+	TurnRule      *string
+	ScenePrompt   *string
+	FacilitatorID *string
+	StateSheet    *string
+}
+
+// UpdateMultiAgentSettings updates a multi-agent chat's turn rule, scene prompt,
+// facilitator and/or shared state sheet, and returns (nil, nil) if the chat does
+// not exist. The update is partial because PATCH /api/chats/{chatId} accepts any
+// of the fields on its own (design §5).
+func (r *ChatRepository) UpdateMultiAgentSettings(chatID string, settings MultiAgentSettings) (*model.Chat, error) {
 	res, err := r.db.Exec(`
 		UPDATE chats
 		SET turn_rule = COALESCE(?, turn_rule),
 		    scene_prompt = COALESCE(?, scene_prompt),
 		    facilitator_participant_id = COALESCE(?, facilitator_participant_id),
+		    state_sheet = COALESCE(?, state_sheet),
 		    updated_at = ?
 		WHERE id = ?`,
-		ptrArg(turnRule), ptrArg(scenePrompt), ptrArg(facilitatorID), util.NowISO(), chatID)
+		ptrArg(settings.TurnRule), ptrArg(settings.ScenePrompt), ptrArg(settings.FacilitatorID), ptrArg(settings.StateSheet),
+		util.NowISO(), chatID)
 	if err != nil {
 		return nil, err
 	}

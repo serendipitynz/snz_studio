@@ -190,3 +190,41 @@ func TestParseReceivesProjectMaterial(t *testing.T) {
 		}
 	}
 }
+
+// TestParseStateSheet covers TASK-35: stateSheet is optional preset data on the
+// preset and on each participant, trimmed like the other text fields and held
+// to the limits the PATCH routes enforce, counted in runes.
+func TestParseStateSheet(t *testing.T) {
+	p, err := Parse([]byte(`{
+		"title": "卓",
+		"stateSheet": "  場所: 入口\n",
+		"participants": [
+			{ "displayName": "GM" },
+			{ "displayName": "戦士", "stateSheet": "HP: 10/10" }
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if p.StateSheet != "場所: 入口" || p.Participants[0].StateSheet != "" || p.Participants[1].StateSheet != "HP: 10/10" {
+		t.Fatalf("sheets = %q / %q / %q", p.StateSheet, p.Participants[0].StateSheet, p.Participants[1].StateSheet)
+	}
+
+	atLimit := func(n int) string { return strings.Repeat("あ", n) }
+	for name, raw := range map[string]string{
+		"shared at 400":      `{"title": "卓", "stateSheet": "` + atLimit(400) + `", "participants": [{"displayName": "A"}, {"displayName": "B"}]}`,
+		"participant at 200": `{"title": "卓", "participants": [{"displayName": "A", "stateSheet": "` + atLimit(200) + `"}, {"displayName": "B"}]}`,
+	} {
+		if _, err := Parse([]byte(raw)); err != nil {
+			t.Errorf("%s: Parse = %v, want accepted", name, err)
+		}
+	}
+	for name, raw := range map[string]string{
+		"shared at 401":      `{"title": "卓", "stateSheet": "` + atLimit(401) + `", "participants": [{"displayName": "A"}, {"displayName": "B"}]}`,
+		"participant at 201": `{"title": "卓", "participants": [{"displayName": "A"}, {"displayName": "B", "stateSheet": "` + atLimit(201) + `"}]}`,
+	} {
+		if _, err := Parse([]byte(raw)); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "stateSheet") {
+			t.Errorf("%s: Parse = %v, want ErrInvalid naming stateSheet", name, err)
+		}
+	}
+}

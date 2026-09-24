@@ -108,6 +108,36 @@ func TestBuildChatMarkdownMultiAgent(t *testing.T) {
 	}
 }
 
+// TestBuildChatMarkdownStateSection covers the export half of TASK-35 AC #4: the
+// current state follows the scene, shared sheet first and then each roster
+// participant's, one list item per line so a renderer keeps the lines apart.
+// A removed participant's sheet is not part of the table and is left out.
+func TestBuildChatMarkdownStateSection(t *testing.T) {
+	project, chat, participants, messages := exportFixture()
+	chat.StateSheet = "場所: 会議室\n時刻: 14 時"
+	participants[0].StateSheet = "持ち時間: 5 分"
+	participants[1].StateSheet = "持ち時間: 0 分"
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+
+	want := "## 現在の状態\n\n### 共通\n\n- 場所: 会議室\n- 時刻: 14 時\n\n### 田中\n\n- 持ち時間: 5 分\n"
+	section := strings.Index(got, want)
+	if section < 0 {
+		t.Fatalf("markdown lacks the state section %q\n--- got ---\n%s", want, got)
+	}
+	if scene, rule := strings.Index(got, "## 場面設定"), strings.Index(got, "## ターン進行ルール"); scene > section || rule < section {
+		t.Errorf("state section must sit between the scene and the turn rule\n--- got ---\n%s", got)
+	}
+	if strings.Contains(got, "持ち時間: 0 分") {
+		t.Errorf("markdown carries a removed participant's sheet\n--- got ---\n%s", got)
+	}
+
+	chat.StateSheet = ""
+	participants[0].StateSheet = ""
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); strings.Contains(got, "## 現在の状態") {
+		t.Errorf("empty sheets must leave the section out\n--- got ---\n%s", got)
+	}
+}
+
 // A single-assistant chat has no scene, turn rule or roster to report, so those
 // sections are absent while the heading and the transcript stay.
 func TestBuildChatMarkdownAssistantChatOmitsMultiAgentSections(t *testing.T) {

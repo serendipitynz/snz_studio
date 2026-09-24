@@ -1,6 +1,14 @@
 import styled from "@emotion/styled";
 import { FormEvent, ReactNode, useState } from "react";
-import { api, ChatRecord, Participant, TurnRule } from "../api/client";
+import {
+  api,
+  CHAT_STATE_SHEET_MAX_CHARS,
+  ChatRecord,
+  Participant,
+  PARTICIPANT_STATE_SHEET_MAX_CHARS,
+  stateSheetLength,
+  TurnRule
+} from "../api/client";
 import { useConfirm } from "./ConfirmDialog";
 import { PresetChoice, PresetPicker } from "./PresetPicker";
 import { useLanguage } from "../i18n";
@@ -106,6 +114,13 @@ const CheckboxLabel = styled.label`
   min-width: 0;
 `;
 
+// The character counter under a state sheet. It turns to the error colour past
+// the limit, which is also when the save button is disabled, so the counter is
+// what explains the disabled button.
+const StateSheetCounter = styled(MetaText)<{ over: boolean }>`
+  color: ${({ theme, over }) => (over ? theme.dangerText : theme.muted)};
+`;
+
 // label is the Field itself, so a click inside it is forwarded to the input and
 // takes the focus straight back off the toggle. Cancelling that is what makes
 // the tooltip reachable without a hover. It takes a node rather than a string so
@@ -134,7 +149,7 @@ interface EndpointProbe {
 
 // ParticipantPanel is the organisation panel of docs/multi-agent-chat-design.md
 // §6: the participant CRUD with its endpoint check and model picker, plus the
-// chat-level turn rule and scene prompt.
+// chat-level turn rule, scene prompt and shared state sheet.
 export function ParticipantPanel(props: ParticipantPanelProps) {
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -289,6 +304,17 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     }
   }
 
+  async function handleSaveSharedState(stateSheet: string) {
+    setError("");
+    try {
+      const response = await api.updateChatMultiAgentSettings(props.chat.id, { stateSheet });
+      props.onChatChange(response.chat);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : t("participants.settingsSaveError"));
+      throw nextError;
+    }
+  }
+
   async function handleSaveScenePrompt(scenePrompt: string) {
     setError("");
     try {
@@ -378,6 +404,16 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
             value={props.chat.scenePrompt}
             disabled={props.disabled}
             onSave={handleSaveScenePrompt}
+          />
+          {/* Keyed on the stored value so a sheet replaced from outside the field
+              (a preset applied, a save that trimmed it) resets the draft. */}
+          <StateSheetField
+            key={props.chat.stateSheet}
+            label={t("participants.sharedState")}
+            placeholder={t("participants.sharedStatePlaceholder")}
+            value={props.chat.stateSheet}
+            maxChars={CHAT_STATE_SHEET_MAX_CHARS}
+            onSave={handleSaveSharedState}
           />
         </Stack>
       </Card>
@@ -478,6 +514,60 @@ function ScenePromptField(props: { value: string; disabled: boolean; onSave: (va
           {saving ? t("participants.saving") : t("participants.save")}
         </Button>
       </div>
+    </Stack>
+  );
+}
+
+// StateSheetField edits one state sheet and saves it on its own. It takes no
+// disabled flag, unlike every other control in the panel: a turn reads the
+// sheets when it starts, so a sheet saved while a turn or the auto-advance is
+// running is simply what the next turn reads — and keeping HP and inventory in
+// step with the play as it happens is what the sheet is for (design §4.7).
+function StateSheetField(props: {
+  label: string;
+  placeholder: string;
+  value: string;
+  maxChars: number;
+  onSave: (value: string) => Promise<void>;
+}) {
+  const { t } = useLanguage();
+  const [draft, setDraft] = useState(props.value);
+  const [saving, setSaving] = useState(false);
+  const length = stateSheetLength(draft);
+  const over = length > props.maxChars;
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await props.onSave(draft);
+    } catch {
+      // Reported by the panel; the draft stays so the edit survives the failure.
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Stack>
+      <Field>
+        <FieldHint label={props.label} hint={t("participants.stateHint")} />
+        {/* Read-only while its own save is in flight: the saved value becomes
+            the field's key, so the remount that follows would drop anything
+            typed after the request left. */}
+        <Textarea
+          value={draft}
+          readOnly={saving}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={props.placeholder}
+          style={{ minHeight: 72 }}
+        />
+      </Field>
+      <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <Button type="button" variant="ghost" disabled={saving || over || draft === props.value} onClick={() => void handleSave()}>
+          {saving ? t("participants.saving") : t("participants.save")}
+        </Button>
+        <StateSheetCounter over={over}>{t("participants.stateCount", { count: length, max: props.maxChars })}</StateSheetCounter>
+      </Row>
     </Stack>
   );
 }
@@ -598,6 +688,17 @@ function ParticipantEditor(props: ParticipantEditorProps) {
             </CheckboxLabel>
           }
           hint={t("participants.receivesProjectMaterialHint")}
+        />
+
+        {/* Saved on its own rather than with the fields below, so it stays
+            editable while a turn runs (see StateSheetField). */}
+        <StateSheetField
+          key={props.participant.stateSheet}
+          label={t("participants.participantState")}
+          placeholder={t("participants.participantStatePlaceholder")}
+          value={props.participant.stateSheet}
+          maxChars={PARTICIPANT_STATE_SHEET_MAX_CHARS}
+          onSave={(stateSheet) => props.onSave(props.participant.id, { stateSheet })}
         />
 
         <Field>

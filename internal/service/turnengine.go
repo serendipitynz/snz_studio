@@ -551,19 +551,23 @@ func speakerLabel(m model.Message, labels map[string]string) string {
 }
 
 // buildTurnSystemPrompt assembles the speaker's system message: the project's
-// project material, the chat-wide scene, the participant's role prompt, and
-// the per-turn role reminder (§4.3). The material comes first so that the scene
-// and the role, which decide how the speaker talks, are the last word before the
-// reminder. The reminder is repeated every turn because small models drift out of
-// their role as the history grows and settle into agreeing with the previous
-// speaker.
+// project material, the chat-wide scene, the current state, the participant's
+// role prompt, and the per-turn role reminder (§4.3). The material comes first
+// so that the scene and the role, which decide how the speaker talks, are the
+// last word before the reminder; the state sits between them so the fixed world
+// is read before what has changed in it (§4.7.3 item 3). The reminder is
+// repeated every turn because small models drift out of their role as the
+// history grows and settle into agreeing with the previous speaker.
 func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Participant, participants []model.Participant) string {
-	parts := make([]string, 0, 5)
+	parts := make([]string, 0, 6)
 	if material = strings.TrimSpace(material); material != "" {
 		parts = append(parts, material)
 	}
 	if scene := strings.TrimSpace(chat.ScenePrompt); scene != "" {
 		parts = append(parts, scene)
+	}
+	if state := buildStateSection(chat, participants); state != "" {
+		parts = append(parts, state)
 	}
 	if role := strings.TrimSpace(speaker.RolePrompt); role != "" {
 		parts = append(parts, role)
@@ -589,6 +593,29 @@ func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Par
 	}
 	parts = append(parts, strings.Join(reminder, "\n"))
 	return strings.Join(parts, "\n\n")
+}
+
+// buildStateSection renders the 【現在の状態】 section: the chat's shared state
+// sheet, then each roster participant's sheet under its display name, in roster
+// order. Every speaker gets every sheet whatever receives_project_material says:
+// the sheets are the table's public record, and a hidden value belongs in the
+// project material instead (§4.7.3 item 3). Empty sheets are skipped, and with
+// all of them empty the section is left out, so a conversation that never used
+// state keeps the prompt it had.
+func buildStateSection(chat *model.Chat, participants []model.Participant) string {
+	blocks := make([]string, 0, len(participants)+1)
+	if shared := strings.TrimSpace(chat.StateSheet); shared != "" {
+		blocks = append(blocks, shared)
+	}
+	for _, p := range onRoster(participants) {
+		if sheet := strings.TrimSpace(p.StateSheet); sheet != "" {
+			blocks = append(blocks, fmt.Sprintf("■ %s\n%s", p.DisplayName, sheet))
+		}
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return "【現在の状態】\n" + strings.Join(blocks, "\n\n")
 }
 
 // onRoster keeps the participants still on the roster: only they can be called

@@ -384,6 +384,13 @@ const en = {
   "participants.facilitatorWeightedNote": "The facilitator is not held back for having spoken recently, so it comes back between the others. Without one, everyone is weighed alike.",
   "participants.scenePrompt": "Scene",
   "participants.scenePromptPlaceholder": "Topic, scene or world shared by every participant",
+  "participants.sharedState": "Shared state",
+  "participants.sharedStatePlaceholder": "One \"name: value\" per line — place, time, time left",
+  "participants.participantState": "State",
+  "participants.participantStatePlaceholder": "One \"name: value\" per line — HP, inventory",
+  "participants.stateHint":
+    "Every participant reads every state sheet on its turn, including those who don't receive the project material. Keep values the players must not see in the project material. Can be edited mid-conversation; the next turn reads it.",
+  "participants.stateCount": "{count} / {max}",
   "participants.settingsSaveError": "Failed to save the conversation settings",
 
   "preset.label": "Preset",
@@ -787,6 +794,13 @@ const ja: Record<MessageKey, string> = {
   "participants.facilitatorWeightedNote": "進行役は直近に話したことで順番を下げられないので、他の参加者の合間に戻ってきます。未選択なら全員を同じに扱います。",
   "participants.scenePrompt": "場面設定",
   "participants.scenePromptPlaceholder": "全参加者に共通する論題・シーン・世界観",
+  "participants.sharedState": "共通の状態",
+  "participants.sharedStatePlaceholder": "「項目名: 値」を 1 行ずつ（場所・時刻・残り時間など）",
+  "participants.participantState": "状態",
+  "participants.participantStatePlaceholder": "「項目名: 値」を 1 行ずつ（HP・所持品など）",
+  "participants.stateHint":
+    "状態はプロジェクト資料を受け取らない参加者も含め、全参加者のターンに全員分が渡ります。プレイヤーに伏せたい値はプロジェクト資料に置いてください。会話中も編集でき、次のターンから反映されます。",
+  "participants.stateCount": "{count} / {max}",
   "participants.settingsSaveError": "会話の設定の保存に失敗しました",
 
   "preset.label": "プリセット",

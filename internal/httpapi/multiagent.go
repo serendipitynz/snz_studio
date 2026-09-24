@@ -55,6 +55,10 @@ func (s *Server) handleCreateParticipant(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "displayName is required")
 		return
 	}
+	stateSheet := strings.TrimSpace(bodyString(m, "stateSheet"))
+	if !stateSheetFits(w, &stateSheet, model.ParticipantStateSheetMaxRunes) {
+		return
+	}
 
 	participant, err := s.participants.CreateParticipant(repository.CreateParticipantInput{
 		ChatID:                  chat.ID,
@@ -63,6 +67,7 @@ func (s *Server) handleCreateParticipant(w http.ResponseWriter, r *http.Request)
 		BaseURL:                 bodyString(m, "baseUrl"),
 		ModelName:               bodyString(m, "modelName"),
 		ReceivesProjectMaterial: bodyBoolPtr(m, "receivesProjectMaterial"),
+		StateSheet:              stateSheet,
 	})
 	if err != nil {
 		fail(w, err)
@@ -93,6 +98,10 @@ func (s *Server) handleUpdateParticipant(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "displayName must not be empty")
 		return
 	}
+	stateSheet := trimmedBodyStringPtr(m, "stateSheet")
+	if !stateSheetFits(w, stateSheet, model.ParticipantStateSheetMaxRunes) {
+		return
+	}
 
 	participant, err := s.participants.UpdateParticipant(repository.UpdateParticipantInput{
 		ParticipantID:           r.PathValue("participantId"),
@@ -102,6 +111,7 @@ func (s *Server) handleUpdateParticipant(w http.ResponseWriter, r *http.Request)
 		ModelName:               bodyStringPtr(m, "modelName"),
 		SortOrder:               sortOrder,
 		ReceivesProjectMaterial: bodyBoolPtr(m, "receivesProjectMaterial"),
+		StateSheet:              stateSheet,
 	})
 	if err != nil {
 		fail(w, err)
@@ -304,6 +314,7 @@ func (s *Server) createPresetParticipants(chatID string, p *preset.MultiAgentPre
 			DisplayName:             participant.DisplayName,
 			RolePrompt:              participant.RolePrompt,
 			ReceivesProjectMaterial: participant.ReceivesProjectMaterial,
+			StateSheet:              participant.StateSheet,
 		})
 		if err != nil {
 			return "", err
@@ -323,7 +334,7 @@ func (s *Server) createPresetParticipants(chatID string, p *preset.MultiAgentPre
 func (s *Server) applyPresetRoster(chatID string, p *preset.MultiAgentPreset) (*model.Chat, error) {
 	facilitatorID, err := s.createPresetParticipants(chatID, p)
 	if err == nil {
-		return s.chats.UpdateMultiAgentSettings(chatID, nil, nil, &facilitatorID)
+		return s.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{FacilitatorID: &facilitatorID})
 	}
 	if _, deleteErr := s.chats.DeleteChat(chatID); deleteErr != nil {
 		log.Printf("[preset] chat %s kept with a partial roster: %v", chatID, deleteErr)
@@ -421,7 +432,14 @@ func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*
 	if err := s.participants.DeleteRoster(chatID); err != nil {
 		return nil, err
 	}
-	chat, err := s.chats.UpdateMultiAgentSettings(chatID, &p.TurnRule, &p.ScenePrompt, nil)
+	// The shared state sheet is written even when the preset carries none, for the
+	// same reason the facilitator is below: it describes the line-up being
+	// replaced, and an empty preset value must clear it.
+	chat, err := s.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{
+		TurnRule:    &p.TurnRule,
+		ScenePrompt: &p.ScenePrompt,
+		StateSheet:  &p.StateSheet,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +470,7 @@ func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*
 	// Written whether or not the preset marks one: the roster it replaced is gone,
 	// so leaving the previous facilitator in place would point the setting at a
 	// participant this chat no longer has.
-	chat, err = s.chats.UpdateMultiAgentSettings(chatID, nil, nil, &facilitatorID)
+	chat, err = s.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{FacilitatorID: &facilitatorID})
 	if err != nil {
 		return nil, err
 	}

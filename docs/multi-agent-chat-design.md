@@ -23,7 +23,8 @@
   シナリオ（ダンジョンの構造・NPC の真意・伏線）を知り、他の参加者がそれを知らないまま行動する会話が成り立つことを指す。
   参加者ごとにプロジェクト資料を渡すかを選べること（§4.4）がその最小の道具立てである。
   状態管理（キャラクターシート・ダイス・構造化出力による判定）は引き続き非ゴールで、§7「将来」に置く。
-  ただし刻々と変わる状態の置き場は TASK-22 で設計し（§4.7、未実装）、実装は TASK-35・TASK-36 に切ってある。
+  ただし刻々と変わる状態の置き場は TASK-22 で設計し（§4.7）、状態シートの保存・人間による編集・prompt への注入は
+  2026-09-24 の TASK-35 で入れた。アクションの効果による更新（TASK-36）は未実装。
   ダイスと判定も TASK-23 で設計し（§4.8、未実装）、実装は TASK-37 に切ってある。
 - **非ゴール（今回やらない）**: TRPG の状態管理（キャラクターシート・ダイス・構造化出力による判定）、進行役による指名（進行役がモデル出力で次の話者を選ぶこと）、複数マシンの並列生成。いずれも将来拡張（§7・§8）。
   決定的に進行役を挟むターン進行ルール（`facilitator_alternating`、§4.5）は 2026-09-22 の TASK-21 で入れた。モデル出力を読まないので、上の非ゴールには当たらない。
@@ -69,7 +70,7 @@ AGENTS.md の Constraints（local-only / single-user / no heavy real-time archit
 - **場面設定**（`scene_prompt`）とは、多人数会話の全参加者のシステムプロンプトに共通して前置される chat 単位の文字列（論題・シーン・世界観など）を指す。
 - **プリセット**とは、参加者一式・ターン進行ルール・場面設定の雛形をまとめた、多人数会話に適用できるデータを指す。適用できるのは新規作成時と、発言がまだ 1 件も無い多人数会話に対してである（§5）。
 
-## 3. スキーマ（migration 10〜15）
+## 3. スキーマ（migration 10〜16）
 
 ```sql
 ALTER TABLE chats ADD COLUMN kind TEXT NOT NULL DEFAULT 'assistant';       -- 'assistant' | 'multi_agent'
@@ -119,6 +120,16 @@ ALTER TABLE messages ADD COLUMN addressed_participant_ids TEXT NOT NULL DEFAULT 
 - 発言が呼びかけた参加者 id の集合（§4.6.5）。発言の保存時に確定し、以後は本文から導き直さない。
 - 結合テーブルではなく JSON 配列の列にするのは、集合が発言と一緒に丸ごと読まれるだけで、単独で引かれることが無いため。
   指した参加者は除籍できるので、`facilitator_participant_id` と同じく外部キーは張らない。
+
+migration 16（2026-09-24、TASK-35）:
+
+```sql
+ALTER TABLE chats ADD COLUMN state_sheet TEXT NOT NULL DEFAULT '';        -- 共通の状態（§4.7.1）
+ALTER TABLE participants ADD COLUMN state_sheet TEXT NOT NULL DEFAULT ''; -- 参加者の状態
+```
+
+- 「項目名: 値」の行を並べたテキスト（§4.7.3 の 1）。既定の空文字は【現在の状態】節を出さない値なので、既存の会話の prompt は変わらない。
+- 上限（共通 400 字・参加者 200 字、rune 数）は列ではなく保存する経路（PATCH・プリセットの検証）で検査する（§4.7.3 の 4）。
 
 migration の id（`011_participant_receives_background`）は改称しない。id は `schema_migrations` に記録される値なので、
 変えると導入済みのデータベースが 11 を再実行し、既にある列に対して `ADD COLUMN` を当てて失敗する。
@@ -193,7 +204,7 @@ SSE の書き込み失敗も無視される（[handlers.go](../internal/httpapi/
 
 OpenAI 互換 API には「多者会話」のロールが無いため、発言者本人の視点へ写像する（先行事例で一般的な手法）:
 
-- `system` = プロジェクト資料（§4.4）+ 場面設定 + その参加者の役割プロンプト + 参加者一覧 + 役割リマインド。
+- `system` = プロジェクト資料（§4.4）+ 場面設定 +【現在の状態】節（§4.7、状態シートが 1 つでもあるときだけ）+ その参加者の役割プロンプト + 参加者一覧 + 役割リマインド。
   役割リマインドは毎ターン付与する固定文（「あなたは<表示名>としてのみ発言する」「直前の発言に同意だけで終わらない」等）。
   **Why**: 小型モデルは履歴が伸びると役割を忘れ、同意で収束する（検討記録 §2）。
   プロジェクト資料を先頭に置くのは、話し方を決める場面設定と役割が、リマインドの直前で最後に読まれる位置に残るようにするため。
@@ -849,7 +860,7 @@ C だけ係数を下げ、**基準行を含む全行を同じ seed で回した*
 移せるが、それはサーバー側に進行状態を持つことになり §2 に反する。呼びかけの窓は、同じ「複数人に
 順に話させる」効果を進行状態なしで得るための形である（`[A, B]` の両方が未応答のあいだ加点を持つ）。
 
-### 4.7 刻々と変わる状態の置き場（2026-09-22、TASK-22、spike、**未実装**）
+### 4.7 刻々と変わる状態の置き場（2026-09-22、TASK-22、spike。状態シートは 2026-09-24 の TASK-35 で実装、効果の適用は**未実装**）
 
 TRPG では HP・所持品・現在地・残り時間がターンごとに変わる。これは耐久性のある事実ではないのでメモリには入れず
 （§4.4、TASK-19）、静的でもないのでドキュメントにも向かない。spike 時点の受け皿は場面設定を人手で書き換えることだけで、
@@ -1102,10 +1113,10 @@ spike 時点では人間が介入発言に出目を書くことはできるが�
 | `POST /api/projects/{projectId}/chats` | 既存を拡張: `kind: "multi_agent"` を受け付ける。任意で `presetId`（同梱プリセットの id）または `preset`（プリセットの JSON オブジェクトそのもの）を 1 つだけ受け付け、そのプリセットを適用する。両方指定・`kind` が `assistant` のときの指定は 400、未知の `presetId` は 404 |
 | `GET /api/multi-agent-presets` | 同梱プリセットの一覧（`id` / `title` / `description` / `group` / `turnRule` / `scenePrompt` / `participants[]`） |
 | `POST /api/chats/{chatId}/preset` | 既存の多人数会話にプリセットを適用する。body は作成時と同じ `presetId` または `preset` を 1 つだけ。単独 assistant の chat は 400、未知の `presetId` は 404、`messages` が 1 件以上ある chat は 409。応答は適用後の `{ chat, participants }` |
-| `PATCH /api/chats/{chatId}` | 既存を拡張: `turnRule` / `scenePrompt` / `facilitatorId` の更新を受け付ける。`turnRule` は `round_robin` / `manual` / `facilitator_alternating` / `weighted` のいずれか。`facilitatorId` は空文字（指定の解除）か、その chat の編成に居る参加者の id。それ以外は 400 |
+| `PATCH /api/chats/{chatId}` | 既存を拡張: `turnRule` / `scenePrompt` / `facilitatorId` / `stateSheet`（共通の状態、前後の空白を除いて 400 字まで。超えれば 400）の更新を受け付ける。`turnRule` は `round_robin` / `manual` / `facilitator_alternating` / `weighted` のいずれか。`facilitatorId` は空文字（指定の解除）か、その chat の編成に居る参加者の id。それ以外は 400 |
 | `GET /api/chats/{chatId}/participants` | 参加者一覧 |
-| `POST /api/chats/{chatId}/participants` | 参加者追加。任意で `receivesProjectMaterial`（省略時は `true` = 渡す） |
-| `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序・`receivesProjectMaterial`） |
+| `POST /api/chats/{chatId}/participants` | 参加者追加。任意で `receivesProjectMaterial`（省略時は `true` = 渡す）と `stateSheet` |
+| `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序・`receivesProjectMaterial`・`stateSheet`）。`stateSheet` は前後の空白を除いて 200 字まで、超えれば 400 |
 | `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
 | `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。ターン前の拒否はステータスで返る: 実行中のターンと重なれば 409、chat・指名した参加者が無ければ 404、規則と指名の不整合・除籍済みの指名・空の編成は 400、接続先不通は 502。通れば `speaker`（§4.6.6）→ `delta`… → `done` を流し、それより後の失敗（生成・保存）はストリーム内の `error` になる |
 | `GET /api/messages/{messageId}/memory-draft` | 発言のメモリ保存の下書き `{ draft: { content, kind } }`（§4.4）。発言が無ければ 404、単独 assistant の chat は 400、一時チャットは 409 |
@@ -1118,8 +1129,8 @@ spike 時点では人間が介入発言に出目を書くことはできるが�
 同一 chat 検証の要否もそこから決まる（§3 末尾）。
 接続先ごとのモデル列挙は既存 `POST /api/configuration/models` を流用する。
 
-**プリセットの適用**とは、chat の `turnRule` / `scenePrompt` をプリセットのものにし、`participants[]` を登録順（= round_robin の巡回順）に
-参加者として作り、`facilitator: true` を付けた参加者があればその id を chat の進行役に設定することを指す。
+**プリセットの適用**とは、chat の `turnRule` / `scenePrompt` / `stateSheet` をプリセットのものにし（`stateSheet` は省略時に空で上書きする）、
+`participants[]` を登録順（= round_robin の巡回順）に各自の `stateSheet` ごと参加者として作り、`facilitator: true` を付けた参加者があればその id を chat の進行役に設定することを指す。
 プリセットが進行役を持たないときは進行役を空にする（既存 chat への適用では、置き換える前の編成の id が残らないようにするため）。
 プリセット側が participant id ではなく名簿の要素に印を付けるのは、id が適用の瞬間まで存在しないためである。
 `turnRule` が `facilitator_alternating` のプリセットは `facilitator: true` をちょうど 1 件持つことを検証する（持たない・複数は 400）。
@@ -1144,6 +1155,9 @@ spike 時点では人間が介入発言に出目を書くことはできるが�
 ## 6. フロントエンド
 
 - **編成パネル**: 参加者の CRUD、接続先 base URL 入力 + モデル選択（configuration/models 流用）+ 接続確認表示、ターン進行ルールと場面設定の編集。
+  共通の状態は場面設定の下、参加者の状態は役割プロンプトの下で編集し、文字数と上限を並べて出す（2026-09-24、TASK-35）。
+  状態シートの欄だけは他の欄と別に保存し、ターン実行中・自動進行中も編集できる。ターンは開始時に状態シートを読むので、
+  実行中に保存した値は次のターンから入る。
   ターン進行ルールの選択肢は「規則名 — 1 行の説明」の形で並べる（`weighted` は「呼ばれた人、長く黙っていた人が次に話す」）。
   ターン進行ルールで `facilitator_alternating` か `weighted` を選んだときだけ、その下に**進行役**の選択（編成の参加者から 1 人、または「未選択」）と
   1 行の説明を出す。`weighted` の説明は、進行役が直近発言の抑制を受けないことと、未選択なら全員を同じに扱うことを述べる
@@ -1167,7 +1181,8 @@ spike 時点では人間が介入発言に出目を書くことはできるが�
   生成中の話者名・モデル名はターンの SSE の `speaker` イベントだけで決まる（§4.6.6）。フロントは規則を複製せず、
   `speaker` が届くまでは「ターン実行中」とだけ出す。`manual` の指名候補は編成から直接並べる。
 - **markdown エクスポート**: 観戦ビューのヘッダから `GET /api/chats/{chatId}/export/markdown` を呼び、見出し（chat タイトル・
-  プロジェクト名・出力日時）、場面設定、ターン進行ルール、編成、話者名つきの発言を 1 枚の markdown として保存する。
+  プロジェクト名・出力日時）、場面設定、現在の状態（状態シートが 1 つでもあるときだけ。行ごとに箇条書き）、ターン進行ルール、編成、
+  話者名つきの発言を 1 枚の markdown として保存する。
   生成は `internal/service/export.go`。ルートは chat 単位で単独アシスタントの chat にも効き、その場合は場面設定・
   ターン進行ルール・編成の 3 節が落ちる。話者名は `ListAll` の全行で解決するので除籍済みの参加者の発言も帰属が残る（§3）。
   保存は Wails の `SaveTextFile` 束縛（ネイティブの保存ダイアログ）。WebView の外（`window.go` が無い環境）では
@@ -1191,7 +1206,7 @@ spike 時点では人間が介入発言に出目を書くことはできるが�
 | A | migration 10 + repository + ターンエンジン + API（§3〜§5） | curl だけで多人数会話を作成し、ターンを進めて SSE で発言が流れる |
 | B | 編成パネル + 観戦ビュー（§6） | UI から編成〜自動進行まで操作できる |
 | C | プリセット同梱（+ JSON ファイルからの適用）+ 役割リマインドのチューニング + 履歴窓の拡大 | プリセット選択で即開始できる。長い会話で役割が崩れない |
-| 将来 | TRPG 対応（状態シートの保持と注入（§4.7 で設計済み、TASK-35）・スラッシュコマンドによるダイスと判定（§4.8 で設計済み、TASK-37）・効果コマンドによる状態項目の更新（§4.7.3・§4.8.4 で設計済み、TASK-36、保留））、「進行役がモデル出力で次の話者を選ぶ」規則（未設計。決定的に交互に挟む `facilitator_alternating`（§4.5）と、発言本文の呼びかけを重みに織り込む `weighted`（§4.6）は実装済み）、retrieval 統合、生成中断のための呼び出し元 `context` の伝播（§4.1） | — |
+| 将来 | TRPG 対応（状態シートの保持と注入（§4.7、TASK-35 で実装済み）・スラッシュコマンドによるダイスと判定（§4.8 で設計済み、TASK-37）・効果コマンドによる状態項目の更新（§4.7.3・§4.8.4 で設計済み、TASK-36、保留））、「進行役がモデル出力で次の話者を選ぶ」規則（未設計。決定的に交互に挟む `facilitator_alternating`（§4.5）と、発言本文の呼びかけを重みに織り込む `weighted`（§4.6）は実装済み）、retrieval 統合、生成中断のための呼び出し元 `context` の伝播（§4.1） | — |
 
 Phase A〜C は完了している（A: migration 10 + ターンエンジン + API、B: 編成パネル + 観戦ビュー、C: 同梱プリセット 8 件
 + `presets/multi-agent/` の 17 件 + 役割リマインドと履歴窓のチューニング）。「将来」の行のうち、

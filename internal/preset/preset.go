@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"snzstudio/internal/model"
 )
@@ -51,6 +52,7 @@ type Participant struct {
 	RolePrompt              string `json:"rolePrompt"`
 	ReceivesProjectMaterial *bool  `json:"receivesProjectMaterial"`
 	Facilitator             bool   `json:"facilitator"`
+	StateSheet              string `json:"stateSheet,omitempty"`
 }
 
 // MultiAgentPreset is the shape of one preset JSON. ID and Group only mean
@@ -62,6 +64,7 @@ type MultiAgentPreset struct {
 	Group        string        `json:"group"`
 	TurnRule     string        `json:"turnRule"`
 	ScenePrompt  string        `json:"scenePrompt"`
+	StateSheet   string        `json:"stateSheet,omitempty"`
 	Participants []Participant `json:"participants"`
 }
 
@@ -111,9 +114,15 @@ func (p *MultiAgentPreset) Validate() error {
 	p.Group = strings.TrimSpace(p.Group)
 	p.TurnRule = strings.TrimSpace(p.TurnRule)
 	p.ScenePrompt = strings.TrimSpace(p.ScenePrompt)
+	p.StateSheet = strings.TrimSpace(p.StateSheet)
 
 	if p.Title == "" {
 		return fmt.Errorf("%w: title is required", ErrInvalid)
+	}
+	// Held to the limits the PATCH routes enforce, so applying a preset cannot
+	// store a sheet the panel could not have saved (design §4.7.3 item 4).
+	if utf8.RuneCountInString(p.StateSheet) > model.ChatStateSheetMaxRunes {
+		return fmt.Errorf("%w: stateSheet must be at most %d characters", ErrInvalid, model.ChatStateSheetMaxRunes)
 	}
 	if p.TurnRule == "" {
 		p.TurnRule = model.TurnRuleRoundRobin
@@ -130,8 +139,12 @@ func (p *MultiAgentPreset) Validate() error {
 	for i := range p.Participants {
 		p.Participants[i].DisplayName = strings.TrimSpace(p.Participants[i].DisplayName)
 		p.Participants[i].RolePrompt = strings.TrimSpace(p.Participants[i].RolePrompt)
+		p.Participants[i].StateSheet = strings.TrimSpace(p.Participants[i].StateSheet)
 		if p.Participants[i].DisplayName == "" {
 			return fmt.Errorf("%w: participants[%d].displayName is required", ErrInvalid, i)
+		}
+		if utf8.RuneCountInString(p.Participants[i].StateSheet) > model.ParticipantStateSheetMaxRunes {
+			return fmt.Errorf("%w: participants[%d].stateSheet must be at most %d characters", ErrInvalid, i, model.ParticipantStateSheetMaxRunes)
 		}
 		if p.Participants[i].ReceivesProjectMaterial == nil {
 			receives := true
