@@ -38,16 +38,18 @@ export const Page = styled.div`
   color: ${({ theme }) => theme.ink};
 `;
 
+// The panes sit flat on the canvas, separated by a narrow gap rather than by
+// shadows, so the gutter comes from the shared spacing scale.
 export const Container = styled.div`
   min-height: 100vh;
-  padding: 14px;
+  padding: ${snzTokens.space.sm};
 `;
 
 export const WorkspaceShell = styled.div<{ $columns?: string }>`
-  height: calc(100vh - 28px);
+  height: calc(100vh - 2 * ${snzTokens.space.sm});
   display: grid;
   grid-template-columns: ${({ $columns }) => $columns ?? "280px minmax(0, 1fr) 340px"};
-  gap: 14px;
+  gap: ${snzTokens.space.sm};
 
   @media (max-width: 1180px) {
     grid-template-columns: 250px minmax(0, 1fr);
@@ -55,7 +57,7 @@ export const WorkspaceShell = styled.div<{ $columns?: string }>`
 
   @media (max-width: 900px) {
     height: auto;
-    min-height: calc(100vh - 28px);
+    min-height: calc(100vh - 2 * ${snzTokens.space.sm});
     grid-template-columns: 1fr;
   }
 `;
@@ -65,7 +67,6 @@ export const SidebarPane = styled.aside`
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
   padding: 18px;
-  box-shadow: ${({ theme }) => theme.shadow};
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -81,7 +82,6 @@ export const MainPane = styled.main`
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
-  box-shadow: ${({ theme }) => theme.shadow};
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -92,7 +92,6 @@ export const InspectorPane = styled.aside`
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
   padding: 18px;
-  box-shadow: ${({ theme }) => theme.shadow};
   display: flex;
   flex-direction: column;
   gap: 16px;
