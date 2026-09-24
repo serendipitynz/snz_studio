@@ -262,7 +262,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               <Select value={family} onChange={(event) => setFamily(event.target.value as ThemeFamily)}>
                 {families.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.label}
+                    {item.id === "standard" ? t("settings.themeStandard") : item.label}
                   </option>
                 ))}
               </Select>

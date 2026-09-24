@@ -12,7 +12,7 @@
 
 export type ThemeVariant = "light" | "dark";
 
-export type ThemeFamily = "solarized" | "catppuccin" | "rosePine" | "tokyoNight" | "github" | "one";
+export type ThemeFamily = "standard" | "solarized" | "catppuccin" | "rosePine" | "tokyoNight" | "github" | "one";
 
 // rgb triplet, e.g. "42, 161, 152"
 type Rgb = string;

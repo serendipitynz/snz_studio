@@ -20,20 +20,55 @@ interface ThemeControllerValue {
 
 const ThemeControllerContext = createContext<ThemeControllerValue | null>(null);
 
-function readFamily(): ThemeFamily {
-  if (typeof window === "undefined") {
-    return "solarized";
-  }
-  const stored = window.localStorage.getItem(FAMILY_KEY);
-  return stored && isThemeFamily(stored) ? stored : "solarized";
+interface StoredChoice {
+  family: ThemeFamily;
+  mode: ThemeMode;
 }
 
-function readMode(): ThemeMode {
-  if (typeof window === "undefined") {
-    return "light";
+function readKey(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
   }
-  const stored = window.localStorage.getItem(MODE_KEY);
-  return stored === "light" || stored === "dark" || stored === "auto" ? stored : "light";
+}
+
+// The two keys are written independently, so a user who changed only one of
+// them has the other missing. Only when both are missing does the shared
+// default (standard + auto) apply; a missing half otherwise keeps the default
+// this build had before (solarized / light), so the axis the user never
+// touched does not change under them (snz-design doc-7 §6.2). A value this
+// build does not recognise draws the shared default and is not rewritten
+// (doc-7 §5.1).
+const SHARED_DEFAULT: StoredChoice = { family: "standard", mode: "auto" };
+
+function isThemeMode(value: string): value is ThemeMode {
+  return value === "light" || value === "dark" || value === "auto";
+}
+
+function readStoredChoice(): StoredChoice {
+  if (typeof window === "undefined") {
+    return SHARED_DEFAULT;
+  }
+  const storedFamily = readKey(FAMILY_KEY);
+  const storedMode = readKey(MODE_KEY);
+  if (storedFamily === null && storedMode === null) {
+    return SHARED_DEFAULT;
+  }
+  if ((storedFamily !== null && !isThemeFamily(storedFamily)) || (storedMode !== null && !isThemeMode(storedMode))) {
+    return SHARED_DEFAULT;
+  }
+  return { family: storedFamily ?? "solarized", mode: storedMode ?? "light" };
+}
+
+// A failed write still applies the choice for this run (snz-design doc-7
+// §5.3); telling the user it was not saved is left to the full adoption.
+function writeKey(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Private mode / disabled storage: keep the in-memory choice.
+  }
 }
 
 function prefersDark(): boolean {
@@ -41,8 +76,9 @@ function prefersDark(): boolean {
 }
 
 export function ThemeController({ children }: { children: ReactNode }) {
-  const [family, setFamilyState] = useState<ThemeFamily>(readFamily);
-  const [mode, setModeState] = useState<ThemeMode>(readMode);
+  const [initial] = useState<StoredChoice>(readStoredChoice);
+  const [family, setFamilyState] = useState<ThemeFamily>(initial.family);
+  const [mode, setModeState] = useState<ThemeMode>(initial.mode);
   const [systemDark, setSystemDark] = useState<boolean>(prefersDark);
 
   // Track the OS appearance only matters when mode === "auto", but the listener is
@@ -60,14 +96,14 @@ export function ThemeController({ children }: { children: ReactNode }) {
   const setFamily = useCallback((next: ThemeFamily) => {
     setFamilyState(next);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(FAMILY_KEY, next);
+      writeKey(FAMILY_KEY, next);
     }
   }, []);
 
   const setMode = useCallback((next: ThemeMode) => {
     setModeState(next);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(MODE_KEY, next);
+      writeKey(MODE_KEY, next);
     }
   }, []);
 
