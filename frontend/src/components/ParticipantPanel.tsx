@@ -551,8 +551,12 @@ function StateSheetField(props: {
     <Stack>
       <Field>
         <FieldHint label={props.label} hint={t("participants.stateHint")} />
+        {/* Read-only while its own save is in flight: the saved value becomes
+            the field's key, so the remount that follows would drop anything
+            typed after the request left. */}
         <Textarea
           value={draft}
+          readOnly={saving}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={props.placeholder}
           style={{ minHeight: 72 }}
