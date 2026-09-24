@@ -93,19 +93,31 @@ export function ThemeController({ children }: { children: ReactNode }) {
     return () => query.removeEventListener("change", onChange);
   }, []);
 
-  const setFamily = useCallback((next: ThemeFamily) => {
-    setFamilyState(next);
-    if (typeof window !== "undefined") {
-      writeKey(FAMILY_KEY, next);
-    }
-  }, []);
+  // Every choice stores both axes. Writing only the changed key would leave
+  // the other one missing, and on the next launch the missing half falls back
+  // to this build's old default (readStoredChoice) rather than to what was on
+  // screen: a new user who picked only Dark would come back to Solarized Dark.
+  const setFamily = useCallback(
+    (next: ThemeFamily) => {
+      setFamilyState(next);
+      if (typeof window !== "undefined") {
+        writeKey(FAMILY_KEY, next);
+        writeKey(MODE_KEY, mode);
+      }
+    },
+    [mode]
+  );
 
-  const setMode = useCallback((next: ThemeMode) => {
-    setModeState(next);
-    if (typeof window !== "undefined") {
-      writeKey(MODE_KEY, next);
-    }
-  }, []);
+  const setMode = useCallback(
+    (next: ThemeMode) => {
+      setModeState(next);
+      if (typeof window !== "undefined") {
+        writeKey(FAMILY_KEY, family);
+        writeKey(MODE_KEY, next);
+      }
+    },
+    [family]
+  );
 
   const variant: ThemeVariant = mode === "auto" ? (systemDark ? "dark" : "light") : mode;
   const tokens = useMemo(() => resolveTokens(family, variant), [family, variant]);

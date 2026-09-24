@@ -4,7 +4,7 @@ title: '共通デザイン: snz-design の共通トークンを試験適用す�
 status: In Progress
 assignee: []
 created_date: '2026-09-24 06:30'
-updated_date: '2026-09-24 06:52'
+updated_date: '2026-09-24 07:03'
 labels:
   - design
 dependencies: []
@@ -56,4 +56,9 @@ Emotion と既存のテーマ設定 (`snz.theme.family` / `snz.theme.mode`) の�
 - Wails の WebView (WKWebView) では見ていない。
 
 snz-design へ返した差異は snz-design の doc-14 (Web系4アプリの試験適用の結果) にある。
+
+## レビューで見つかった保存の往復の不具合と修正 (2026-09-24、snz-design PR #16 の指摘)
+- 修正前は、選んだ軸のキーだけを書いていた。新規の利用者が明暗だけ Dark を選ぶと `mode` だけが保存され、再起動で `family` が旧既定の solarized に落ちて Solarized Dark になった (画面で見ていたのは 標準 Dark)。
+- 修正: どちらの軸を選んでも 2 つのキーを両方書く。利用者の操作による保存なので、doc-7 §6.1 が禁じる移行による書き換えには当たらない。片方だけ持つ既存の利用者は、読み替え (旧既定) は変わらず、次に選び直した時点で画面どおりの 2 値が保存される。
+- 確認 (OS は暗い側): 新規で Dark を選ぶ → `standard` / `dark` が保存され、開き直すと 標準 Dark。新規で Catppuccin を選ぶ → `catppuccin` / `auto` で Catppuccin Mocha。`catppuccin` だけを持つ利用者が GitHub を選ぶ → `github` / `light` で GitHub Light (見ていた明暗を保つ)。`check:client` 成功。
 <!-- SECTION:NOTES:END -->
