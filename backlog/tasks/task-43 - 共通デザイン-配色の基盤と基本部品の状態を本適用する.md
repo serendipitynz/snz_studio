@@ -1,10 +1,10 @@
 ---
 id: TASK-43
 title: '共通デザイン: 配色の基盤と基本部品の状態を本適用する'
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-09-24 20:11'
-updated_date: '2026-09-24 20:24'
+updated_date: '2026-09-24 22:15'
 labels:
   - design
 dependencies: []
@@ -30,6 +30,7 @@ snz-design の TASK-20 (snz_studio への共通デザインの本適用) が追�
 - [x] #5 標準 と Solarized の面と操作部品の角丸が共通寸法 (10px / 6px) から来て、追加の5配色系統は各自の値を持つ
 - [x] #6 AGENTS.md と AGENTS.ja.md に共通デザインのガイドと適用記録への入口がある (doc-16 §11)
 - [x] #7 `pnpm check:client`・`pnpm build:client`・`go test ./...` が通る
+- [ ] #8 区画の面と hover・押下の段を、snz-design の tokens 0.2.0 (snz-design TASK-27) から写して当てている
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -87,4 +88,10 @@ Catppuccin Latte では主操作が黒の語 対 teal の面で 5.61、焦点の
 - サイドバーの先頭の行とダッシュボードのカードで焦点の枠が切れる・隠れる件は、包む箱の側の問題なので TASK-44・TASK-45 で直す。
 - 無効の部品が焦点を受けて理由を語で持つこと (doc-8 §5.4)・処理中のボタンの語と幅・1画面に主操作1つは、呼ぶ側の画面ごとに決まるので TASK-44〜48 が持つ。
 - チャットの種類のメニューの項目の焦点の描き方は TASK-44 (doc-9 §6.11) で揃える。
+
+## オーナーの実画面の確認と、その後の方針 (2026-09-25)
+- 区画 (`Card`) とプロジェクトの行 (`Item`) が同じ面で見分けられず、行の hover も面が変わらない。原因は2つ。この変換が区画と行を両方 `surface-alt` に写したこと (Solarized では地とも同じ値)、共通の `surface-hover` が `surface` から1段の値で `surface-alt` の上ではほぼ差が出ないこと (Solarized Light で 1.02)。
+- 共通の面の段を snz-design TASK-27 で足す (区画の面の役割、hover・押下の相対規則。tokens 0.2.0)。この PR はそれを待って写しを置き直し、区画と行と hover・押下を当て直す (AC#8)。
+- 区画のボックスの影を消した。変換が `shadow` を `shadow.modal` に写していたので、ボックスにモーダルの影が付いていた。モーダルの影は残す。ボックス間の隙間を 14px から共通の `space.sm` (0.55rem) に狭めた。
+- ダッシュボードに置く要素の見直しは別タスク (TASK-49)。
 <!-- SECTION:NOTES:END -->
