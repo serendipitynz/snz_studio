@@ -4,7 +4,7 @@ title: '共通デザイン: snz-design の共通トークンを試験適用す�
 status: In Progress
 assignee: []
 created_date: '2026-09-24 06:30'
-updated_date: '2026-09-24 10:41'
+updated_date: '2026-09-24 10:50'
 labels:
   - design
 dependencies: []
@@ -66,4 +66,11 @@ snz-design へ返した差異は snz-design の doc-14 (Web系4アプリの試�
 - オーナーが macOS の実アプリ (Wails の WKWebView) で確かめた: OS の明暗の切り替えに追従する。Tab は入力欄と入力エリアにだけ止まり、ボタンへは移らない。
 - 原因: WKWebView の `tabFocusesLinks` が既定で切のままで、macOS のキーボードナビゲーションが既定 (切) の利用者は、Tab で入力欄しか巡れない。Tauri の wry は macOS でこれを有効にしているので (wry 0.55.1 `src/wkwebview/mod.rs` の `tabFocusesLinks`)、backlog-atlas と mallow では Tab がボタンへ届く。Wails v2.16.0 は `mac.Preferences.TabFocusesLinks` が指定されたときだけ設定する。
 - 修正: `main.go` の `wails.Run` に `Mac: &mac.Options{Preferences: &mac.Preferences{TabFocusesLinks: mac.Enabled}}` を足した。`go build ./...`・`go vet .` は通った。**実アプリでボタンへ Tab が届くかは未確認** (ビルドして見る必要がある)。
+
+## オーナーの再確認 (2026-09-24、`4ddb1db` を入れた実アプリ)
+- Tab でボタンへも焦点が移るようになった。
+- 焦点の枠に 2 つの問題が見つかった (本適用の TASK-20 で直す。snz-design doc-13 §10 の「各部品に `:focus-visible` の描き方を足す」に当たる)。
+  - **サイドバーのプロジェクトの先頭の行で、枠の上と左右が切れる。** 行を包む `Stack` が `overflow: auto` (`WorkspaceSidebar.tsx`) で、行の外側に描かれる枠がスクロールする箱の端で切られる。
+  - **ダッシュボードのプロジェクトのカードで、枠がまったく見えない。** 焦点を受けるのはカードいっぱいに広がる `RouterLink` で、それを包む `Item` が `overflow: hidden` (`ProjectListPage.tsx`) なので、リンクの外側に描かれる枠がすべて隠れる。
+  - 直し方の候補: 焦点の枠を要素の内側に描く (`outline-offset` を負にする)、包む側で `:focus-within` のときに枠を描く、スクロールする箱に枠の幅ぶんの余白を持たせる。どれを採るかは snz-design doc-8 §5.1 の焦点の表示と合わせて本適用で決める。
 <!-- SECTION:NOTES:END -->
