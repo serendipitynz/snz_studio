@@ -1,10 +1,10 @@
 ---
 id: TASK-35
 title: '多人数会話: 共通の状態と参加者の状態 (状態シート) を保存し、人間が編集でき、ターンの prompt に入るようにする'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-22 08:37'
-updated_date: '2026-09-23 23:16'
+updated_date: '2026-09-24 01:28'
 labels: []
 milestone: m-1
 dependencies: []
