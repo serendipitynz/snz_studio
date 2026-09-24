@@ -4,7 +4,7 @@ title: '共通デザイン: snz-design の共通トークンを試験適用す�
 status: In Progress
 assignee: []
 created_date: '2026-09-24 06:30'
-updated_date: '2026-09-24 07:03'
+updated_date: '2026-09-24 10:41'
 labels:
   - design
 dependencies: []
@@ -61,4 +61,9 @@ snz-design へ返した差異は snz-design の doc-14 (Web系4アプリの試�
 - 修正前は、選んだ軸のキーだけを書いていた。新規の利用者が明暗だけ Dark を選ぶと `mode` だけが保存され、再起動で `family` が旧既定の solarized に落ちて Solarized Dark になった (画面で見ていたのは 標準 Dark)。
 - 修正: どちらの軸を選んでも 2 つのキーを両方書く。利用者の操作による保存なので、doc-7 §6.1 が禁じる移行による書き換えには当たらない。片方だけ持つ既存の利用者は、読み替え (旧既定) は変わらず、次に選び直した時点で画面どおりの 2 値が保存される。
 - 確認 (OS は暗い側): 新規で Dark を選ぶ → `standard` / `dark` が保存され、開き直すと 標準 Dark。新規で Catppuccin を選ぶ → `catppuccin` / `auto` で Catppuccin Mocha。`catppuccin` だけを持つ利用者が GitHub を選ぶ → `github` / `light` で GitHub Light (見ていた明暗を保つ)。`check:client` 成功。
+
+## オーナーの実機確認と Tab の修正 (2026-09-24)
+- オーナーが macOS の実アプリ (Wails の WKWebView) で確かめた: OS の明暗の切り替えに追従する。Tab は入力欄と入力エリアにだけ止まり、ボタンへは移らない。
+- 原因: WKWebView の `tabFocusesLinks` が既定で切のままで、macOS のキーボードナビゲーションが既定 (切) の利用者は、Tab で入力欄しか巡れない。Tauri の wry は macOS でこれを有効にしているので (wry 0.55.1 `src/wkwebview/mod.rs` の `tabFocusesLinks`)、backlog-atlas と mallow では Tab がボタンへ届く。Wails v2.16.0 は `mac.Preferences.TabFocusesLinks` が指定されたときだけ設定する。
+- 修正: `main.go` の `wails.Run` に `Mac: &mac.Options{Preferences: &mac.Preferences{TabFocusesLinks: mac.Enabled}}` を足した。`go build ./...`・`go vet .` は通った。**実アプリでボタンへ Tab が届くかは未確認** (ビルドして見る必要がある)。
 <!-- SECTION:NOTES:END -->

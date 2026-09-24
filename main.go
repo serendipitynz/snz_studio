@@ -13,6 +13,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
 // assets holds the built SPA. The `all:` prefix keeps dotfiles (e.g. the
@@ -37,6 +38,15 @@ func main() {
 		OnShutdown: app.shutdown,
 		Bind: []any{
 			app,
+		},
+		// WKWebView leaves tabFocusesLinks off, so with macOS's default keyboard
+		// navigation Tab only visits text fields and never reaches a button.
+		// Tauri's wry turns it on, which is why the Tauri apps sharing the
+		// snz-design spec already Tab through every control; this matches them.
+		Mac: &mac.Options{
+			Preferences: &mac.Preferences{
+				TabFocusesLinks: mac.Enabled,
+			},
 		},
 	})
 	if err != nil {
