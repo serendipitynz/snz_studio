@@ -1,10 +1,10 @@
 ---
 id: TASK-42
 title: '共通デザイン: snz-design の共通トークンを試験適用する'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-24 06:30'
-updated_date: '2026-09-24 10:50'
+updated_date: '2026-09-24 20:24'
 labels:
   - design
 dependencies: []
@@ -73,4 +73,7 @@ snz-design へ返した差異は snz-design の doc-14 (Web系4アプリの試�
   - **サイドバーのプロジェクトの先頭の行で、枠の上と左右が切れる。** 行を包む `Stack` が `overflow: auto` (`WorkspaceSidebar.tsx`) で、行の外側に描かれる枠がスクロールする箱の端で切られる。
   - **ダッシュボードのプロジェクトのカードで、枠がまったく見えない。** 焦点を受けるのはカードいっぱいに広がる `RouterLink` で、それを包む `Item` が `overflow: hidden` (`ProjectListPage.tsx`) なので、リンクの外側に描かれる枠がすべて隠れる。
   - 直し方の候補: 焦点の枠を要素の内側に描く (`outline-offset` を負にする)、包む側で `:focus-within` のときに枠を描く、スクロールする箱に枠の幅ぶんの余白を持たせる。どれを採るかは snz-design doc-8 §5.1 の焦点の表示と合わせて本適用で決める。
+
+## 本適用への取り込み (2026-09-25)
+試験の変更は、main から切った TASK-43 のブランチ `task-43-shared-design-foundation` へ cherry-pick して取り込んだ。試験ブランチ `trial/snz-design-tokens` は PR を開かず、そのまま残す。
 <!-- SECTION:NOTES:END -->
