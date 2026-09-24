@@ -41,6 +41,7 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     composerFrom: c.surface,
     composerTo: c.surface,
     floatBtnBg: c.surface,
+    surfaceHover: c.surfaceHover,
 
     ink: c.fg,
     muted: c.fgMuted,
@@ -56,6 +57,8 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     mutedBadgeBg: c.surfaceAlt,
 
     accent: c.accent,
+    accentHover: c.accentHover,
+    onAccent: c.onAccent,
     accentSoft: c.accentSoft,
     accentBorder: c.accent,
     accentBubbleFrom: c.accentSoft,
@@ -85,11 +88,13 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     tableBorder: c.lineDivider,
     hrBorder: c.lineDivider,
 
+    focus: c.focus,
     modalScrim: withAlpha(c.canvas, t.opacity.scrim),
     shadow: t.shadow.modal,
     shadowPopover: t.shadow.raised,
 
     radius: t.radius.md,
+    radiusSm: t.radius.sm,
     font: t.font.family,
     mono: t.font.familyMono
   };

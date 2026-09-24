@@ -62,7 +62,7 @@ function readStoredChoice(): StoredChoice {
 }
 
 // A failed write still applies the choice for this run (snz-design doc-7
-// §5.3); telling the user it was not saved is left to the full adoption.
+// §5.3); telling the user it was not saved belongs to the settings modal.
 function writeKey(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);

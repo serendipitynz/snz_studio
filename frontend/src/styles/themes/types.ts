@@ -65,6 +65,7 @@ export interface ThemeSpec {
   overlayScale?: number;
 
   radius?: string;
+  radiusSm?: string;
   font?: string;
   mono?: string;
 }
@@ -93,6 +94,7 @@ export interface ThemeTokens {
   composerFrom: string;
   composerTo: string;
   floatBtnBg: string;
+  surfaceHover: string;
 
   // text
   ink: string;
@@ -111,6 +113,8 @@ export interface ThemeTokens {
 
   // accent
   accent: string;
+  accentHover: string;
+  onAccent: string;
   accentSoft: string;
   accentBorder: string;
   accentBubbleFrom: string;
@@ -144,14 +148,36 @@ export interface ThemeTokens {
   hrBorder: string;
 
   // chrome
+  focus: string;
   modalScrim: string;
   shadow: string;
   shadowPopover: string;
 
   // typography
   radius: string;
+  radiusSm: string;
   font: string;
   mono: string;
+}
+
+// The text colour for a filled accent surface. These palettes were authored
+// before buttons were filled with the accent, so no spec lists one; take
+// whichever candidate reads best on this accent.
+function pickOnAccent(accent: string, candidates: string[]): string {
+  const luminance = (hex: string): number => {
+    const n = Number.parseInt(hex.slice(1), 16);
+    const channel = (v: number): number => {
+      const c = v / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
+  };
+  const base = luminance(accent);
+  const contrast = (hex: string): number => {
+    const other = luminance(hex);
+    return (Math.max(base, other) + 0.05) / (Math.min(base, other) + 0.05);
+  };
+  return candidates.reduce((best, next) => (contrast(next) > contrast(best) ? next : best));
 }
 
 const DEFAULT_FONT = "'IBM Plex Sans', 'Avenir Next', sans-serif";
@@ -183,6 +209,7 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     composerFrom: spec.composerFrom,
     composerTo: spec.composerTo,
     floatBtnBg: spec.floatBtnBg,
+    surfaceHover: w(spec.lineRgb, 0.08),
 
     ink: spec.ink,
     muted: spec.muted,
@@ -198,6 +225,8 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     mutedBadgeBg: w(spec.lineRgb, 0.1),
 
     accent: spec.accent,
+    accentHover: `color-mix(in srgb, ${spec.accent} 86%, ${spec.ink})`,
+    onAccent: pickOnAccent(spec.accent, [spec.bg, spec.ink, "#ffffff", "#000000"]),
     accentSoft: w(spec.accentRgb, 0.12),
     accentBorder: w(spec.accentRgb, 0.22),
     accentBubbleFrom: w(spec.accentRgb, 0.09),
@@ -227,11 +256,13 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     tableBorder: w(spec.lineRgb, 0.18),
     hrBorder: w(spec.lineRgb, 0.2),
 
+    focus: spec.accent,
     modalScrim: spec.modalScrim,
     shadow: `0 20px 40px ${rgba(spec.shadowRgb, 0.14)}`,
     shadowPopover: `0 12px 28px ${rgba(spec.shadowRgb, 0.18)}`,
 
     radius: spec.radius ?? "18px",
+    radiusSm: spec.radiusSm ?? "12px",
     font: spec.font ?? DEFAULT_FONT,
     mono: spec.mono ?? DEFAULT_MONO
   };
