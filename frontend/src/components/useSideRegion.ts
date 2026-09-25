@@ -86,7 +86,9 @@ export function useSideRegion(storageKey: string, name: string) {
     };
     // Focus moving onto a control the overlay covers entirely closes it, so the
     // focused control is never hidden behind it (WCAG 2.4.11). Focus on a control
-    // still partly in view (the composer) leaves it open.
+    // still partly in view (the composer) leaves it open. Lying inside the
+    // overlay's box is not enough: a dialog raised from the overlay sits above it,
+    // so the overlay must also be what is drawn at the control's centre.
     const handleFocusIn = (event: FocusEvent) => {
       const region = regionRef.current;
       const target = event.target;
@@ -95,7 +97,9 @@ export function useSideRegion(storageKey: string, name: string) {
       }
       const a = region.getBoundingClientRect();
       const b = target.getBoundingClientRect();
-      if (b.left >= a.left && b.right <= a.right && b.top >= a.top && b.bottom <= a.bottom) {
+      const inside = b.left >= a.left && b.right <= a.right && b.top >= a.top && b.bottom <= a.bottom;
+      const onTop = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      if (inside && onTop && region.contains(onTop)) {
         setShownNarrow(false);
       }
     };
