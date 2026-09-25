@@ -410,12 +410,24 @@ export const List = styled.div`
   min-width: 0;
 `;
 
-export const Item = styled.article`
+// $interactive marks a row the whole of which opens something; only those
+// rows take the list-item hover face (snz-design doc-9 §6.1), and like list
+// items they have no pressed step.
+export const Item = styled.article<{ $interactive?: boolean }>`
   border: 1px solid ${({ theme }) => theme.line};
   border-radius: ${({ theme }) => theme.radius};
   padding: 14px;
   background: ${({ theme }) => theme.surfaceItem};
   min-width: 0;
+
+  ${({ $interactive, theme }) =>
+    $interactive
+      ? css`
+          &:hover {
+            background: ${theme.surfaceHover};
+          }
+        `
+      : ""}
 `;
 
 export const Badge = styled.span<{ tone?: "accent" | "warm" | "muted" }>`
