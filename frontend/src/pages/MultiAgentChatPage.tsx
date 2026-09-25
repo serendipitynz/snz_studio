@@ -2,6 +2,7 @@ import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { useParams } from "react-router-dom";
 import { api, ApiError, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
+import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
 import { Dialog, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
@@ -786,16 +787,12 @@ export function MultiAgentChatPage() {
                   style={{ minHeight: 160 }}
                 />
               </Field>
-              <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <input
-                  type="checkbox"
-                  checked={memoryDraft.locked}
-                  onChange={(event) =>
-                    setMemoryDraft((current) => (current ? { ...current, locked: event.target.checked } : current))
-                  }
-                />
-                <span>{t("project.lockHint")}</span>
-              </label>
+              <Checkbox
+                checked={memoryDraft.locked}
+                onChange={(locked) => setMemoryDraft((current) => (current ? { ...current, locked } : current))}
+              >
+                {t("project.lockHint")}
+              </Checkbox>
               <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.saveMemoryNote")}</MetaText>
               {memorySaveBlocked ? <MetaText>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
               {memoryError ? <ErrorText>{memoryError}</ErrorText> : null}

@@ -10,6 +10,7 @@ import {
   Project as ProjectRecord
 } from "../api/client";
 import type { ReviewReference } from "../api/client";
+import { Checkbox } from "../components/Checkbox";
 import { useConfirm } from "../components/ConfirmDialog";
 import { CopyIcon, CopyMessageButton } from "../components/CopyMessageButton";
 import { Dialog, DialogTitle } from "../components/Dialog";
@@ -883,14 +884,9 @@ export function ChatPage() {
                     placeholder={t("chat.titlePlaceholder")}
                   />
                 </Field>
-                <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <input
-                    type="checkbox"
-                    checked={isTemporaryDraft}
-                    onChange={(event) => setIsTemporaryDraft(event.target.checked)}
-                  />
-                  <span>{t("chat.temporaryChat")}</span>
-                </label>
+                <Checkbox checked={isTemporaryDraft} onChange={setIsTemporaryDraft}>
+                  {t("chat.temporaryChat")}
+                </Checkbox>
                 <Subtle>{t("chat.temporaryNote")}</Subtle>
                 <div>
                   <Button type="submit" disabled={sending}>
