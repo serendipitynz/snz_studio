@@ -539,12 +539,16 @@ documents card:
 - stream display
 - auto-growing composer
 - document insert select
-- document add modal
+- document add modal（ドロップゾーンとファイル選択。受け付ける種類を述べ、それ以外は名を挙げて取り込まない。
+  取り込み中は件数の進捗を出し、同じ名前のドキュメントを置き換える前に確認する）
 
 右:
 
-- context inspector
-- collapse state persisted in localStorage
+- context inspector（見出し帯のボタンで出し入れする。広い画面では出し入れを localStorage に保存する。
+  1180px 以下では、保存した選択を変えずに消えた状態から始まり、ボタンで出せる。901〜1180px では3列目に、
+  900px 以下では会話の下に出る）
+
+失敗は、ページの先頭ではなく、失敗した操作の近く（入力欄・ダイアログ・その発言・見出し帯の下）に出します。
 
 assistant footer:
 
@@ -580,6 +584,7 @@ assistant footer:
   発言が 1 件も無いあいだはプリセットの適用（既定は折り畳み）
 
 除籍済みの参加者は編成とは別に一覧します（過去の発言が残るため）。
+編成パネルは、チャット画面のコンテキストインスペクタと同じ形で見出し帯から出し入れします（§11.4）。
 自動進行の停止はターン境界で効くことを UI にも明示します。
 
 ## 12. Database の主なテーブル
