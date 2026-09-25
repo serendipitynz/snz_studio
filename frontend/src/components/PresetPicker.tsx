@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, MultiAgentPreset, MultiAgentPresetSelection } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
-import { Button, ErrorText, Field, Row, Select, Subtle } from "../styles/ui";
+import { Field, Row, Subtle } from "../styles/ui";
+import { ActionButton } from "./ActionButton";
+import { FailureNotice } from "./FailureNotice";
+import { GuardedSelect } from "./GuardedSelect";
+import { FileIcon } from "./icons";
 
 // The picker value that stands for the preset read from a file: it lives beside
 // the bundled ids in the same select, so it must be a value no bundled id uses.
@@ -34,7 +38,8 @@ export interface PresetChoice {
 }
 
 interface PresetPickerProps {
-  disabled?: boolean;
+  // Given, the picker takes no choice and says why (snz-design doc-8 §5.4).
+  disabledReason?: string;
   onChange: (choice: PresetChoice | null) => void;
 }
 
@@ -125,7 +130,7 @@ export function PresetPicker(props: PresetPickerProps) {
     <>
       <Field>
         {t("preset.label")}
-        <Select value={choice} disabled={props.disabled} onChange={(event) => handleChoose(event.target.value)}>
+        <GuardedSelect value={choice} disabledReason={props.disabledReason} onChange={(event) => handleChoose(event.target.value)}>
           <option value="">{t("preset.none")}</option>
           {imported ? <option value={IMPORTED_PRESET_CHOICE}>{t("preset.imported", { title: imported.title })}</option> : null}
           {groups.map(([group, items]) => (
@@ -137,7 +142,7 @@ export function PresetPicker(props: PresetPickerProps) {
               ))}
             </optgroup>
           ))}
-        </Select>
+        </GuardedSelect>
       </Field>
       {selected ? (
         <Subtle style={{ margin: 0 }}>
@@ -146,12 +151,18 @@ export function PresetPicker(props: PresetPickerProps) {
         </Subtle>
       ) : null}
       <Row style={{ alignItems: "center", gap: 10 }}>
-        <Button type="button" variant="normal" disabled={props.disabled} onClick={() => fileRef.current?.click()}>
+        <ActionButton
+          type="button"
+          variant="normal"
+          icon={<FileIcon />}
+          disabledReason={props.disabledReason}
+          onClick={() => fileRef.current?.click()}
+        >
           {t("preset.import")}
-        </Button>
+        </ActionButton>
       </Row>
       <Subtle style={{ margin: 0 }}>{t("preset.hint")}</Subtle>
-      {error ? <ErrorText>{error}</ErrorText> : null}
+      {error ? <FailureNotice>{error}</FailureNotice> : null}
       <input
         ref={fileRef}
         type="file"

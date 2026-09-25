@@ -1,5 +1,5 @@
 import styled from "@emotion/styled";
-import { FormEvent, ReactNode, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
   api,
   CHAT_STATE_SHEET_MAX_CHARS,
@@ -9,17 +9,21 @@ import {
   stateSheetLength,
   TurnRule
 } from "../api/client";
+import { ActionButton } from "./ActionButton";
+import { announce } from "./announce";
 import { useConfirm } from "./ConfirmDialog";
 import { Checkbox } from "./Checkbox";
+import { CollapsibleSection } from "./CollapsibleSection";
+import { FailureNotice } from "./FailureNotice";
+import { GuardedSelect } from "./GuardedSelect";
+import { Hint } from "./Hint";
+import { CheckIcon, MoveDownIcon, MoveUpIcon, PlugIcon, SparklesIcon, TrashIcon, UserPlusIcon } from "./icons";
 import { PresetChoice, PresetPicker } from "./PresetPicker";
 import { useLanguage } from "../i18n";
 import {
   Badge,
-  Button,
   Card,
-  ErrorText,
   Field,
-  IconButton,
   Input,
   MetaText,
   Row,
@@ -27,6 +31,7 @@ import {
   Select,
   Stack,
   Subtle,
+  SubsectionTitle,
   Textarea
 } from "../styles/ui";
 
@@ -35,7 +40,9 @@ interface ParticipantPanelProps {
   participants: Participant[];
   onChatChange: (chat: ChatRecord) => void;
   onParticipantsChange: (participants: Participant[]) => void;
-  disabled: boolean;
+  // Given while a turn or the auto-advance runs: the roster and the rules are
+  // held still, and every control that would change them says this instead.
+  lockedReason?: string;
   // True while the conversation has no messages, which is the only time a preset
   // may be applied: it replaces the roster, the turn rule and the scene, and a
   // transcript would be left referring to a cast the chat no longer has. The
@@ -43,90 +50,37 @@ interface ParticipantPanelProps {
   canApplyPreset: boolean;
 }
 
-// The fallback rule of a blank endpoint / model hangs off a (?) beside the label
-// rather than sitting in the field's placeholder or under the field. A
-// placeholder is clipped by this panel's width and disappears once the field has
-// a value — which is exactly when a roster is being reviewed — while a permanent
-// hint line costs four lines of a narrow panel to say something that is read
-// once. The bubble spans the row rather than being sized to its text, so it can
-// never overflow the pane sideways however long a translation runs.
+// A field whose label carries a hint. The words are a label of their own, tied to
+// the field by id, and the (?) sits beside it: inside a wrapping label the button
+// would become the labelled control and take the field's name.
 const HintRow = styled.div`
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-
-  button:hover + [role="tooltip"],
-  button:focus + [role="tooltip"] {
-    opacity: 1;
-    visibility: visible;
-  }
+  gap: 2px;
 `;
 
-const HintToggle = styled.button`
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid ${({ theme }) => theme.fieldBorder};
-  border-radius: 999px;
-  background: transparent;
-  color: ${({ theme }) => theme.muted};
-  font: inherit;
-  font-size: 11px;
-  line-height: 1;
-  cursor: help;
-  padding: 0;
-`;
+const FieldBox = styled(Field.withComponent("div"))``;
 
-// Opens upward. Downward it lands on the very input it describes, so reading the
-// hint hid what had been typed into the field — and the field is focused exactly
-// when someone reaches for the hint. Upward it covers the control above instead,
-// which is never the one in use.
-const HintBubble = styled.span`
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 3;
-  padding: 8px 10px;
-  border: 1px solid ${({ theme }) => theme.lineMedium};
-  border-radius: ${({ theme }) => theme.radiusSm};
-  background: ${({ theme }) => theme.surfacePane};
-  box-shadow: ${({ theme }) => theme.shadowPopover};
-  color: ${({ theme }) => theme.ink};
-  font-size: 12px;
-  line-height: 1.5;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 120ms ease;
-  pointer-events: none;
-`;
+function HintedField(props: { label: string; hint: string; children: (id: string) => ReactNode }) {
+  const { t } = useLanguage();
+  const id = useId();
+  return (
+    <FieldBox>
+      <HintRow>
+        <label htmlFor={id}>{props.label}</label>
+        <Hint name={t("participants.hintAbout", { label: props.label })} body={props.hint} />
+      </HintRow>
+      {props.children(id)}
+    </FieldBox>
+  );
+}
 
 // The character counter under a state sheet. It turns to the error colour past
-// the limit, which is also when the save button is disabled, so the counter is
-// what explains the disabled button.
+// the limit, which is also when the save button says it cannot save.
 const StateSheetCounter = styled(MetaText)<{ over: boolean }>`
   color: ${({ theme, over }) => (over ? theme.dangerText : theme.muted)};
 `;
-
-// label is the Field itself, so a click inside it is forwarded to the input and
-// takes the focus straight back off the toggle. Cancelling that is what makes
-// the tooltip reachable without a hover. It takes a node rather than a string so
-// a checkbox can be hinted the same way a text field is.
-function FieldHint(props: { label: ReactNode; hint: string }) {
-  return (
-    <HintRow>
-      {props.label}
-      <HintToggle type="button" aria-label={props.hint} onClick={(event) => event.preventDefault()}>
-        ?
-      </HintToggle>
-      <HintBubble role="tooltip">{props.hint}</HintBubble>
-    </HintRow>
-  );
-}
 
 // A per-endpoint probe result. Listing an endpoint's models is both the model
 // picker's source and the connection check the design asks for (§6): the API has
@@ -138,22 +92,57 @@ interface EndpointProbe {
   error?: string;
 }
 
+type MoveDirection = -1 | 1;
+
 // ParticipantPanel is the organisation panel of docs/multi-agent-chat-design.md
 // §6: the participant CRUD with its endpoint check and model picker, plus the
 // chat-level turn rule, scene prompt and shared state sheet.
+// Each failure is told in the section it belongs to (snz-design doc-9 §5.5).
 export function ParticipantPanel(props: ParticipantPanelProps) {
   const { t } = useLanguage();
   const confirm = useConfirm();
+  const rosterRef = useRef<HTMLDivElement | null>(null);
+  const addInputRef = useRef<HTMLInputElement | null>(null);
   const [probes, setProbes] = useState<Record<string, EndpointProbe>>({});
   const [newDisplayName, setNewDisplayName] = useState("");
   const [adding, setAdding] = useState(false);
   const [presetChoice, setPresetChoice] = useState<PresetChoice | null>(null);
   const [applyingPreset, setApplyingPreset] = useState(false);
-  const [error, setError] = useState("");
+  const [moving, setMoving] = useState<{ participantId: string; direction: MoveDirection } | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [presetError, setPresetError] = useState("");
+  const [settingsError, setSettingsError] = useState("");
+  const [addError, setAddError] = useState("");
+  const [participantErrors, setParticipantErrors] = useState<Record<string, string>>({});
+  // Where focus goes once the roster has re-rendered after a move or a removal.
+  const pendingFocus = useRef<{ participantId: string; action: string } | "add" | null>(null);
 
   const roster = props.participants.filter((participant) => participant.deletedAt === null);
   const removed = props.participants.filter((participant) => participant.deletedAt !== null);
   const facilitatorOnRoster = roster.some((participant) => participant.id === props.chat.facilitatorId);
+
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (!target) {
+      return;
+    }
+    pendingFocus.current = null;
+    if (target === "add") {
+      addInputRef.current?.focus();
+      return;
+    }
+    rosterRef.current
+      ?.querySelector<HTMLElement>(`[data-participant="${target.participantId}"] [data-action="${target.action}"]`)
+      ?.focus();
+  }, [props.participants]);
+
+  function setParticipantError(participantId: string, message: string) {
+    setParticipantErrors((current) => ({ ...current, [participantId]: message }));
+  }
+
+  function errorMessage(error: unknown, fallback: Parameters<typeof t>[0]) {
+    return error instanceof Error ? error.message : t(fallback);
+  }
 
   async function probeEndpoint(baseUrl: string) {
     const key = baseUrl.trim();
@@ -164,11 +153,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     } catch (nextError) {
       setProbes((current) => ({
         ...current,
-        [key]: {
-          state: "failed",
-          models: [],
-          error: nextError instanceof Error ? nextError.message : t("participants.connectionFailed")
-        }
+        [key]: { state: "failed", models: [], error: errorMessage(nextError, "participants.connectionFailed") }
       }));
     }
   }
@@ -176,63 +161,79 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
   async function handleAddParticipant(event: FormEvent) {
     event.preventDefault();
     const displayName = newDisplayName.trim();
-    if (!displayName) {
+    if (!displayName || adding) {
       return;
     }
 
     setAdding(true);
-    setError("");
+    setAddError("");
     try {
       const response = await api.createParticipant(props.chat.id, { displayName });
       props.onParticipantsChange([...props.participants, response.participant]);
       setNewDisplayName("");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("participants.saveError"));
+      setAddError(errorMessage(nextError, "participants.saveError"));
     } finally {
       setAdding(false);
     }
   }
 
   async function handleSaveParticipant(participantId: string, input: Parameters<typeof api.updateParticipant>[1]) {
-    setError("");
+    setParticipantError(participantId, "");
     try {
       const response = await api.updateParticipant(participantId, input);
       props.onParticipantsChange(
         props.participants.map((participant) => (participant.id === participantId ? response.participant : participant))
       );
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("participants.saveError"));
+      setParticipantError(participantId, errorMessage(nextError, "participants.saveError"));
       throw nextError;
     }
   }
 
   async function handleRemoveParticipant(participant: Participant) {
-    if (!(await confirm(t("participants.removeConfirm", { name: participant.displayName })))) {
+    const accepted = await confirm(t("participants.removeConfirm", { name: participant.displayName }), {
+      heading: t("participants.removeHeading"),
+      confirmLabel: t("participants.removeConfirmLabel")
+    });
+    if (!accepted) {
       return;
     }
 
-    setError("");
+    // The card leaves the roster, so focus goes to the neighbour's same button,
+    // or to the add form once the roster is empty (snz-design doc-9 §5.1).
+    const index = roster.findIndex((current) => current.id === participant.id);
+    const neighbour = roster[index + 1] ?? roster[index - 1];
+
+    setRemovingId(participant.id);
+    setParticipantError(participant.id, "");
     try {
       const response = await api.removeParticipant(participant.id);
+      pendingFocus.current = neighbour ? { participantId: neighbour.id, action: "remove" } : "add";
       props.onParticipantsChange(
         props.participants.map((current) => (current.id === participant.id ? response.participant : current))
       );
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("participants.saveError"));
+      setParticipantError(participant.id, errorMessage(nextError, "participants.saveError"));
+    } finally {
+      setRemovingId(null);
     }
   }
 
   // Reordering swaps the two neighbours' sort_order rather than renumbering the
   // roster, so a move is two writes regardless of how long the roster is and no
   // other participant's order changes under it.
-  async function handleMove(index: number, direction: -1 | 1) {
+  // The moved card keeps focus on the button that moved it, and its new place is
+  // read out, since the move itself is only seen (snz-design doc-9 §6.9).
+  async function handleMove(index: number, direction: MoveDirection) {
     const target = roster[index];
     const neighbour = roster[index + direction];
-    if (!target || !neighbour) {
+    if (!target || !neighbour || moving) {
       return;
     }
 
-    setError("");
+    setMoving({ participantId: target.id, direction });
+    setParticipantError(target.id, "");
     try {
       const [first, second] = await Promise.all([
         api.updateParticipant(target.id, { sortOrder: neighbour.sortOrder }),
@@ -242,13 +243,19 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
         [first.participant.id, first.participant],
         [second.participant.id, second.participant]
       ]);
+      pendingFocus.current = { participantId: target.id, action: direction === -1 ? "up" : "down" };
       props.onParticipantsChange(
         props.participants
           .map((participant) => updated.get(participant.id) ?? participant)
           .sort((left, right) => left.sortOrder - right.sortOrder)
       );
+      announce(
+        t("participants.moved", { name: target.displayName, position: index + direction + 1, total: roster.length })
+      );
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("participants.saveError"));
+      setParticipantError(target.id, errorMessage(nextError, "participants.saveError"));
+    } finally {
+      setMoving(null);
     }
   }
 
@@ -258,110 +265,92 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     }
     // Only when there is something to lose: applying to the empty roster the
     // sidebar creates is the ordinary path and asking there would be noise.
-    if (roster.length > 0 && !(await confirm(t("preset.applyConfirm", { count: roster.length })))) {
+    if (
+      roster.length > 0 &&
+      !(await confirm(t("preset.applyConfirm", { count: roster.length }), {
+        heading: t("preset.applyHeading"),
+        confirmLabel: t("preset.applyConfirmLabel")
+      }))
+    ) {
       return;
     }
 
     setApplyingPreset(true);
-    setError("");
+    setPresetError("");
     try {
       const response = await api.applyMultiAgentPreset(props.chat.id, presetChoice.selection);
       props.onChatChange(response.chat);
       props.onParticipantsChange(response.participants);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("preset.applyError"));
+      setPresetError(errorMessage(nextError, "preset.applyError"));
     } finally {
       setApplyingPreset(false);
     }
   }
 
-  async function handleChangeTurnRule(turnRule: TurnRule) {
-    setError("");
+  async function saveSettings(input: Parameters<typeof api.updateChatMultiAgentSettings>[1], rethrow = false) {
+    setSettingsError("");
     try {
-      const response = await api.updateChatMultiAgentSettings(props.chat.id, { turnRule });
+      const response = await api.updateChatMultiAgentSettings(props.chat.id, input);
       props.onChatChange(response.chat);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("participants.settingsSaveError"));
+      setSettingsError(errorMessage(nextError, "participants.settingsSaveError"));
+      if (rethrow) {
+        throw nextError;
+      }
     }
   }
 
-  async function handleChangeFacilitator(facilitatorId: string) {
-    setError("");
-    try {
-      const response = await api.updateChatMultiAgentSettings(props.chat.id, { facilitatorId });
-      props.onChatChange(response.chat);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("participants.settingsSaveError"));
-    }
-  }
-
-  async function handleSaveSharedState(stateSheet: string) {
-    setError("");
-    try {
-      const response = await api.updateChatMultiAgentSettings(props.chat.id, { stateSheet });
-      props.onChatChange(response.chat);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("participants.settingsSaveError"));
-      throw nextError;
-    }
-  }
-
-  async function handleSaveScenePrompt(scenePrompt: string) {
-    setError("");
-    try {
-      const response = await api.updateChatMultiAgentSettings(props.chat.id, { scenePrompt });
-      props.onChatChange(response.chat);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("participants.settingsSaveError"));
-      throw nextError;
-    }
-  }
+  const presetReason = props.lockedReason ?? (presetChoice ? undefined : t("preset.chooseFirst"));
+  const addReason = props.lockedReason ?? (newDisplayName.trim() ? undefined : t("participants.nameRequired"));
 
   return (
     <Stack>
       <SectionTitle>{t("participants.title")}</SectionTitle>
-      {error ? <ErrorText>{error}</ErrorText> : null}
 
       {props.canApplyPreset ? (
         <Card>
-          {/* Collapsed by default, and the open state is deliberately not kept: a
+          {/* Folded by default, and the open state is deliberately not kept: a
               chat created from a preset already has its line-up, so an expanded
               section above the roster would be shouting about a decision already
-              taken. Opening it is one click when the preset is what is wanted. */}
-          <details>
-            <summary>{t("preset.section")}</summary>
-            <Stack style={{ marginTop: 10 }}>
+              taken. Opening it is one press when the preset is what is wanted. */}
+          <CollapsibleSection heading={t("preset.section")}>
+            <Stack>
               <Subtle style={{ margin: 0 }}>{t("preset.applyNote")}</Subtle>
-              <PresetPicker disabled={props.disabled || applyingPreset} onChange={setPresetChoice} />
+              <PresetPicker disabledReason={props.lockedReason} onChange={setPresetChoice} />
               <div>
-                <Button
+                <ActionButton
                   type="button"
-                  disabled={!presetChoice || applyingPreset || props.disabled}
+                  variant="normal"
+                  icon={<SparklesIcon />}
+                  busy={applyingPreset}
+                  disabledReason={applyingPreset ? undefined : presetReason}
                   onClick={() => void handleApplyPreset()}
                 >
-                  {applyingPreset ? t("preset.applying") : t("preset.apply")}
-                </Button>
+                  {t("preset.apply")}
+                </ActionButton>
               </div>
+              {presetError ? <FailureNotice>{presetError}</FailureNotice> : null}
             </Stack>
-          </details>
+          </CollapsibleSection>
         </Card>
       ) : null}
 
       <Card>
         <Stack>
-          <Badge tone="accent">{t("participants.settings")}</Badge>
+          <SubsectionTitle>{t("participants.settings")}</SubsectionTitle>
           <Field>
             {t("participants.turnRule")}
-            <Select
+            <GuardedSelect
               value={props.chat.turnRule}
-              disabled={props.disabled}
-              onChange={(event) => void handleChangeTurnRule(event.target.value as TurnRule)}
+              disabledReason={props.lockedReason}
+              onChange={(event) => void saveSettings({ turnRule: event.target.value as TurnRule })}
             >
               <option value="round_robin">{t("participants.turnRuleRoundRobin")}</option>
               <option value="manual">{t("participants.turnRuleManual")}</option>
               <option value="facilitator_alternating">{t("participants.turnRuleFacilitator")}</option>
               <option value="weighted">{t("participants.turnRuleWeighted")}</option>
-            </Select>
+            </GuardedSelect>
           </Field>
           {props.chat.turnRule === "facilitator_alternating" || props.chat.turnRule === "weighted" ? (
             <Field>
@@ -370,10 +359,10 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
                   the chat as stored: a facilitator that has been removed is an
                   id the select has no option for, and showing it as unset is
                   what the turn then actually does. */}
-              <Select
+              <GuardedSelect
                 value={facilitatorOnRoster ? props.chat.facilitatorId : ""}
-                disabled={props.disabled}
-                onChange={(event) => void handleChangeFacilitator(event.target.value)}
+                disabledReason={props.lockedReason}
+                onChange={(event) => void saveSettings({ facilitatorId: event.target.value })}
               >
                 <option value="">{t("participants.facilitatorUnset")}</option>
                 {roster.map((participant) => (
@@ -381,7 +370,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
                     {participant.displayName}
                   </option>
                 ))}
-              </Select>
+              </GuardedSelect>
               <Subtle style={{ margin: 0 }}>
                 {props.chat.turnRule === "weighted"
                   ? t("participants.facilitatorWeightedNote")
@@ -393,8 +382,8 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
           ) : null}
           <ScenePromptField
             value={props.chat.scenePrompt}
-            disabled={props.disabled}
-            onSave={handleSaveScenePrompt}
+            lockedReason={props.lockedReason}
+            onSave={(scenePrompt) => saveSettings({ scenePrompt }, true)}
           />
           {/* Keyed on the stored value so a sheet replaced from outside the field
               (a preset applied, a save that trimmed it) resets the draft. */}
@@ -404,50 +393,65 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
             placeholder={t("participants.sharedStatePlaceholder")}
             value={props.chat.stateSheet}
             maxChars={CHAT_STATE_SHEET_MAX_CHARS}
-            onSave={handleSaveSharedState}
+            onSave={(stateSheet) => saveSettings({ stateSheet }, true)}
           />
+          {settingsError ? <FailureNotice>{settingsError}</FailureNotice> : null}
         </Stack>
       </Card>
 
       <Card>
         <Stack>
-          <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <Badge tone="warm">{t("participants.roster")}</Badge>
-            <MetaText style={{ opacity: 0.72 }}>{t("participants.orderNote")}</MetaText>
+          <Row style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+            <SubsectionTitle>{t("participants.roster")}</SubsectionTitle>
+            <MetaText>{t("participants.orderNote")}</MetaText>
           </Row>
 
           {roster.length === 0 ? <Subtle>{t("multiAgent.rosterEmpty")}</Subtle> : null}
 
-          {roster.map((participant, index) => (
-            <ParticipantEditor
-              key={participant.id}
-              participant={participant}
-              probes={probes}
-              disabled={props.disabled}
-              canMoveUp={index > 0}
-              canMoveDown={index < roster.length - 1}
-              onProbe={probeEndpoint}
-              onSave={handleSaveParticipant}
-              onRemove={handleRemoveParticipant}
-              onMove={(direction) => void handleMove(index, direction)}
-            />
-          ))}
+          {/* One move is saved at a time; the list says so while it is. */}
+          <Stack ref={rosterRef} aria-busy={moving ? true : undefined}>
+            {roster.map((participant, index) => (
+              <ParticipantEditor
+                key={participant.id}
+                participant={participant}
+                probes={probes}
+                lockedReason={props.lockedReason}
+                moveUpReason={index === 0 ? t("participants.atTop") : undefined}
+                moveDownReason={index === roster.length - 1 ? t("participants.atBottom") : undefined}
+                movingDirection={moving?.participantId === participant.id ? moving.direction : null}
+                removing={removingId === participant.id}
+                error={participantErrors[participant.id] ?? ""}
+                onProbe={probeEndpoint}
+                onSave={handleSaveParticipant}
+                onRemove={handleRemoveParticipant}
+                onMove={(direction) => void handleMove(index, direction)}
+              />
+            ))}
+          </Stack>
 
           <Card as="form" onSubmit={handleAddParticipant}>
             <Stack>
               <Field>
                 {t("participants.displayName")}
                 <Input
+                  ref={addInputRef}
                   value={newDisplayName}
                   onChange={(event) => setNewDisplayName(event.target.value)}
                   placeholder={t("participants.displayNamePlaceholder")}
                 />
               </Field>
               <div>
-                <Button type="submit" disabled={adding || props.disabled || !newDisplayName.trim()}>
-                  {adding ? t("participants.adding") : t("participants.add")}
-                </Button>
+                <ActionButton
+                  type="submit"
+                  variant="normal"
+                  icon={<UserPlusIcon />}
+                  busy={adding}
+                  disabledReason={adding ? undefined : addReason}
+                >
+                  {t("participants.add")}
+                </ActionButton>
               </div>
+              {addError ? <FailureNotice>{addError}</FailureNotice> : null}
             </Stack>
           </Card>
         </Stack>
@@ -455,9 +459,8 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
 
       {removed.length ? (
         <Card>
-          <details>
-            <summary>{t("participants.removed", { count: removed.length })}</summary>
-            <Stack style={{ marginTop: 10 }}>
+          <CollapsibleSection heading={t("participants.removed", { count: removed.length })}>
+            <Stack>
               {removed.map((participant) => (
                 <Subtle key={participant.id}>
                   {participant.displayName}
@@ -465,14 +468,14 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
                 </Subtle>
               ))}
             </Stack>
-          </details>
+          </CollapsibleSection>
         </Card>
       ) : null}
     </Stack>
   );
 }
 
-function ScenePromptField(props: { value: string; disabled: boolean; onSave: (value: string) => Promise<void> }) {
+function ScenePromptField(props: { value: string; lockedReason?: string; onSave: (value: string) => Promise<void> }) {
   const { t } = useLanguage();
   const [draft, setDraft] = useState(props.value);
   const [saving, setSaving] = useState(false);
@@ -489,6 +492,8 @@ function ScenePromptField(props: { value: string; disabled: boolean; onSave: (va
     }
   }
 
+  const reason = props.lockedReason ?? (draft === props.value ? t("participants.unchanged") : undefined);
+
   return (
     <Stack>
       <Field>
@@ -501,16 +506,23 @@ function ScenePromptField(props: { value: string; disabled: boolean; onSave: (va
         />
       </Field>
       <div>
-        <Button type="button" variant="normal" disabled={saving || props.disabled || draft === props.value} onClick={() => void handleSave()}>
-          {saving ? t("participants.saving") : t("participants.save")}
-        </Button>
+        <ActionButton
+          type="button"
+          variant="normal"
+          icon={<CheckIcon />}
+          busy={saving}
+          disabledReason={saving ? undefined : reason}
+          onClick={() => void handleSave()}
+        >
+          {t("participants.save")}
+        </ActionButton>
       </div>
     </Stack>
   );
 }
 
 // StateSheetField edits one state sheet and saves it on its own. It takes no
-// disabled flag, unlike every other control in the panel: a turn reads the
+// locked reason, unlike every other control in the panel: a turn reads the
 // sheets when it starts, so a sheet saved while a turn or the auto-advance is
 // running is simply what the next turn reads — and keeping HP and inventory in
 // step with the play as it happens is what the sheet is for (design §4.7).
@@ -538,25 +550,40 @@ function StateSheetField(props: {
     }
   }
 
+  const reason = over
+    ? t("participants.overLimit", { max: props.maxChars })
+    : draft === props.value
+      ? t("participants.unchanged")
+      : undefined;
+
   return (
     <Stack>
-      <Field>
-        <FieldHint label={props.label} hint={t("participants.stateHint")} />
-        {/* Read-only while its own save is in flight: the saved value becomes
-            the field's key, so the remount that follows would drop anything
-            typed after the request left. */}
-        <Textarea
-          value={draft}
-          readOnly={saving}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder={props.placeholder}
-          style={{ minHeight: 72 }}
-        />
-      </Field>
+      <HintedField label={props.label} hint={t("participants.stateHint")}>
+        {(id) => (
+          // Read-only while its own save is in flight: the saved value becomes
+          // the field's key, so the remount that follows would drop anything
+          // typed after the request left.
+          <Textarea
+            id={id}
+            value={draft}
+            readOnly={saving}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={props.placeholder}
+            style={{ minHeight: 72 }}
+          />
+        )}
+      </HintedField>
       <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-        <Button type="button" variant="normal" disabled={saving || over || draft === props.value} onClick={() => void handleSave()}>
-          {saving ? t("participants.saving") : t("participants.save")}
-        </Button>
+        <ActionButton
+          type="button"
+          variant="normal"
+          icon={<CheckIcon />}
+          busy={saving}
+          disabledReason={saving ? undefined : reason}
+          onClick={() => void handleSave()}
+        >
+          {t("participants.save")}
+        </ActionButton>
         <StateSheetCounter over={over}>{t("participants.stateCount", { count: length, max: props.maxChars })}</StateSheetCounter>
       </Row>
     </Stack>
@@ -568,13 +595,16 @@ interface ParticipantEditorProps {
   // Keyed by endpoint rather than by participant, so a check made for one
   // participant already answers for every other pointed at the same server.
   probes: Record<string, EndpointProbe>;
-  disabled: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
+  lockedReason?: string;
+  moveUpReason?: string;
+  moveDownReason?: string;
+  movingDirection: MoveDirection | null;
+  removing: boolean;
+  error: string;
   onProbe: (baseUrl: string) => Promise<void>;
   onSave: (participantId: string, input: Parameters<typeof api.updateParticipant>[1]) => Promise<void>;
   onRemove: (participant: Participant) => Promise<void>;
-  onMove: (direction: -1 | 1) => void;
+  onMove: (direction: MoveDirection) => void;
 }
 
 function ParticipantEditor(props: ParticipantEditorProps) {
@@ -598,7 +628,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
     try {
       await props.onSave(props.participant.id, { displayName, rolePrompt, baseUrl, modelName, receivesProjectMaterial });
     } catch {
-      // Reported by the panel; the drafts stay so the edit survives the failure.
+      // Reported in this card; the drafts stay so the edit survives the failure.
     } finally {
       setSaving(false);
     }
@@ -608,40 +638,51 @@ function ParticipantEditor(props: ParticipantEditorProps) {
   // what is typed in, so an endpoint entered but not yet saved would otherwise
   // never find its own result.
   const probe = props.probes[baseUrl.trim()];
+  const moving = props.movingDirection !== null;
+  const saveReason = props.lockedReason ?? (dirty ? undefined : t("participants.unchanged"));
 
   return (
-    <Card>
+    <Card data-participant={props.participant.id}>
       <Stack>
         <Row style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap" }}>
-          <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{props.participant.displayName}</strong>
+          <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+            {props.participant.displayName}
+          </strong>
           <Row style={{ alignItems: "center", flexWrap: "nowrap", gap: 4 }}>
-            <IconButton
+            <ActionButton
               type="button"
+              iconOnly
+              data-action="up"
               aria-label={t("participants.moveUp")}
-              title={t("participants.moveUp")}
-              disabled={!props.canMoveUp || props.disabled}
+              busy={props.movingDirection === -1}
+              disabledReason={moving ? undefined : (props.lockedReason ?? props.moveUpReason)}
               onClick={() => props.onMove(-1)}
             >
-              <ArrowUpIcon />
-            </IconButton>
-            <IconButton
+              <MoveUpIcon />
+            </ActionButton>
+            <ActionButton
               type="button"
+              iconOnly
+              data-action="down"
               aria-label={t("participants.moveDown")}
-              title={t("participants.moveDown")}
-              disabled={!props.canMoveDown || props.disabled}
+              busy={props.movingDirection === 1}
+              disabledReason={moving ? undefined : (props.lockedReason ?? props.moveDownReason)}
               onClick={() => props.onMove(1)}
             >
-              <ArrowDownIcon />
-            </IconButton>
-            <IconButton
+              <MoveDownIcon />
+            </ActionButton>
+            <ActionButton
               type="button"
+              iconOnly
+              data-action="remove"
               aria-label={t("participants.remove")}
               title={t("participants.remove")}
-              disabled={props.disabled}
+              busy={props.removing}
+              disabledReason={props.removing ? undefined : props.lockedReason}
               onClick={() => void props.onRemove(props.participant)}
             >
               <TrashIcon />
-            </IconButton>
+            </ActionButton>
           </Row>
         </Row>
 
@@ -666,17 +707,18 @@ function ParticipantEditor(props: ParticipantEditorProps) {
 
         {/* Beside the role prompt rather than beside the endpoint: both say what
             this speaker is given to work with, while the endpoint and the model
-            say where its turn runs. */}
-        <FieldHint
-          label={
-            // The checkbox and its words form one click target, and the (?) sits
-            // beside it rather than inside it, so pointing at the hint cannot flip the setting.
-            <Checkbox checked={receivesProjectMaterial} onChange={setReceivesProjectMaterial}>
-              {t("participants.receivesProjectMaterial")}
-            </Checkbox>
-          }
-          hint={t("participants.receivesProjectMaterialHint")}
-        />
+            say where its turn runs. The checkbox and its words form one press
+            target, and the (?) sits beside it, so pointing at the hint cannot
+            flip the setting. */}
+        <HintRow>
+          <Checkbox checked={receivesProjectMaterial} onChange={setReceivesProjectMaterial}>
+            {t("participants.receivesProjectMaterial")}
+          </Checkbox>
+          <Hint
+            name={t("participants.hintAbout", { label: t("participants.receivesProjectMaterial") })}
+            body={t("participants.receivesProjectMaterialHint")}
+          />
+        </HintRow>
 
         {/* Saved on its own rather than with the fields below, so it stays
             editable while a turn runs (see StateSheetField). */}
@@ -689,86 +731,73 @@ function ParticipantEditor(props: ParticipantEditorProps) {
           onSave={(stateSheet) => props.onSave(props.participant.id, { stateSheet })}
         />
 
-        <Field>
-          <FieldHint label={t("participants.baseUrl")} hint={t("participants.baseUrlHint")} />
-          <Input
-            value={baseUrl}
-            onChange={(event) => setBaseUrl(event.target.value)}
-            placeholder={t("participants.baseUrlPlaceholder")}
-          />
-        </Field>
+        <HintedField label={t("participants.baseUrl")} hint={t("participants.baseUrlHint")}>
+          {(id) => (
+            <Input
+              id={id}
+              value={baseUrl}
+              onChange={(event) => setBaseUrl(event.target.value)}
+              placeholder={t("participants.baseUrlPlaceholder")}
+            />
+          )}
+        </HintedField>
 
         <Row style={{ alignItems: "center" }}>
-          <Button
+          <ActionButton
             type="button"
             variant="normal"
-            disabled={!baseUrl.trim() || probe?.state === "checking"}
+            icon={<PlugIcon />}
+            busy={probe?.state === "checking"}
+            disabledReason={baseUrl.trim() ? undefined : t("participants.baseUrlRequired")}
             onClick={() => void props.onProbe(baseUrl)}
           >
-            {probe?.state === "checking" ? t("participants.checking") : t("participants.checkConnection")}
-          </Button>
+            {t("participants.checkConnection")}
+          </ActionButton>
           {probe?.state === "ok" ? (
             <Badge tone="accent">{t("participants.connected", { count: probe.models.length })}</Badge>
           ) : null}
-          {probe?.state === "failed" ? <Badge tone="warm">{probe.error ?? t("participants.connectionFailed")}</Badge> : null}
         </Row>
+        {probe?.state === "failed" ? (
+          <FailureNotice>{probe.error ?? t("participants.connectionFailed")}</FailureNotice>
+        ) : null}
 
-        <Field>
-          <FieldHint label={t("participants.model")} hint={t("participants.modelHint")} />
-          {probe?.state === "ok" && probe.models.length ? (
-            <Select value={modelName} onChange={(event) => setModelName(event.target.value)}>
-              <option value="">{t("participants.pickModel")}</option>
-              {probe.models.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            <Input
-              value={modelName}
-              onChange={(event) => setModelName(event.target.value)}
-              placeholder={t("participants.modelPlaceholder")}
-            />
-          )}
-        </Field>
+        <HintedField label={t("participants.model")} hint={t("participants.modelHint")}>
+          {(id) =>
+            probe?.state === "ok" && probe.models.length ? (
+              <Select id={id} value={modelName} onChange={(event) => setModelName(event.target.value)}>
+                <option value="">{t("participants.pickModel")}</option>
+                {probe.models.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Input
+                id={id}
+                value={modelName}
+                onChange={(event) => setModelName(event.target.value)}
+                placeholder={t("participants.modelPlaceholder")}
+              />
+            )
+          }
+        </HintedField>
 
         <div>
-          <Button type="button" disabled={!dirty || saving || props.disabled} onClick={() => void handleSave()}>
-            {saving ? t("participants.saving") : t("participants.save")}
-          </Button>
+          <ActionButton
+            type="button"
+            variant="normal"
+            icon={<CheckIcon />}
+            busy={saving}
+            disabledReason={saving ? undefined : saveReason}
+            onClick={() => void handleSave()}
+          >
+            {t("participants.save")}
+          </ActionButton>
         </div>
+
+        {props.error ? <FailureNotice>{props.error}</FailureNotice> : null}
       </Stack>
     </Card>
-  );
-}
-
-function ArrowUpIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ArrowDownIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 3.5v9M4.5 9 8 12.5 11.5 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M3.5 4.5h9M6.5 4.5V3.25h3V4.5M5 4.5l.5 8h5l.5-8"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
