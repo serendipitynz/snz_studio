@@ -81,7 +81,6 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     accentDragBorder: c.accent,
     accentDragBg: c.surfaceSelected,
     floatBtnBorder: c.lineControl,
-    statusOkGlow: c.successSoft,
 
     warm: c.warn,
     warmSoft: c.warnSoft,
@@ -95,6 +94,9 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     dangerSoft: c.dangerSoft,
     onDangerSoft: c.onDangerSoft,
     dangerBorder: c.danger,
+    success: c.success,
+    successSoft: c.successSoft,
+    onSuccessSoft: c.onSuccessSoft,
 
     codeBg: c.surfaceAlt,
     preBg: c.surfaceAlt,

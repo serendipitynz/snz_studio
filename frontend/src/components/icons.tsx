@@ -407,6 +407,15 @@ export function DownloadIcon() {
   );
 }
 
+export function XIcon() {
+  return (
+    <Lucide>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </Lucide>
+  );
+}
+
 const spin = keyframes`
   to {
     transform: rotate(1turn);
