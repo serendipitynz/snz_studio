@@ -1,4 +1,4 @@
-import { DragEvent, FormEvent, KeyboardEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   authHeaders,
@@ -10,13 +10,30 @@ import {
   Project as ProjectRecord
 } from "../api/client";
 import type { ReviewReference } from "../api/client";
+import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { useConfirm } from "../components/ConfirmDialog";
-import { CopyIcon, CopyMessageButton } from "../components/CopyMessageButton";
+import { CopyMessageButton } from "../components/CopyMessageButton";
 import { Dialog, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
+import { FailureNotice } from "../components/FailureNotice";
+import { DropZoneProgress, FileDropZone } from "../components/FileDropZone";
+import { GuardedSelect } from "../components/GuardedSelect";
+import {
+  CheckIcon,
+  ClipboardIcon,
+  FilePlusIcon,
+  MessageSquareCodeIcon,
+  MessagesSquareIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
+  PencilIcon,
+  SendIcon,
+  SpinnerIcon
+} from "../components/icons";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { MessageReferences } from "../components/MessageReferences";
+import { useSideRegion } from "../components/useSideRegion";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { useLanguage } from "../i18n";
 import {
@@ -25,8 +42,6 @@ import {
   Card,
   Composer,
   ComposerBox,
-  DropZone,
-  ErrorText,
   Field,
   FloatingScrollButton,
   IconButton,
@@ -40,11 +55,12 @@ import {
   MessageScroller,
   MetaText,
   PaneHeader,
+  RegionToggleButton,
   Row,
-  Select,
   SectionTitle,
   Stack,
   Subtle,
+  SubsectionTitle,
   Textarea,
   WorkspaceShell
 } from "../styles/ui";
@@ -56,6 +72,10 @@ interface ChatState {
   summary: ChatSummary | null;
   messages: MessageRecord[];
 }
+
+// Where a failure is told: next to what failed rather than at the top of the page
+// (snz-design doc-9 §5.5).
+type ErrorArea = "load" | "header" | "composer" | "title" | "upload" | "review";
 
 function createOptimisticMessage(chatId: string, role: "user" | "assistant", content: string): MessageRecord {
   return {
@@ -102,13 +122,15 @@ function formatAssistantModel(message: MessageRecord) {
 
 const INSPECTOR_STORAGE_KEY = "snz.chat.inspectorCollapsed";
 
+// The 24px bare icon buttons of a message's action row, shared with the copy button.
+const MESSAGE_ACTION_STYLE = { width: 24, height: 24, border: "none", background: "transparent", padding: 0 } as const;
+
 export function ChatPage() {
   const { chatId = "" } = useParams();
   const { t } = useLanguage();
   const confirm = useConfirm();
   const messageScrollerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<ChatState | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [projectChats, setProjectChats] = useState<ChatRecord[]>([]);
@@ -116,33 +138,39 @@ export function ChatPage() {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [uploadingDocuments, setUploadingDocuments] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState("");
-  const [error, setError] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<DropZoneProgress | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<ErrorArea, string>>>({});
+  const [messageErrors, setMessageErrors] = useState<Record<string, string>>({});
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
   const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
-  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem(INSPECTOR_STORAGE_KEY) === "true";
-  });
+  const inspector = useSideRegion(INSPECTOR_STORAGE_KEY, t("chat.contextInspector"));
   const [titleDraft, setTitleDraft] = useState("");
   const [isTemporaryDraft, setIsTemporaryDraft] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [documentPickerValue, setDocumentPickerValue] = useState("");
-  const [dragActive, setDragActive] = useState(false);
   const [reviewingMessageId, setReviewingMessageId] = useState<string | null>(null);
   const [reviewTargetMessageId, setReviewTargetMessageId] = useState<string | null>(null);
   const [reviewContent, setReviewContent] = useState("");
   const [reviewReferences, setReviewReferences] = useState<ReviewReference[]>([]);
   const [reviewLoading, setReviewLoading] = useState(false);
 
-  async function load() {
-    setLoading(true);
-    setError("");
+  function setError(area: ErrorArea, message: string) {
+    setErrors((current) => ({ ...current, [area]: message }));
+  }
+
+  function errorMessage(error: unknown, fallback: Parameters<typeof t>[0]) {
+    return error instanceof Error ? error.message : t(fallback);
+  }
+
+  // Only the first load swaps the page for the loading card. A reload after a
+  // failed send keeps the page, so focus and the failure beside the composer stay.
+  async function load(initial = false) {
+    if (initial) {
+      setLoading(true);
+    }
+    setError("load", "");
     try {
       const chatResponse = await api.getChatDetail(chatId);
       const [projectResponse, projectsResponse] = await Promise.all([
@@ -155,24 +183,24 @@ export function ChatPage() {
       setProjectDocuments(projectResponse.documents);
       setProjects(projectsResponse.projects);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("chat.loadError"));
+      setError("load", errorMessage(nextError, "chat.loadError"));
     } finally {
-      setLoading(false);
+      if (initial) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
-    void load();
+    setErrors({});
+    setMessageErrors({});
+    void load(true);
   }, [chatId]);
 
   useEffect(() => {
     setTitleDraft(state?.chat.title ?? "");
     setIsTemporaryDraft(state?.chat.isTemporary ?? false);
   }, [state?.chat.title, state?.chat.isTemporary]);
-
-  useEffect(() => {
-    window.localStorage.setItem(INSPECTOR_STORAGE_KEY, String(isInspectorCollapsed));
-  }, [isInspectorCollapsed]);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -230,13 +258,13 @@ export function ChatPage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim()) {
+    if (!draft.trim() || sending) {
       return;
     }
 
     const content = draft;
     setSending(true);
-    setError("");
+    setError("composer", "");
     setDraft("");
 
     const optimisticUserMessage = createOptimisticMessage(chatId, "user", content);
@@ -254,7 +282,7 @@ export function ChatPage() {
     try {
       await streamMessage(content, optimisticAssistantMessage.id);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("chat.sendError"));
+      setError("composer", errorMessage(nextError, "chat.sendError"));
       void load();
     } finally {
       setSending(false);
@@ -367,12 +395,12 @@ export function ChatPage() {
 
   async function handleUpdateChatTitle(event: FormEvent) {
     event.preventDefault();
-    if (!state) {
+    if (!state || savingTitle) {
       return;
     }
 
-    setSending(true);
-    setError("");
+    setSavingTitle(true);
+    setError("title", "");
 
     try {
       let nextChat = state.chat;
@@ -391,9 +419,17 @@ export function ChatPage() {
       setProjectChats((current) => current.map((chat) => (chat.id === nextChat.id ? nextChat : chat)));
       setIsTitleModalOpen(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("chat.updateError"));
+      setError("title", errorMessage(nextError, "chat.updateError"));
     } finally {
-      setSending(false);
+      setSavingTitle(false);
+    }
+  }
+
+  // A save still in flight would report into a dialog no longer on screen.
+  function closeTitleModal() {
+    if (!savingTitle) {
+      setIsTitleModalOpen(false);
+      setError("title", "");
     }
   }
 
@@ -425,36 +461,37 @@ export function ChatPage() {
     insertDocumentTitle(value);
   }
 
-  async function handleUploadFiles(fileList: FileList | File[]) {
-    if (!state) {
+  // The drop zone has already refused the kinds it does not take, so every file
+  // here is imported, after an overwrite is confirmed where one would happen.
+  async function handleFilesChosen(files: File[]) {
+    if (!state || uploadProgress) {
       return;
     }
 
-    const files = Array.from(fileList);
-    if (!files.length) {
-      return;
-    }
-
-    setUploadingDocuments(true);
-    setError("");
-    setUploadStatus("");
+    setError("upload", "");
+    let currentDocuments = [...projectDocuments];
+    let failed = false;
 
     try {
-      let currentDocuments = [...projectDocuments];
-
-      for (const file of files) {
+      for (const [index, file] of files.entries()) {
         const nextType = detectDocumentType(file);
         if (!nextType) {
-          throw new Error(t("chat.unsupportedFile", { name: file.name }));
+          continue;
         }
 
         const existing = currentDocuments.find((document) => document.title === file.name);
-        if (existing) {
-          const overwrite = await confirm(t("chat.overwritePrompt", { name: file.name }));
-          if (!overwrite) {
-            continue;
-          }
+        if (
+          existing &&
+          !(await confirm(t("project.overwritePrompt", { name: file.name }), {
+            heading: t("project.overwriteHeading"),
+            confirmLabel: t("project.overwriteConfirm")
+          }))
+        ) {
+          continue;
+        }
 
+        setUploadProgress({ label: t("project.savingDocument", { name: file.name }), done: index, total: files.length });
+        if (existing) {
           await api.deleteDocument(existing.id);
           currentDocuments = currentDocuments.filter((document) => document.id !== existing.id);
         }
@@ -463,40 +500,26 @@ export function ChatPage() {
         formData.set("type", nextType);
         formData.set("title", file.name);
         formData.set("file", file);
-        setUploadStatus(t("chat.savingDocument", { name: file.name }));
         const response = await api.createDocument(state.project.id, formData);
         currentDocuments = [response.document, ...currentDocuments];
       }
-
-      setProjectDocuments(currentDocuments);
-      setIsDocumentModalOpen(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("chat.uploadError"));
+      failed = true;
+      setError("upload", errorMessage(nextError, "chat.uploadError"));
     } finally {
-      setUploadingDocuments(false);
-      setUploadStatus("");
-      setDragActive(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      // Also after a failure: the files saved before it are in the project now.
+      setProjectDocuments(currentDocuments);
+      setUploadProgress(null);
+    }
+
+    if (!failed) {
+      setIsDocumentModalOpen(false);
     }
   }
 
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragActive(false);
-    void handleUploadFiles(event.dataTransfer.files);
-  }
-
-  function handleDragOver(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragActive(true);
-  }
-
-  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      setDragActive(false);
-    }
+  function closeDocumentModal() {
+    setIsDocumentModalOpen(false);
+    setError("upload", "");
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -543,6 +566,7 @@ export function ChatPage() {
     setReviewContent("");
     setReviewReferences([]);
     setReviewLoading(false);
+    setError("review", "");
   }
 
   async function handleReviewMessage(messageId: string) {
@@ -551,12 +575,12 @@ export function ChatPage() {
     setReviewReferences([]);
     setReviewingMessageId(messageId);
     setReviewLoading(true);
-    setError("");
+    setError("review", "");
 
     try {
       await streamReviewMessage(messageId);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("chat.reviewError"));
+      setError("review", errorMessage(nextError, "chat.reviewError"));
     } finally {
       setReviewingMessageId(null);
       setReviewLoading(false);
@@ -643,10 +667,11 @@ export function ChatPage() {
   }
 
   async function handleCopyReview() {
+    setError("review", "");
     try {
       await navigator.clipboard.writeText(reviewContent);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("chat.copyReviewError"));
+      setError("review", errorMessage(nextError, "chat.copyReviewError"));
     }
   }
 
@@ -655,11 +680,18 @@ export function ChatPage() {
   }
 
   if (!state) {
-    return <Card>{error || t("chat.notFound")}</Card>;
+    return <Card>{errors.load ? <FailureNotice>{errors.load}</FailureNotice> : t("chat.notFound")}</Card>;
   }
 
+  const sendReason = sending || draft.trim() ? undefined : t("chat.messageRequired");
+  const documentPickerReason = uploadProgress
+    ? t("chat.uploadingReason")
+    : projectDocuments.length === 0
+      ? t("chat.noDocumentsReason")
+      : undefined;
+
   return (
-    <WorkspaceShell $columns={isInspectorCollapsed ? "280px minmax(0, 1fr)" : undefined}>
+    <WorkspaceShell $side={inspector.shown}>
       <WorkspaceSidebar
         projects={projects}
         currentProjectId={state.project.id}
@@ -670,7 +702,7 @@ export function ChatPage() {
       <MainPane>
         <PaneHeader>
           <Row style={{ alignItems: "center" }}>
-            <ChatIcon />
+            <MessagesSquareIcon size={18} />
             {state.chat.title.trim() ? (
               <SectionTitle>{state.chat.isTemporary ? `⏱️ ${state.chat.title}` : state.chat.title}</SectionTitle>
             ) : (
@@ -681,24 +713,35 @@ export function ChatPage() {
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
           <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-            <ExportChatButton chatId={state.chat.id} chatTitle={state.chat.title} onError={setError} />
+            <ExportChatButton
+              chatId={state.chat.id}
+              chatTitle={state.chat.title}
+              onError={(message) => setError("header", message)}
+            />
             <IconButton type="button" aria-label={t("chat.editTitle")} onClick={() => setIsTitleModalOpen(true)}>
-              <EditIcon />
+              <PencilIcon />
             </IconButton>
-            <IconButton
+            <RegionToggleButton
               type="button"
-              aria-label={isInspectorCollapsed ? t("chat.showInspector") : t("chat.hideInspector")}
-              onClick={() => setIsInspectorCollapsed((current) => !current)}
+              aria-label={t("chat.contextInspector")}
+              title={inspector.shown ? t("chat.hideInspector") : t("chat.showInspector")}
+              {...inspector.triggerProps}
             >
-              {isInspectorCollapsed ? <PanelOpenIcon /> : <PanelCloseIcon />}
-            </IconButton>
+              {inspector.shown ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
+            </RegionToggleButton>
           </Row>
         </PaneHeader>
+
+        {errors.header ? (
+          <div style={{ padding: "12px 20px 0" }}>
+            <FailureNotice>{errors.header}</FailureNotice>
+          </div>
+        ) : null}
 
         <MessageArea>
           <MessageScroller ref={messageScrollerRef} onScroll={handleMessageScroll}>
             <Stack>
-              {error ? <ErrorText>{error}</ErrorText> : null}
+              {errors.load ? <FailureNotice>{errors.load}</FailureNotice> : null}
               {state.messages.map((message) => (
                 <MessageBubble key={message.id} $role={message.role}>
                   <Stack>
@@ -707,7 +750,7 @@ export function ChatPage() {
                         <MarkdownPreview source={message.content} />
                       ) : (
                         <Row style={{ alignItems: "center", gap: 10 }}>
-                          <SpinnerIcon />
+                          <SpinnerIcon size={14} />
                           <MetaText>{t("chat.generating")}</MetaText>
                         </Row>
                       )
@@ -721,11 +764,11 @@ export function ChatPage() {
                         </div>
                         {message.role === "assistant" ? (
                           <Stack style={{ gap: 2, alignItems: "flex-end" }}>
-                            <MetaText style={{ whiteSpace: "nowrap", textAlign: "right", opacity: 0.78 }}>
+                            <MetaText style={{ whiteSpace: "nowrap", textAlign: "right" }}>
                               {formatAssistantMetrics(message)}
                             </MetaText>
                             {formatAssistantModel(message) ? (
-                              <MetaText style={{ whiteSpace: "nowrap", textAlign: "right", opacity: 0.62 }}>
+                              <MetaText style={{ whiteSpace: "nowrap", textAlign: "right" }}>
                                 {formatAssistantModel(message)}
                               </MetaText>
                             ) : null}
@@ -735,29 +778,27 @@ export function ChatPage() {
                     ) : null}
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
                       {message.role === "assistant" ? (
-                        <IconButton
+                        <ActionButton
                           type="button"
+                          iconOnly
                           aria-label={t("chat.reviewMessage")}
+                          title={t("chat.review")}
+                          busy={reviewingMessageId === message.id}
                           onClick={() => void handleReviewMessage(message.id)}
-                          disabled={reviewingMessageId === message.id}
-                          title={reviewingMessageId === message.id ? t("chat.reviewing") : t("chat.review")}
-                          style={{
-                            width: 24,
-                            height: 24,
-                            border: "none",
-                            background: "transparent",
-                            padding: 0,
-                            opacity: reviewingMessageId === message.id ? 0.55 : 0.82
-                          }}
+                          style={MESSAGE_ACTION_STYLE}
                         >
-                          <ReviewIcon />
-                        </IconButton>
+                          <MessageSquareCodeIcon />
+                        </ActionButton>
                       ) : null}
-                      <CopyMessageButton content={message.content} onError={setError} />
-                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.78 }}>
+                      <CopyMessageButton
+                        content={message.content}
+                        onError={(next) => setMessageErrors((current) => ({ ...current, [message.id]: next }))}
+                      />
+                      <MetaText style={{ whiteSpace: "nowrap" }}>
                         {new Date(message.createdAt).toLocaleTimeString()}
                       </MetaText>
                     </Row>
+                    {messageErrors[message.id] ? <FailureNotice>{messageErrors[message.id]}</FailureNotice> : null}
                   </Stack>
                 </MessageBubble>
               ))}
@@ -774,6 +815,7 @@ export function ChatPage() {
 
         <Composer onSubmit={handleSubmit}>
           <ComposerBox>
+            {errors.composer ? <FailureNotice>{errors.composer}</FailureNotice> : null}
             <Textarea
               ref={textareaRef}
               value={draft}
@@ -782,13 +824,15 @@ export function ChatPage() {
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               placeholder={t("chat.composerPlaceholder")}
+              aria-label={t("chat.composerLabel")}
               style={{ minHeight: 110, maxHeight: 460, resize: "none" }}
             />
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <Row style={{ alignItems: "center", flex: 1, minWidth: 0 }}>
-                <Select
+                <GuardedSelect
                   value={documentPickerValue}
-                  disabled={projectDocuments.length === 0 || uploadingDocuments}
+                  aria-label={t("chat.insertDocument")}
+                  disabledReason={documentPickerReason}
                   onChange={(event) => handleDocumentSelect(event.target.value)}
                   style={{ minWidth: 230, maxWidth: 360 }}
                 >
@@ -804,75 +848,78 @@ export function ChatPage() {
                       ))}
                     </>
                   )}
-                </Select>
-                <IconButton type="button" aria-label={t("chat.addDocument")} onClick={() => setIsDocumentModalOpen(true)} disabled={uploadingDocuments}>
-                  <PlusIcon />
-                </IconButton>
+                </GuardedSelect>
+                <ActionButton
+                  type="button"
+                  iconOnly
+                  aria-label={t("chat.addDocument")}
+                  title={t("chat.addDocument")}
+                  busy={Boolean(uploadProgress)}
+                  onClick={() => setIsDocumentModalOpen(true)}
+                >
+                  <FilePlusIcon />
+                </ActionButton>
               </Row>
-              <Button type="submit" disabled={sending}>
-                {sending ? (
-                  <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
-                    <SpinnerIcon />
-                    <span>{t("chat.sending")}</span>
-                  </Row>
-                ) : (
-                  t("chat.send")
-                )}
-              </Button>
+              <ActionButton type="submit" icon={<SendIcon />} busy={sending} disabledReason={sendReason}>
+                {t("chat.send")}
+              </ActionButton>
             </Row>
           </ComposerBox>
         </Composer>
       </MainPane>
 
-      {!isInspectorCollapsed ? (
-        <InspectorPane>
-          <SectionTitle>{t("chat.contextInspector")}</SectionTitle>
+      <InspectorPane $toggled {...inspector.regionProps} aria-labelledby={`${inspector.regionProps.id}-heading`}>
+        <SectionTitle id={`${inspector.regionProps.id}-heading`}>{t("chat.contextInspector")}</SectionTitle>
 
-          <Card>
-            <Stack>
-              <Badge tone="accent">{t("chat.chatSummary")}</Badge>
-              <Subtle>{state.summary?.summary || t("chat.noSummary")}</Subtle>
-            </Stack>
-          </Card>
+        <Card>
+          <Stack>
+            <SubsectionTitle>{t("chat.chatSummary")}</SubsectionTitle>
+            <Subtle>{state.summary?.summary || t("chat.noSummary")}</Subtle>
+          </Stack>
+        </Card>
 
-          <Card>
-            <Stack>
-              <Badge tone="warm">{t("chat.latestReferences")}</Badge>
-              {latestAssistantMessage?.references.length ? (
-                <List>
-                  {latestAssistantMessage.references.map((reference) => (
-                    <Item key={reference.id}>
-                      <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                        <strong>{reference.label}</strong>
-                        <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
-                      </Row>
-                      <Subtle>{reference.excerpt || t("chat.noExcerpt")}</Subtle>
-                    </Item>
-                  ))}
-                </List>
-              ) : (
-                <Subtle>{t("chat.noAssistantReferences")}</Subtle>
-              )}
-            </Stack>
-          </Card>
+        <Card>
+          <Stack>
+            <SubsectionTitle>{t("chat.latestReferences")}</SubsectionTitle>
+            {latestAssistantMessage?.references.length ? (
+              <List>
+                {latestAssistantMessage.references.map((reference) => (
+                  <Item key={reference.id}>
+                    <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>{reference.label}</strong>
+                      <Badge tone={reference.sourceType === "document" ? "warm" : "accent"}>{reference.sourceType}</Badge>
+                    </Row>
+                    <Subtle>{reference.excerpt || t("chat.noExcerpt")}</Subtle>
+                  </Item>
+                ))}
+              </List>
+            ) : (
+              <Subtle>{t("chat.noAssistantReferences")}</Subtle>
+            )}
+          </Stack>
+        </Card>
 
-          <Card>
-            <Stack>
-              <Badge tone="muted">{t("chat.projectPrompt")}</Badge>
-              <Subtle>{state.project.systemPrompt || t("chat.noProjectPrompt")}</Subtle>
-            </Stack>
-          </Card>
-        </InspectorPane>
-      ) : null}
+        <Card>
+          <Stack>
+            <SubsectionTitle>{t("chat.projectPrompt")}</SubsectionTitle>
+            <Subtle>{state.project.systemPrompt || t("chat.noProjectPrompt")}</Subtle>
+          </Stack>
+        </Card>
+      </InspectorPane>
 
       {isTitleModalOpen ? (
-        <Dialog onClose={() => setIsTitleModalOpen(false)}>
+        <Dialog onClose={closeTitleModal}>
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("chat.editTitleModal")}</DialogTitle>
-              <Button type="button" variant="normal" onClick={() => setIsTitleModalOpen(false)}>
+              <ActionButton
+                type="button"
+                variant="normal"
+                disabledReason={savingTitle ? t("project.savingClose") : undefined}
+                onClick={closeTitleModal}
+              >
                 {t("common.close")}
-              </Button>
+              </ActionButton>
             </Row>
             <Card as="form" onSubmit={handleUpdateChatTitle}>
               <Stack>
@@ -889,10 +936,11 @@ export function ChatPage() {
                 </Checkbox>
                 <Subtle>{t("chat.temporaryNote")}</Subtle>
                 <div>
-                  <Button type="submit" disabled={sending}>
+                  <ActionButton type="submit" icon={<CheckIcon />} busy={savingTitle}>
                     {t("chat.saveSettings")}
-                  </Button>
+                  </ActionButton>
                 </div>
+                {errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}
               </Stack>
             </Card>
           </Stack>
@@ -900,45 +948,30 @@ export function ChatPage() {
       ) : null}
 
       {isDocumentModalOpen ? (
-        <Dialog onClose={() => setIsDocumentModalOpen(false)}>
+        <Dialog onClose={closeDocumentModal}>
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("chat.addDocumentModal")}</DialogTitle>
-              <Button type="button" variant="normal" onClick={() => setIsDocumentModalOpen(false)}>
+              <Button type="button" variant="normal" onClick={closeDocumentModal}>
                 {t("common.close")}
               </Button>
             </Row>
 
-            <input
-              ref={fileInputRef}
-              type="file"
+            <FileDropZone
+              label={t("project.dropLabel")}
+              acceptWords={t("project.dropAccept")}
+              accepts={(file) => detectDocumentType(file) !== null}
+              acceptsType={isDocumentMime}
+              inputAccept=".md,.markdown,.txt,image/*"
               multiple
-              accept=".md,.markdown,.txt,image/*"
-              style={{ display: "none" }}
-              onChange={(event) => {
-                if (event.target.files) {
-                  void handleUploadFiles(event.target.files);
-                }
-              }}
+              chooseLabel={t("project.chooseFiles")}
+              chooseIcon={<FilePlusIcon />}
+              autoFocusChoose
+              progress={uploadProgress}
+              onFilesChosen={(files) => void handleFilesChosen(files)}
             />
 
-            <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
-              <Stack>
-                <Subtle>{t("chat.dropHint")}</Subtle>
-                <Subtle>{t("chat.overwriteHint")}</Subtle>
-                {uploadStatus ? (
-                  <Row style={{ alignItems: "center", gap: 10 }}>
-                    <SpinnerIcon />
-                    <Subtle>{uploadStatus}</Subtle>
-                  </Row>
-                ) : null}
-                <div>
-                  <Button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingDocuments}>
-                    {uploadingDocuments ? t("chat.processing") : t("chat.chooseFiles")}
-                  </Button>
-                </div>
-              </Stack>
-            </DropZone>
+            {errors.upload ? <FailureNotice>{errors.upload}</FailureNotice> : null}
           </Stack>
         </Dialog>
       ) : null}
@@ -958,25 +991,15 @@ export function ChatPage() {
                 aria-label={t("chat.copyReviewText")}
                 onClick={() => void handleCopyReview()}
                 title={t("chat.copyReview")}
-                style={{
-                  position: "absolute",
-                  top: 14,
-                  right: 14,
-                  width: 24,
-                  height: 24,
-                  border: "none",
-                  background: "transparent",
-                  padding: 0,
-                  opacity: 0.82
-                }}
+                style={{ ...MESSAGE_ACTION_STYLE, position: "absolute", top: 14, right: 14 }}
               >
-                <CopyIcon />
+                <ClipboardIcon />
               </IconButton>
               {reviewContent ? (
                 <MarkdownPreview source={reviewContent} />
               ) : reviewLoading ? (
                 <Row style={{ alignItems: "center", gap: 10 }}>
-                  <SpinnerIcon />
+                  <SpinnerIcon size={14} />
                   <MetaText>{t("chat.reviewing")}</MetaText>
                 </Row>
               ) : (
@@ -988,15 +1011,16 @@ export function ChatPage() {
                   aria-label={t("chat.copyReviewText")}
                   onClick={() => void handleCopyReview()}
                   title={t("chat.copyReview")}
-                  style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
+                  style={MESSAGE_ACTION_STYLE}
                 >
-                  <CopyIcon />
+                  <ClipboardIcon />
                 </IconButton>
               </Row>
             </Card>
+            {errors.review ? <FailureNotice>{errors.review}</FailureNotice> : null}
             <Card>
               <Stack>
-                <Badge tone="warm">{t("chat.reviewReferences")}</Badge>
+                <SubsectionTitle>{t("chat.reviewReferences")}</SubsectionTitle>
                 {reviewReferences.length ? (
                   <List>
                     {reviewReferences.map((reference) => (
@@ -1039,92 +1063,14 @@ function detectDocumentType(file: File): "markdown" | "text" | "image" | null {
   return null;
 }
 
-function PlusIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PanelCloseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M8.25 8 5.75 10.25V5.75L8.25 8Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function PanelOpenIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M7.75 8 10.25 5.75v4.5L7.75 8Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function ReviewIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M3.25 3.5h9.5v6.75h-5l-2.75 2v-2h-1.75V3.5Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-      <path d="M5.5 6.25h5M5.5 8h3.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function SpinnerIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
-      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <animateTransform
-          attributeName="transform"
-          attributeType="XML"
-          type="rotate"
-          from="0 8 8"
-          to="360 8 8"
-          dur="0.8s"
-          repeatCount="indefinite"
-        />
-      </path>
-    </svg>
-  );
+function isDocumentMime(mime: string) {
+  return mime.startsWith("image/") || mime === "text/plain" || mime === "text/markdown" || mime === "text/x-markdown";
 }
 
 function ScrollDownIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M4 6.5 8 10.5l4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M3 11.75V13h1.25l7.1-7.1-1.25-1.25L3 11.75ZM12.2 5.05l.75-.75a.88.88 0 0 0 0-1.25l-.95-.95a.88.88 0 0 0-1.25 0l-.75.75 1.25 1.25.95.95Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChatIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path
-        d="M5.25 13.5H3.5a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v7.75a1 1 0 0 1-1 1H8.75l-3.5 2.25V13.5Z"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }

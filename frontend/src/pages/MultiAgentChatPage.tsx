@@ -2,25 +2,38 @@ import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { useParams } from "react-router-dom";
 import { api, ApiError, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
+import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
 import { Dialog, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
+import { FailureNotice } from "../components/FailureNotice";
+import {
+  CheckIcon,
+  MemoryStickIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
+  PlayIcon,
+  RotateCwIcon,
+  SendIcon,
+  SpinnerIcon,
+  SquareIcon,
+  StepForwardIcon,
+  SummaryIcon
+} from "../components/icons";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { MessageReferences } from "../components/MessageReferences";
 import { ParticipantPanel } from "../components/ParticipantPanel";
+import { useSideRegion } from "../components/useSideRegion";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { MessageKey, useLanguage } from "../i18n";
 import {
   Badge,
-  Button,
   Card,
   Composer,
   ComposerBox,
-  ErrorText,
   Field,
   FloatingScrollButton,
-  IconButton,
   InspectorPane,
   MainPane,
   MessageArea,
@@ -28,11 +41,13 @@ import {
   MessageScroller,
   MetaText,
   PaneHeader,
+  RegionToggleButton,
   Row,
   SectionTitle,
   Select,
   Stack,
   Subtle,
+  Summary,
   Textarea,
   WorkspaceShell
 } from "../styles/ui";
@@ -92,6 +107,9 @@ interface MemoryDraft {
 const ROSTER_STORAGE_KEY = "snz.multiAgent.rosterCollapsed";
 const MEMORY_SAVED_NOTICE_MS = 5000;
 
+// The 24px bare icon buttons of a message's action row, shared with the copy button.
+const MESSAGE_ACTION_STYLE = { width: 24, height: 24, border: "none", background: "transparent", padding: 0 } as const;
+
 // MultiAgentChatPage is the spectator view and progression control of
 // docs/multi-agent-chat-design.md §6. Auto-advance is this loop calling the
 // one-turn route repeatedly (§4.1): there is no server-side progression job, so
@@ -107,8 +125,14 @@ export function MultiAgentChatPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectChats, setProjectChats] = useState<ChatRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  // Each failure is told next to what failed (snz-design doc-9 §5.5): the
+  // transcript's load at its top, the export under the header, a turn or an
+  // intervention in the composer, a copy or a memory draft in its message.
   const [error, setError] = useState("");
+  const [headerError, setHeaderError] = useState("");
   const [turnError, setTurnError] = useState("");
+  const [interveneError, setInterveneError] = useState("");
+  const [messageErrors, setMessageErrors] = useState<Record<string, string>>({});
   // A turn is in flight from the request until its stream ends, but its speaker
   // is known only once the `speaker` frame arrives, so the two are kept apart.
   const [turnRunning, setTurnRunning] = useState(false);
@@ -120,22 +144,19 @@ export function MultiAgentChatPage() {
   const [posting, setPosting] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState<MemoryDraft | null>(null);
-  const [memoryPreparing, setMemoryPreparing] = useState(false);
+  // The message whose save-to-memory draft is being prepared.
+  const [memoryPreparingId, setMemoryPreparingId] = useState<string | null>(null);
   const [memorySaving, setMemorySaving] = useState(false);
   const [memoryError, setMemoryError] = useState("");
   const [memorySavedTitle, setMemorySavedTitle] = useState("");
-  const [concluding, setConcluding] = useState(false);
+  // Where the conclusion draft was asked from: the header, or one message's
+  // "from here". Only that button shows the busy figure.
+  const [concludingFrom, setConcludingFrom] = useState<string | null>(null);
   const [conclusionError, setConclusionError] = useState("");
   // The button that opened the save dialog. The dialog opens only after the
   // server's draft arrives, so by then focus is no longer reliably on it.
   const memoryOpenerRef = useRef<HTMLButtonElement | null>(null);
-  const [isRosterCollapsed, setIsRosterCollapsed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem(ROSTER_STORAGE_KEY) === "true";
-  });
+  const rosterRegion = useSideRegion(ROSTER_STORAGE_KEY, t("participants.title"));
 
   // The loop reads its stop flag from a ref rather than from state: the flag is
   // set while an awaited turn is in flight, and the loop's closure would keep
@@ -166,10 +187,6 @@ export function MultiAgentChatPage() {
     setLoading(true);
     void load().finally(() => setLoading(false));
   }, [load]);
-
-  useEffect(() => {
-    window.localStorage.setItem(ROSTER_STORAGE_KEY, String(isRosterCollapsed));
-  }, [isRosterCollapsed]);
 
   // Leaving the page stops the loop. The turn in flight still finishes and is
   // stored server-side, which is the same guarantee a disconnect gets (§4.1).
@@ -345,13 +362,13 @@ export function MultiAgentChatPage() {
     }
 
     setPosting(true);
-    setTurnError("");
+    setInterveneError("");
     try {
       const response = await api.sendMessage(chatId, content);
       setState((current) => (current ? { ...current, chat: response.chat, messages: response.messages } : current));
       setDraft("");
     } catch (nextError) {
-      setTurnError(nextError instanceof Error ? nextError.message : t("multiAgent.interveneError"));
+      setInterveneError(nextError instanceof Error ? nextError.message : t("multiAgent.interveneError"));
     } finally {
       setPosting(false);
     }
@@ -362,8 +379,9 @@ export function MultiAgentChatPage() {
   // on the server (design §4.4).
   async function handleOpenMemoryDialog(message: MessageRecord, opener: HTMLButtonElement) {
     memoryOpenerRef.current = opener;
-    setMemoryPreparing(true);
+    setMemoryPreparingId(message.id);
     setMemoryError("");
+    setMessageErrors((current) => ({ ...current, [message.id]: "" }));
     try {
       const response = await api.getMessageMemoryDraft(message.id);
       openMemoryDraft({
@@ -374,9 +392,10 @@ export function MultiAgentChatPage() {
         locked: true
       });
     } catch (nextError) {
-      setMemoryError(nextError instanceof Error ? nextError.message : t("multiAgent.saveMemoryDraftError"));
+      const text = nextError instanceof Error ? nextError.message : t("multiAgent.saveMemoryDraftError");
+      setMessageErrors((current) => ({ ...current, [message.id]: text }));
     } finally {
-      setMemoryPreparing(false);
+      setMemoryPreparingId(null);
     }
   }
 
@@ -394,7 +413,7 @@ export function MultiAgentChatPage() {
   // turns that into asking for a later starting utterance.
   async function handleDraftConclusion(opener: HTMLButtonElement, fromMessageId?: string) {
     memoryOpenerRef.current = opener;
-    setConcluding(true);
+    setConcludingFrom(fromMessageId ?? "header");
     setConclusionError("");
     try {
       const response = await api.draftConclusion(chatId, fromMessageId);
@@ -415,7 +434,7 @@ export function MultiAgentChatPage() {
         setConclusionError(nextError instanceof Error ? nextError.message : t("multiAgent.concludeError"));
       }
     } finally {
-      setConcluding(false);
+      setConcludingFrom(null);
     }
   }
 
@@ -485,7 +504,7 @@ export function MultiAgentChatPage() {
   }
 
   if (!state) {
-    return <Card>{error || t("multiAgent.notFound")}</Card>;
+    return <Card>{error ? <FailureNotice>{error}</FailureNotice> : t("multiAgent.notFound")}</Card>;
   }
 
   const stopPending = !autoRunning && turnRunning;
@@ -493,9 +512,31 @@ export function MultiAgentChatPage() {
   // A temporary multi-agent chat reads project material but never writes it
   // back, so the one write path is closed while the flag is on (design §4.4).
   const memorySaveBlocked = state.chat.isTemporary;
+  // One draft is prepared at a time; the button that asked shows it is busy and
+  // the others say why they wait.
+  const draftBusy = Boolean(memoryPreparingId || concludingFrom || memorySaving);
+  const draftBusyReason = draftBusy ? t("multiAgent.draftBusy") : undefined;
+  const turnBlockedReason = !turnBlocked
+    ? undefined
+    : roster.length < 2
+      ? t("multiAgent.needTwoParticipants", { count: roster.length })
+      : t("multiAgent.nomineeRequired");
+  const advanceReason = autoRunning ? t("multiAgent.autoRunning") : turnRunning ? undefined : turnBlockedReason;
+  const autoReason = autoRunning
+    ? undefined
+    : manualRule
+      ? t("multiAgent.autoManualNote")
+      : turnRunning
+        ? t("multiAgent.turnRunningReason")
+        : turnBlockedReason;
+  const lockedReason = autoRunning
+    ? t("multiAgent.lockedAuto")
+    : turnRunning
+      ? t("multiAgent.lockedTurn")
+      : undefined;
 
   return (
-    <WorkspaceShell $columns={isRosterCollapsed ? "280px minmax(0, 1fr)" : undefined}>
+    <WorkspaceShell $side={rosterRegion.shown}>
       <WorkspaceSidebar
         projects={projects}
         currentProjectId={state.project.id}
@@ -511,41 +552,52 @@ export function MultiAgentChatPage() {
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
           <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-            <IconButton
+            <ActionButton
               type="button"
+              iconOnly
               aria-label={t("multiAgent.conclude")}
               title={t("multiAgent.concludeTitle")}
-              disabled={concluding || memoryPreparing || memorySaving || state.messages.length === 0}
+              busy={concludingFrom === "header"}
+              disabledReason={
+                concludingFrom === "header"
+                  ? undefined
+                  : (draftBusyReason ?? (state.messages.length === 0 ? t("multiAgent.concludeEmpty") : undefined))
+              }
               onClick={(event) => void handleDraftConclusion(event.currentTarget)}
             >
               <SummaryIcon />
-            </IconButton>
-            <ExportChatButton chatId={state.chat.id} chatTitle={state.chat.title} onError={setError} />
-            <IconButton
+            </ActionButton>
+            <ExportChatButton chatId={state.chat.id} chatTitle={state.chat.title} onError={setHeaderError} />
+            <ActionButton
               type="button"
+              iconOnly
               aria-label={t("multiAgent.reload")}
               title={t("multiAgent.reload")}
               onClick={() => void load()}
             >
-              <ReloadIcon />
-            </IconButton>
-            <IconButton
+              <RotateCwIcon />
+            </ActionButton>
+            <RegionToggleButton
               type="button"
-              aria-label={isRosterCollapsed ? t("multiAgent.showRoster") : t("multiAgent.hideRoster")}
-              title={isRosterCollapsed ? t("multiAgent.showRoster") : t("multiAgent.hideRoster")}
-              onClick={() => setIsRosterCollapsed((current) => !current)}
+              aria-label={t("participants.title")}
+              title={rosterRegion.shown ? t("multiAgent.hideRoster") : t("multiAgent.showRoster")}
+              {...rosterRegion.triggerProps}
             >
-              {isRosterCollapsed ? <PanelOpenIcon /> : <PanelCloseIcon />}
-            </IconButton>
+              {rosterRegion.shown ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
+            </RegionToggleButton>
           </Row>
         </PaneHeader>
+
+        {headerError ? (
+          <div style={{ padding: "12px 20px 0" }}>
+            <FailureNotice>{headerError}</FailureNotice>
+          </div>
+        ) : null}
 
         <MessageArea>
           <MessageScroller ref={messageScrollerRef} onScroll={handleMessageScroll}>
             <Stack>
-              {error ? <ErrorText>{error}</ErrorText> : null}
-              {turnError ? <ErrorText>{turnError}</ErrorText> : null}
-              {memoryError && !memoryDraft ? <ErrorText>{memoryError}</ErrorText> : null}
+              {error ? <FailureNotice>{error}</FailureNotice> : null}
               {state.messages.length === 0 && !turnRunning ? <Subtle>{t("multiAgent.spectatorEmpty")}</Subtle> : null}
 
               {state.messages.map((message) => (
@@ -553,7 +605,7 @@ export function MultiAgentChatPage() {
                   <Stack>
                     <Row style={{ justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
                       <strong style={{ overflowWrap: "anywhere" }}>{speakerLabel(message)}</strong>
-                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.68 }}>{message.modelName ?? ""}</MetaText>
+                      <MetaText style={{ whiteSpace: "nowrap" }}>{message.modelName ?? ""}</MetaText>
                     </Row>
                     {message.role === "assistant" ? (
                       <MarkdownPreview source={message.content} />
@@ -562,60 +614,65 @@ export function MultiAgentChatPage() {
                     )}
                     <MessageReferences references={message.references} />
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
-                      <CopyMessageButton content={message.content} onError={setError} />
-                      <IconButton
+                      <CopyMessageButton
+                        content={message.content}
+                        onError={(next) => setMessageErrors((current) => ({ ...current, [message.id]: next }))}
+                      />
+                      <ActionButton
                         type="button"
+                        iconOnly
                         aria-label={t("multiAgent.concludeFromHere")}
                         title={t("multiAgent.concludeFromHere")}
-                        disabled={concluding || memoryPreparing || memorySaving}
+                        busy={concludingFrom === message.id}
+                        disabledReason={concludingFrom === message.id ? undefined : draftBusyReason}
                         onClick={(event) => void handleDraftConclusion(event.currentTarget, message.id)}
-                        style={{ width: 24, height: 24, border: "none", background: "transparent", padding: 0, opacity: 0.82 }}
+                        style={MESSAGE_ACTION_STYLE}
                       >
                         <SummaryIcon />
-                      </IconButton>
+                      </ActionButton>
                       {/* Same bare 24px icon button as the single-assistant page's review and
                           copy actions, so the per-message actions read alike across chat kinds. */}
-                      <IconButton
+                      <ActionButton
                         type="button"
+                        iconOnly
                         aria-label={t("multiAgent.saveMemory")}
-                        title={memorySaveBlocked ? t("multiAgent.temporaryNoSave") : t("multiAgent.saveMemoryTitle")}
-                        disabled={memorySaveBlocked || memoryPreparing || memorySaving || concluding}
+                        title={t("multiAgent.saveMemoryTitle")}
+                        busy={memoryPreparingId === message.id}
+                        disabledReason={
+                          memoryPreparingId === message.id
+                            ? undefined
+                            : memorySaveBlocked
+                              ? t("multiAgent.temporaryNoSave")
+                              : draftBusyReason
+                        }
                         onClick={(event) => void handleOpenMemoryDialog(message, event.currentTarget)}
-                        style={{
-                          width: 24,
-                          height: 24,
-                          border: "none",
-                          background: "transparent",
-                          padding: 0,
-                          opacity: memorySaveBlocked ? 0.4 : 0.82
-                        }}
+                        style={MESSAGE_ACTION_STYLE}
                       >
                         <MemoryStickIcon />
-                      </IconButton>
-                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.68 }}>
-                        {new Date(message.createdAt).toLocaleTimeString()}
-                      </MetaText>
+                      </ActionButton>
+                      <MetaText style={{ whiteSpace: "nowrap" }}>{new Date(message.createdAt).toLocaleTimeString()}</MetaText>
                     </Row>
+                    {messageErrors[message.id] ? <FailureNotice>{messageErrors[message.id]}</FailureNotice> : null}
                   </Stack>
                 </MessageBubble>
               ))}
 
+              {/* The utterance being generated is drawn in the same bubble, under its
+                  speaker's name, as the ones already stored (snz-design doc-4 §5.3). */}
               {turnRunning ? (
-                <MessageBubble $role="assistant">
+                <MessageBubble $role="assistant" aria-busy="true">
                   <Stack>
                     <Row style={{ justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
                       <strong style={{ overflowWrap: "anywhere" }}>
                         {runningSpeaker?.participant.displayName ?? t("multiAgent.runningTurnUnknown")}
                       </strong>
-                      <MetaText style={{ whiteSpace: "nowrap", opacity: 0.68 }}>
-                        {runningSpeaker?.modelName ?? ""}
-                      </MetaText>
+                      <MetaText style={{ whiteSpace: "nowrap" }}>{runningSpeaker?.modelName ?? ""}</MetaText>
                     </Row>
                     {runningSpeaker && runningSpeaker.weights.length > 0 ? (
                       <details>
-                        <summary>
+                        <Summary>
                           <MetaText as="span">{t("multiAgent.speakerWeights")}</MetaText>
-                        </summary>
+                        </Summary>
                         <Stack style={{ gap: 2, marginTop: 4 }}>
                           {runningSpeaker.weights.map((entry) => (
                             <MetaText key={entry.participantId}>
@@ -633,7 +690,7 @@ export function MultiAgentChatPage() {
                       <MarkdownPreview source={streamedContent} />
                     ) : (
                       <Row style={{ alignItems: "center", gap: 10 }}>
-                        <SpinnerIcon />
+                        <SpinnerIcon size={14} />
                         <MetaText>{t("multiAgent.speaking")}</MetaText>
                       </Row>
                     )}
@@ -654,19 +711,31 @@ export function MultiAgentChatPage() {
           <ComposerBox>
             <Stack>
               <Row style={{ alignItems: "center" }}>
-                <Button type="button" onClick={() => void handleAdvanceTurn()} disabled={autoRunning || turnRunning || turnBlocked}>
-                  {t("multiAgent.advanceTurn")}
-                </Button>
-                <Button
+                <ActionButton
                   type="button"
-                  variant={autoRunning ? "normal" : "primary"}
+                  icon={<StepForwardIcon />}
+                  busy={turnRunning && !autoRunning}
+                  disabledReason={advanceReason}
+                  onClick={() => void handleAdvanceTurn()}
+                >
+                  {t("multiAgent.advanceTurn")}
+                </ActionButton>
+                <ActionButton
+                  type="button"
+                  variant="normal"
+                  icon={autoRunning ? <SquareIcon /> : <PlayIcon />}
+                  disabledReason={autoReason}
                   onClick={() => void handleToggleAutoRun()}
-                  disabled={manualRule || (!autoRunning && (turnRunning || turnBlocked))}
                 >
                   {autoRunning ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
-                </Button>
+                </ActionButton>
                 {manualRule ? (
-                  <Select value={nomineeId} onChange={(event) => setNomineeId(event.target.value)} style={{ minWidth: 200 }}>
+                  <Select
+                    value={nomineeId}
+                    aria-label={t("multiAgent.nominee")}
+                    onChange={(event) => setNomineeId(event.target.value)}
+                    style={{ minWidth: 200, width: "auto" }}
+                  >
                     <option value="">{t("multiAgent.nominee")}</option>
                     {roster.map((participant) => (
                       <option key={participant.id} value={participant.id}>
@@ -677,10 +746,12 @@ export function MultiAgentChatPage() {
                 ) : null}
               </Row>
 
+              {turnError ? <FailureNotice>{turnError}</FailureNotice> : null}
+
               <Stack style={{ gap: 4 }}>
                 {turnRunning ? (
                   <Row style={{ alignItems: "center", gap: 8 }}>
-                    <SpinnerIcon />
+                    <SpinnerIcon size={14} />
                     <MetaText>
                       {runningSpeaker
                         ? t("multiAgent.runningTurn", { name: runningSpeaker.participant.displayName })
@@ -690,39 +761,43 @@ export function MultiAgentChatPage() {
                 ) : null}
                 {autoRunning ? <MetaText>{t("multiAgent.autoRunning")}</MetaText> : null}
                 {stopPending ? <MetaText>{t("multiAgent.stopPending")}</MetaText> : null}
-                {concluding ? (
+                {concludingFrom ? (
                   <Row style={{ alignItems: "center", gap: 8 }}>
-                    <SpinnerIcon />
+                    <SpinnerIcon size={14} />
                     <MetaText>{t("multiAgent.concluding")}</MetaText>
                   </Row>
                 ) : null}
-                {conclusionError ? <ErrorText>{conclusionError}</ErrorText> : null}
+                {conclusionError ? <FailureNotice>{conclusionError}</FailureNotice> : null}
                 {memorySavedTitle ? <MetaText>{t("multiAgent.saveMemorySaved", { title: memorySavedTitle })}</MetaText> : null}
-                {memorySaveBlocked ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
-                <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoBoundaryNote")}</MetaText>
-                {manualRule ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.autoManualNote")}</MetaText> : null}
+                {memorySaveBlocked ? <MetaText>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
+                <MetaText>{t("multiAgent.autoBoundaryNote")}</MetaText>
+                {manualRule ? <MetaText>{t("multiAgent.autoManualNote")}</MetaText> : null}
                 {roster.length < 2 ? (
-                  <MetaText style={{ opacity: 0.68 }}>
-                    {t("multiAgent.needTwoParticipants", { count: roster.length })}
-                  </MetaText>
+                  <MetaText>{t("multiAgent.needTwoParticipants", { count: roster.length })}</MetaText>
                 ) : null}
-                {manualRule && !nomineeId ? <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.nomineeRequired")}</MetaText> : null}
-                {facilitatorMissing ? (
-                  <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.facilitatorMissing")}</MetaText>
-                ) : null}
-                <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.reloadHint")}</MetaText>
+                {manualRule && !nomineeId ? <MetaText>{t("multiAgent.nomineeRequired")}</MetaText> : null}
+                {facilitatorMissing ? <MetaText>{t("multiAgent.facilitatorMissing")}</MetaText> : null}
+                <MetaText>{t("multiAgent.reloadHint")}</MetaText>
               </Stack>
 
               <Textarea
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 placeholder={t("multiAgent.intervenePlaceholder")}
+                aria-label={t("multiAgent.intervene")}
                 style={{ minHeight: 72, resize: "none" }}
               />
+              {interveneError ? <FailureNotice>{interveneError}</FailureNotice> : null}
               <Row style={{ justifyContent: "flex-end" }}>
-                <Button type="submit" disabled={posting || !draft.trim()}>
+                <ActionButton
+                  type="submit"
+                  variant="normal"
+                  icon={<SendIcon />}
+                  busy={posting}
+                  disabledReason={posting || draft.trim() ? undefined : t("chat.messageRequired")}
+                >
                   {t("multiAgent.intervene")}
-                </Button>
+                </ActionButton>
               </Row>
             </Stack>
           </ComposerBox>
@@ -730,17 +805,17 @@ export function MultiAgentChatPage() {
       </MainPane>
 
       {/* Hidden rather than unmounted: the panel holds unsaved edits (display name,
-          role prompt, endpoint, model, scene), and collapsing must not throw away
-          an edit in progress. display:none also takes it out of the grid, so the
+          role prompt, endpoint, model, scene), and hiding it must not throw away
+          an edit in progress. Hidden also takes it out of the grid, so the
           transcript gets the full width. */}
-      <InspectorPane style={isRosterCollapsed ? { display: "none" } : undefined}>
+      <InspectorPane $toggled {...rosterRegion.regionProps} aria-label={t("participants.title")}>
         <ParticipantPanel
           chat={state.chat}
           participants={participants}
           canApplyPreset={state.messages.length === 0}
           onChatChange={(chat) => setState((current) => (current ? { ...current, chat } : current))}
           onParticipantsChange={setParticipants}
-          disabled={autoRunning || turnRunning}
+          lockedReason={lockedReason}
         />
       </InspectorPane>
 
@@ -793,16 +868,34 @@ export function MultiAgentChatPage() {
               >
                 {t("project.lockHint")}
               </Checkbox>
-              <MetaText style={{ opacity: 0.68 }}>{t("multiAgent.saveMemoryNote")}</MetaText>
+              <MetaText>{t("multiAgent.saveMemoryNote")}</MetaText>
               {memorySaveBlocked ? <MetaText>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
-              {memoryError ? <ErrorText>{memoryError}</ErrorText> : null}
+              {memoryError ? <FailureNotice>{memoryError}</FailureNotice> : null}
               <Row style={{ justifyContent: "flex-end" }}>
-                <Button type="button" variant="normal" onClick={closeMemoryDialog} disabled={memorySaving}>
+                <ActionButton
+                  type="button"
+                  variant="normal"
+                  disabledReason={memorySaving ? t("project.savingClose") : undefined}
+                  onClick={closeMemoryDialog}
+                >
                   {t("common.cancel")}
-                </Button>
-                <Button type="submit" disabled={memorySaveBlocked || memorySaving || !memoryDraft.content.trim()}>
-                  {memorySaving ? t("multiAgent.saveMemorySaving") : t("multiAgent.saveMemoryConfirm")}
-                </Button>
+                </ActionButton>
+                <ActionButton
+                  type="submit"
+                  icon={<CheckIcon />}
+                  busy={memorySaving}
+                  disabledReason={
+                    memorySaving
+                      ? undefined
+                      : memorySaveBlocked
+                        ? t("multiAgent.temporaryNoSave")
+                        : memoryDraft.content.trim()
+                          ? undefined
+                          : t("multiAgent.memoryContentRequired")
+                  }
+                >
+                  {t("multiAgent.saveMemoryConfirm")}
+                </ActionButton>
               </Row>
             </Stack>
           </form>
@@ -822,111 +915,4 @@ const factorLabelKeys: Record<string, MessageKey> = {
 
 function formatWeight(value: number): string {
   return String(Number(value.toFixed(3)));
-}
-
-function PanelCloseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M8.25 8 5.75 10.25V5.75L8.25 8Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function PanelOpenIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M2.75 3.25h10.5v9.5H2.75z" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M10.25 3.25v9.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M7.75 8 10.25 5.75v4.5L7.75 8Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-// Lucide "memory-stick" (ISC, see THIRD_PARTY_NOTICES.md), sized to the 16px
-// grid the other per-message icons use.
-function MemoryStickIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 12v-2" />
-      <path d="M12 18v-2" />
-      <path d="M16 12v-2" />
-      <path d="M16 18v-2" />
-      <path d="M2 11h1.5" />
-      <path d="M20 18v-2" />
-      <path d="M20.5 11H22" />
-      <path d="M4 18v-2" />
-      <path d="M8 12v-2" />
-      <path d="M8 18v-2" />
-      <rect x="2" y="6" width="20" height="10" rx="2" />
-    </svg>
-  );
-}
-
-// Lucide "summary" (ISC, see THIRD_PARTY_NOTICES.md), sized to the 16px grid
-// the other per-message icons use.
-function SummaryIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M15 4H7" />
-      <path d="m18 16 3 3-3 3" />
-      <path d="M3 4v13a2 2 0 0 0 2 2h16" />
-      <path d="M7 14h7" />
-      <path d="M7 9h12" />
-    </svg>
-  );
-}
-
-function ReloadIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M13 8a5 5 0 1 1-1.6-3.66M13 3v2.5h-2.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SpinnerIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
-      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <animateTransform
-          attributeName="transform"
-          attributeType="XML"
-          type="rotate"
-          from="0 8 8"
-          to="360 8 8"
-          dur="0.8s"
-          repeatCount="indefinite"
-        />
-      </path>
-    </svg>
-  );
 }

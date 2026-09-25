@@ -2,13 +2,14 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { markdownFilename, saveTextFile } from "../api/savefile";
 import { useLanguage } from "../i18n";
-import { IconButton } from "../styles/ui";
+import { ActionButton } from "./ActionButton";
+import { DownloadIcon } from "./icons";
 
 interface ExportChatButtonProps {
   chatId: string;
   chatTitle: string;
-  // The page owns the error banner, so a failure is reported through it rather
-  // than rendered here, where it would sit inside the header row.
+  // The page places the failure next to the header (snz-design doc-9 §5.5), so it
+  // is handed up rather than rendered inside the header's row of buttons.
   onError: (message: string) => void;
 }
 
@@ -21,6 +22,7 @@ export function ExportChatButton({ chatId, chatTitle, onError }: ExportChatButto
 
   async function handleExport() {
     setBusy(true);
+    onError("");
     try {
       const markdown = await api.exportChatMarkdown(chatId);
       await saveTextFile(markdownFilename(chatTitle), markdown);
@@ -32,28 +34,15 @@ export function ExportChatButton({ chatId, chatTitle, onError }: ExportChatButto
   }
 
   return (
-    <IconButton
+    <ActionButton
       type="button"
+      iconOnly
       aria-label={t("chat.export")}
       title={t("chat.export")}
-      disabled={busy}
+      busy={busy}
       onClick={() => void handleExport()}
     >
       <DownloadIcon />
-    </IconButton>
-  );
-}
-
-function DownloadIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M8 2.5v7m0 0L5.2 6.7M8 9.5l2.8-2.8M3 11.5v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    </ActionButton>
   );
 }
