@@ -27,7 +27,9 @@ const disabledLook = css`
   }
 `;
 
-const ENABLED = ':not(:disabled):not([aria-disabled="true"])';
+// A busy control keeps its focus but takes no press, so it does not answer the
+// pointer either (snz-design doc-8 §6.1).
+const ENABLED = ':not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"])';
 
 // How far the focus ring reaches outside a control. A scrolling container
 // clips at its padding edge, so one holding focusable rows pads by this much
@@ -259,6 +261,12 @@ export const SidebarLink = styled(Link)`
     border-color: ${({ theme }) => theme.selected};
     box-shadow: inset ${snzTokens.border.band} 0 0 ${({ theme }) => theme.selected};
     color: ${({ theme }) => theme.inkStrong};
+  }
+
+  /* An untitled chat's muted placeholder would keep its own colour and drop
+     the strong words from the current row. */
+  &[aria-current] p {
+    color: inherit;
   }
 
   ${focusRing}
@@ -570,6 +578,10 @@ export const IconButton = styled.button`
   background: ${({ theme }) => theme.surfaceButton};
   color: ${({ theme }) => theme.ink};
   cursor: pointer;
+
+  &[aria-busy="true"] {
+    cursor: default;
+  }
 
   &${ENABLED}:hover {
     background: ${({ theme }) => theme.surfaceHover};

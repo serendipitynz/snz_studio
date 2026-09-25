@@ -152,6 +152,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
                 <KindMenu
                   ref={kindMenu.popupRef}
                   role="menu"
+                  tabIndex={-1}
                   aria-label={t("multiAgent.chatType")}
                   {...kindMenu.popupProps}
                 >
@@ -216,7 +217,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
           <span>{t("sidebar.menu")}</span>
         </Button>
         {entry.isOpen ? (
-          <CollapsedPanel id={entryPanelId} ref={entry.popupRef} {...entry.popupProps}>
+          <CollapsedPanel id={entryPanelId} ref={entry.popupRef} tabIndex={-1} {...entry.popupProps}>
             {destinations}
             <Divider />
             {settingsButton}
@@ -267,6 +268,16 @@ function Brand() {
   );
 }
 
+// A press on a popup's own padding would otherwise drop focus to the body,
+// where the popup's Escape and Tab handling can no longer hear the keys. With
+// tabIndex -1 the popup takes that focus itself; it is never a Tab stop, so it
+// draws no ring.
+const popupFocusHolder = `
+  &:focus {
+    outline: none;
+  }
+`;
+
 // Sticks to the top of the page so the trigger stays in reach while the body
 // scrolls under it; a menu whose trigger scrolls away would have to close
 // (snz-design doc-9 §5.3).
@@ -286,6 +297,7 @@ const CollapsedEntry = styled.div`
 
 // Lies over the page body rather than pushing it down (snz-design doc-9 §6.8).
 const CollapsedPanel = styled.div`
+  ${popupFocusHolder}
   position: absolute;
   top: calc(100% + ${snzTokens.space.xs});
   left: 0;
@@ -308,6 +320,7 @@ const MenuAnchor = styled.div`
 `;
 
 const KindMenu = styled.div`
+  ${popupFocusHolder}
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
