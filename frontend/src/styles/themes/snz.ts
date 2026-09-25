@@ -42,6 +42,12 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     composerTo: c.surface,
     floatBtnBg: c.surface,
     surfaceHover: c.surfaceHover,
+    surfacePressed: c.surfacePressed,
+    // Sections take the shared nested-panel face and the rows inside them go
+    // back to the plain surface, where the shared hover step still shows
+    // (snz-design doc-9 §6.3).
+    surfaceNested: c.surfaceNested,
+    surfaceItem: c.surface,
 
     ink: c.fg,
     muted: c.fgMuted,
@@ -58,6 +64,7 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
 
     accent: c.accent,
     accentHover: c.accentHover,
+    accentPressed: c.accentPressed,
     onAccent: c.onAccent,
     accentSoft: c.accentSoft,
     accentBorder: c.accent,

@@ -151,7 +151,7 @@ export function ProjectListPage() {
                             ? theme.accentDragBg
                             : dropTargetProjectId === project.id
                               ? theme.accentSoft
-                              : theme.surfaceElevate
+                              : theme.surfaceItem
                       }}
                     >
                       <RouterLink

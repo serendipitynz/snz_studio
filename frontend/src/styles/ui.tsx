@@ -172,7 +172,7 @@ export const Grid = styled.div<{ columns?: string }>`
 `;
 
 export const Card = styled.section`
-  background: ${({ theme }) => theme.surfaceCardFaint};
+  background: ${({ theme }) => theme.surfaceNested};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
   padding: 16px;
@@ -261,6 +261,10 @@ export const SidebarButton = styled.button`
 
   &${ENABLED}:hover {
     background: ${({ theme }) => theme.surfaceHover};
+  }
+
+  &${ENABLED}:active {
+    background: ${({ theme }) => theme.surfacePressed};
   }
 
   ${focusRing}
@@ -358,9 +362,14 @@ const buttonFace = (variant: ButtonVariant, theme: Theme) => {
       background: ${theme.accent};
       color: ${theme.onAccent};
 
-      &${ENABLED}:hover, &${ENABLED}:active {
+      &${ENABLED}:hover {
         border-color: ${theme.accentHover};
         background: ${theme.accentHover};
+      }
+
+      &${ENABLED}:active {
+        border-color: ${theme.accentPressed};
+        background: ${theme.accentPressed};
       }
     `;
   }
@@ -371,8 +380,12 @@ const buttonFace = (variant: ButtonVariant, theme: Theme) => {
     background: ${theme.surfaceButton};
     color: ${variant === "danger" ? theme.dangerText : theme.ink};
 
-    &${ENABLED}:hover, &${ENABLED}:active {
+    &${ENABLED}:hover {
       background: ${theme.surfaceHover};
+    }
+
+    &${ENABLED}:active {
+      background: ${theme.surfacePressed};
     }
   `;
 };
@@ -401,7 +414,7 @@ export const Item = styled.article`
   border: 1px solid ${({ theme }) => theme.line};
   border-radius: ${({ theme }) => theme.radius};
   padding: 14px;
-  background: ${({ theme }) => theme.surfaceElevate};
+  background: ${({ theme }) => theme.surfaceItem};
   min-width: 0;
 `;
 
@@ -490,6 +503,10 @@ export const FloatingScrollButton = styled.button`
     background: ${({ theme }) => theme.surfaceHover};
   }
 
+  &:active {
+    background: ${({ theme }) => theme.surfacePressed};
+  }
+
   ${focusRing}
 
   @media (max-width: 900px) {
@@ -509,8 +526,12 @@ export const IconButton = styled.button`
   color: ${({ theme }) => theme.ink};
   cursor: pointer;
 
-  &${ENABLED}:hover, &${ENABLED}:active {
+  &${ENABLED}:hover {
     background: ${({ theme }) => theme.surfaceHover};
+  }
+
+  &${ENABLED}:active {
+    background: ${({ theme }) => theme.surfacePressed};
   }
 
   ${focusRing}

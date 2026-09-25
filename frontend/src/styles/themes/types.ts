@@ -95,6 +95,11 @@ export interface ThemeTokens {
   composerTo: string;
   floatBtnBg: string;
   surfaceHover: string;
+  surfacePressed: string;
+  // A panel placed inside a panel (the shared "nested panel"), and the rows
+  // and cards that sit inside it.
+  surfaceNested: string;
+  surfaceItem: string;
 
   // text
   ink: string;
@@ -114,6 +119,7 @@ export interface ThemeTokens {
   // accent
   accent: string;
   accentHover: string;
+  accentPressed: string;
   onAccent: string;
   accentSoft: string;
   accentBorder: string;
@@ -210,6 +216,11 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     composerTo: spec.composerTo,
     floatBtnBg: spec.floatBtnBg,
     surfaceHover: w(spec.lineRgb, 0.08),
+    surfacePressed: w(spec.lineRgb, 0.14),
+    // These families keep the look they had before the shared nested-panel
+    // step existed: sections on the faint card surface, rows on the elevated one.
+    surfaceNested: spec.surfaceCardFaint,
+    surfaceItem: spec.surfaceElevate,
 
     ink: spec.ink,
     muted: spec.muted,
@@ -226,6 +237,7 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
 
     accent: spec.accent,
     accentHover: `color-mix(in srgb, ${spec.accent} 86%, ${spec.ink})`,
+    accentPressed: `color-mix(in srgb, ${spec.accent} 72%, ${spec.ink})`,
     onAccent: pickOnAccent(spec.accent, [spec.bg, spec.ink, "#ffffff", "#000000"]),
     accentSoft: w(spec.accentRgb, 0.12),
     accentBorder: w(spec.accentRgb, 0.22),

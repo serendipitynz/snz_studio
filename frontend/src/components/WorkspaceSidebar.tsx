@@ -235,7 +235,7 @@ const KindMenuItem = styled.button`
 
   &:hover,
   &:focus-visible {
-    background: ${({ theme }) => theme.surfaceCardFaint};
+    background: ${({ theme }) => theme.surfaceHover};
   }
 `;
 
