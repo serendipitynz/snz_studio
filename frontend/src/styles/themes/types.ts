@@ -109,6 +109,9 @@ export interface ThemeTokens {
   ink: string;
   inkStrong: string;
   muted: string;
+  // A figure that stands alone as a control, without a face or outline
+  // around it (snz-design's figure role).
+  figure: string;
 
   // borders / lines
   fieldBorder: string;
@@ -235,6 +238,9 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     ink: spec.ink,
     inkStrong: spec.ink,
     muted: spec.muted,
+    // muted falls below 3:1 on the surface in One Light, so a figure that
+    // stands alone as a control takes ink in these palettes.
+    figure: spec.ink,
 
     fieldBorder: spec.fieldBorder,
     lineSoft: w(spec.lineRgb, 0.06),

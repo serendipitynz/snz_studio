@@ -136,9 +136,8 @@ export function ProjectListPage() {
                   onReordered={(projectId, toIndex) => void handleReordered(projectId, toIndex)}
                   renderItem={(project) => (
                     <RouterLink
-                      data-row-link
                       to={`/projects/${project.id}`}
-                      style={{ display: "block", padding: "14px 14px 14px 8px", overflowWrap: "anywhere" }}
+                      style={{ display: "block", padding: "12px 8px", overflowWrap: "anywhere" }}
                     >
                       <strong>{project.title}</strong>
                     </RouterLink>

@@ -442,37 +442,12 @@ export const List = styled.div`
   min-width: 0;
 `;
 
-// $interactive marks a row the whole of which opens something; only those
-// rows take the list-item hover face (snz-design doc-9 §6.1), and like list
-// items they have no pressed step. The link that fills such a row carries
-// data-row-link, so the row-wide ring below stands in for that link only.
-export const Item = styled.article<{ $interactive?: boolean }>`
+export const Item = styled.article`
   border: 1px solid ${({ theme }) => theme.line};
   border-radius: ${({ theme }) => theme.radius};
   padding: 14px;
   background: ${({ theme }) => theme.surfaceItem};
   min-width: 0;
-
-  ${({ $interactive, theme }) =>
-    $interactive
-      ? css`
-          &:hover {
-            background: ${theme.surfaceHover};
-          }
-
-          /* The link filling the row takes the focus, but the row clips it,
-             so the ring is drawn on the row instead (as the shared card's
-             activating link does, snz-design doc-9 §6.2). */
-          & a[data-row-link]:focus-visible {
-            outline: none;
-          }
-
-          &:has(a[data-row-link]:focus-visible) {
-            outline: ${snzTokens.border.focus} solid ${theme.focus};
-            outline-offset: ${snzTokens.border.focusOffset};
-          }
-        `
-      : ""}
 `;
 
 export const Badge = styled.span<{ tone?: "accent" | "warm" | "muted" }>`

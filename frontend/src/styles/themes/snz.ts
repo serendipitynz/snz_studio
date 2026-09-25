@@ -54,6 +54,7 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     ink: c.fg,
     inkStrong: c.fgStrong,
     muted: c.fgMuted,
+    figure: c.figure,
 
     fieldBorder: c.lineControl,
     lineSoft: c.lineDivider,

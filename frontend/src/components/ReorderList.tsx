@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useLanguage } from "../i18n";
 import { snzTokens } from "../styles/themes/snz-tokens";
-import { IconButton, Item, VisuallyHidden } from "../styles/ui";
+import { focusRing, VisuallyHidden } from "../styles/ui";
 
 // Movement under this many pixels is a press, not a drag: a hand resting on a
 // mouse jitters, and a press is what leaves the item grabbed for the
@@ -314,8 +314,6 @@ export function ReorderList<T extends { id: string }>(props: ReorderListProps<T>
           const grabbed = grab?.id === item.id;
           return (
             <Row
-              as="li"
-              $interactive
               key={item.id}
               ref={(element: HTMLLIElement | null) => {
                 if (element) {
@@ -372,30 +370,65 @@ function GripIcon() {
   );
 }
 
-// The gap between rows. A drop position is centred on the boundary, half of
-// it away from each row, and reaches past the row's own 1px border.
-const ROW_GAP = 10;
-
+// One box of rows split by divider lines, as the shared row list draws it
+// (snz-design doc-9 §6.1): the rows carry a single column, so they do not
+// need to stand apart as cards.
 const OrderedList = styled.ol`
   display: flex;
   flex-direction: column;
-  gap: ${ROW_GAP}px;
   min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
+  border: ${snzTokens.border.line} solid ${({ theme }) => theme.fieldBorder};
+  border-radius: ${({ theme }) => theme.radius};
+  background: ${({ theme }) => theme.surfaceItem};
 `;
 
-const Row = styled(Item)`
+const Row = styled.li`
   position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  padding: 0 0 0 ${snzTokens.space.sm};
+  gap: ${snzTokens.space.xs};
+  padding: 0 ${snzTokens.space.xs} 0 ${snzTokens.space.sm};
+  min-width: 0;
+  background: ${({ theme }) => theme.surfaceItem};
+  /* Row separators are decorative: no contrast minimum (doc-5 §3.2). */
+  border-bottom: ${snzTokens.border.line} solid ${({ theme }) => theme.line};
 
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  /* The faces follow the box's rounded corners, which is not clipped: a
+     clipping box would cut the focus rings inside it. */
+  &:first-child {
+    border-top-left-radius: calc(${({ theme }) => theme.radius} - ${snzTokens.border.line});
+    border-top-right-radius: calc(${({ theme }) => theme.radius} - ${snzTokens.border.line});
+  }
+
+  &:last-child {
+    border-bottom-left-radius: calc(${({ theme }) => theme.radius} - ${snzTokens.border.line});
+    border-bottom-right-radius: calc(${({ theme }) => theme.radius} - ${snzTokens.border.line});
+  }
+
+  &:not([data-grabbed]):hover {
+    background: ${({ theme }) => theme.surfaceHover};
+  }
+
+  /* The link fills the rest of the row, whose neighbours touch it, so its
+     ring is drawn just inside it rather than over the next row. */
+  & > a:focus-visible {
+    outline-offset: calc(-1 * ${snzTokens.border.focus});
+  }
+
+  /* The face, the frame and the left band together (doc-8 §5.2). */
   &[data-grabbed] {
     z-index: 1;
     background: ${({ theme }) => theme.surfaceSelected};
+    outline: ${snzTokens.border.line} solid ${({ theme }) => theme.selected};
+    outline-offset: calc(-1 * ${snzTokens.border.line});
     box-shadow: inset ${snzTokens.border.band} 0 0 ${({ theme }) => theme.selected};
   }
 
@@ -408,23 +441,50 @@ const Row = styled(Item)`
   }
 `;
 
-const Handle = styled(IconButton)`
+// The quiet icon-only button of the shared reorder example: no face and no
+// outline at rest, only the figure (doc-8 §6.1 / §6.2). The pressable area
+// stays above the 24px minimum (doc-8 §5.7).
+const Handle = styled.button`
   position: relative;
   z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: ${({ theme }) => theme.radiusSm};
+  background: transparent;
+  color: ${({ theme }) => theme.figure};
   cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 
+  &:not([aria-busy="true"]):hover {
+    background: ${({ theme }) => theme.surfaceHover};
+  }
+
+  &:not([aria-busy="true"]):active {
+    background: ${({ theme }) => theme.surfacePressed};
+  }
+
+  &[aria-busy="true"] {
+    cursor: default;
+  }
+
   [data-grabbed] > & {
     cursor: grabbing;
   }
+
+  ${focusRing}
 `;
 
 // Laid over the boundary between two rows instead of inserted between them,
 // so grabbing does not move the list. The pressable band is 24px tall
-// (doc-8 §5.7) and drawn as a thin dashed line, which turns into the solid
-// line of the predicted drop (doc-9 §6.9).
+// (doc-8 §5.7), centred on the 1px divider, and drawn as a thin dashed line
+// that turns into the solid line of the predicted drop (doc-9 §6.9).
 const DropPosition = styled.button`
   position: absolute;
   left: 0;
@@ -437,11 +497,11 @@ const DropPosition = styled.button`
   cursor: pointer;
 
   &[data-edge="start"] {
-    top: calc(${-ROW_GAP / 2}px - ${snzTokens.size.targetMin} / 2 - 1px);
+    top: calc(-${snzTokens.size.targetMin} / 2 - ${snzTokens.border.line} / 2);
   }
 
   &[data-edge="end"] {
-    bottom: calc(${-ROW_GAP / 2}px - ${snzTokens.size.targetMin} / 2 - 1px);
+    bottom: calc(-${snzTokens.size.targetMin} / 2 - ${snzTokens.border.line} / 2);
   }
 
   &::before {
