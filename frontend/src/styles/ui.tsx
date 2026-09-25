@@ -265,7 +265,7 @@ export const SidebarLink = styled(Link)`
 
   /* An untitled chat's muted placeholder would keep its own colour and drop
      the strong words from the current row. */
-  &[aria-current] p {
+  &[aria-current] > p {
     color: inherit;
   }
 

@@ -94,7 +94,9 @@ export function usePopupMenu<Trigger extends HTMLElement>() {
     if (event.key === "ArrowDown") {
       next = (current + 1) % items.length;
     } else if (event.key === "ArrowUp") {
-      next = (current - 1 + items.length) % items.length;
+      // current is -1 while the popup itself holds focus (after a press on its
+      // padding); ArrowUp then goes to the last item, as from the trigger.
+      next = current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length;
     } else if (event.key === "Home") {
       next = 0;
     } else if (event.key === "End") {
