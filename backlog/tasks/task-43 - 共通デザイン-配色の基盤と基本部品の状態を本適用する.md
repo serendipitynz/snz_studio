@@ -4,7 +4,7 @@ title: '共通デザイン: 配色の基盤と基本部品の状態を本適用�
 status: In Review
 assignee: []
 created_date: '2026-09-24 20:11'
-updated_date: '2026-09-25 02:12'
+updated_date: '2026-09-25 02:45'
 labels:
   - design
 dependencies: []
@@ -101,4 +101,6 @@ Catppuccin Latte では主操作が黒の語 対 teal の面で 5.61、焦点の
 - 押下: 主操作は `accentPressed`、通常・破壊的・アイコンのみボタン・サイドバーのボタン・最新へ戻るボタンは `surfacePressed`。hover と押下を別の面にした。チャットの種類のメニューの項目の hover を `surfaceCardFaint` から `surfaceHover` に替えた (`surfaceCardFaint` は区画の面と同じ値になったため)。
 - 確かめたこと (Chromium 152、macOS 26.6.2、1280×800、固定データの API): ダッシュボードで ボックス / 区画 / 行 の面は Solarized Light #fdf6e3 / #f6efdc / #fdf6e3、Solarized Dark #073642 / #04303c / #073642、標準 Light #ffffff / #f4f6f8 / #ffffff、標準 Dark #232833 / #1d222a / #232833。ボックス 対 区画 と 区画 対 行 はどちらも 1.06 / 1.08 / 1.08 / 1.08 (Sol L / Sol D / 標準 L / 標準 D)、行の輪郭 対 区画 は 1.25 / 1.29 / 1.28 / 1.42、行の語は 12.05 / 10.61 / 14.42 / 11.44、区画の見出しは 11.33 / 11.48 / 13.31 / 12.38。`:active` の規則の面は 標準 Dark で #323847 (`surface-pressed`) と #accdf1 (`accent-pressed`)。`pnpm check:client`・`pnpm build:client`・`go test ./...` が通った。
 - 行の hover は、行が押せる部品になる画面のタスク (TASK-45・TASK-46) で当てる。
+
+- オーナーの実窓の確認 (2026-09-25、画面の記録はオーナーの手元): ダッシュボードのプロジェクトの行が hover で変わらなかった。行に hover の規則が無かったうえ、ドラッグの状態のために背景をインラインで置いていて、CSS の hover を上書きしていた。行 (`Item`) に `$interactive` を足して一覧の項目の hover (`surface-hover`、押下の段は無い。snz-design doc-9 §6.1) を持たせ、インラインの背景はドラッグ中だけに限った。上の「行の hover は TASK-45・TASK-46 で当てる」は、ダッシュボードの行についてはここで済んだ。Chromium で、Solarized Light の hover した行が #ece6d2 (他の行と 1.16、区画と 1.09、語 10.41) になることを確かめた。
 <!-- SECTION:NOTES:END -->
