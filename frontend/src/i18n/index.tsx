@@ -16,7 +16,6 @@ type Vars = Record<string, string | number>;
 const en = {
   "common.close": "Close",
   "common.cancel": "Cancel",
-  "common.ok": "OK",
   "common.delete": "Delete",
   "discard.heading": "Discard changes?",
   "discard.message": "What you have entered is not saved and will be lost.",
@@ -173,6 +172,7 @@ const en = {
   "imageDialog.checking": "Checking whether a description can be generated…",
   "imageDialog.waitGenerate": "Wait until the description has been generated.",
   "imageDialog.replaceDraftPrompt": "Replace the description you have entered with a generated one?",
+  "imageDialog.replaceDraftHeading": "Replace the description",
   "imageDialog.replaceConfirm": "Replace",
   "imageDialog.disabledNoModel":
     "To generate descriptions, set an image description model in Settings. You can also write the description yourself.",
@@ -481,7 +481,6 @@ export type MessageKey = keyof typeof en;
 const ja: Record<MessageKey, string> = {
   "common.close": "閉じる",
   "common.cancel": "キャンセル",
-  "common.ok": "OK",
   "common.delete": "削除する",
   "discard.heading": "変更を破棄しますか？",
   "discard.message": "入力した内容は保存されていないため、失われます。",
@@ -638,6 +637,7 @@ const ja: Record<MessageKey, string> = {
   "imageDialog.checking": "説明文を生成できるか確認しています…",
   "imageDialog.waitGenerate": "説明文の生成が終わるまでお待ちください。",
   "imageDialog.replaceDraftPrompt": "入力済みの説明文を、生成した説明文で置き換えますか？",
+  "imageDialog.replaceDraftHeading": "説明文を置き換え",
   "imageDialog.replaceConfirm": "置き換える",
   "imageDialog.disabledNoModel": "説明文を生成するには、設定画面で画像説明用モデルを設定してください。説明文は手で書くこともできます。",
   "imageDialog.disabledFormat":

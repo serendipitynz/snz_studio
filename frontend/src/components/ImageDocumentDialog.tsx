@@ -84,7 +84,10 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
     if (!prepared || !("blob" in prepared)) {
       return;
     }
-    if (derivedText.trim() && !(await confirm(t("imageDialog.replaceDraftPrompt"), { confirmLabel: t("imageDialog.replaceConfirm") }))) {
+    if (derivedText.trim() && !(await confirm(t("imageDialog.replaceDraftPrompt"), {
+        heading: t("imageDialog.replaceDraftHeading"),
+        confirmLabel: t("imageDialog.replaceConfirm")
+      }))) {
       return;
     }
     const controller = new AbortController();
