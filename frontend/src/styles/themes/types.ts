@@ -100,9 +100,14 @@ export interface ThemeTokens {
   // and cards that sit inside it.
   surfaceNested: string;
   surfaceItem: string;
+  // The current location (snz-design doc-8 §5.2): its face, and the colour of
+  // the frame and left band that carry it beyond the face.
+  surfaceSelected: string;
+  selected: string;
 
   // text
   ink: string;
+  inkStrong: string;
   muted: string;
 
   // borders / lines
@@ -221,8 +226,12 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     // step existed: sections on the faint card surface, rows on the elevated one.
     surfaceNested: spec.surfaceCardFaint,
     surfaceItem: spec.surfaceElevate,
+    // The same accent wash these families already put under the current row.
+    surfaceSelected: w(spec.accentRgb, 0.12),
+    selected: spec.accent,
 
     ink: spec.ink,
+    inkStrong: spec.ink,
     muted: spec.muted,
 
     fieldBorder: spec.fieldBorder,

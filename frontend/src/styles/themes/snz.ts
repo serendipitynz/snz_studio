@@ -48,8 +48,11 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     // (snz-design doc-9 §6.3).
     surfaceNested: c.surfaceNested,
     surfaceItem: c.surface,
+    surfaceSelected: c.surfaceSelected,
+    selected: c.selected,
 
     ink: c.fg,
+    inkStrong: c.fgStrong,
     muted: c.fgMuted,
 
     fieldBorder: c.lineControl,
