@@ -1,6 +1,7 @@
-import { useTheme } from "@emotion/react";
-import { DragEvent, FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api, Project } from "../api/client";
+import { FailureNotice } from "../components/FailureNotice";
+import { ReorderList } from "../components/ReorderList";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { useLanguage } from "../i18n";
 import {
@@ -8,12 +9,10 @@ import {
   Button,
   Card,
   ComposerBox,
-  ErrorText,
   Field,
   Grid,
   Input,
   Item,
-  List,
   MainPane,
   PaneBody,
   PaneHeader,
@@ -25,25 +24,30 @@ import {
 } from "../styles/ui";
 
 export function ProjectListPage() {
-  const theme = useTheme();
   const { t } = useLanguage();
   const [projects, setProjects] = useState<Project[]>([]);
   const [title, setTitle] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
-  const [dropTargetProjectId, setDropTargetProjectId] = useState<string | null>(null);
+  const [savingOrder, setSavingOrder] = useState(false);
+  // A failure is told next to what failed (snz-design doc-9 §5.5): loading and
+  // reordering fail on the list, creating fails on the form.
+  const [listError, setListError] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [createError, setCreateError] = useState("");
 
   async function load() {
     setLoading(true);
-    setError("");
     try {
       const projectsResponse = await api.getProjects();
       setProjects(projectsResponse.projects);
+      setListError("");
+      setLoadFailed(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("dashboard.loadError"));
+      // The rows already on screen stay, so the failure does not read as an empty list.
+      setListError(nextError instanceof Error ? nextError.message : t("dashboard.loadError"));
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -55,8 +59,11 @@ export function ProjectListPage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (submitting) {
+      return;
+    }
     setSubmitting(true);
-    setError("");
+    setCreateError("");
 
     try {
       await api.createProject({ title, description: "", systemPrompt });
@@ -64,32 +71,27 @@ export function ProjectListPage() {
       setSystemPrompt("");
       await load();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("dashboard.createError"));
+      setCreateError(nextError instanceof Error ? nextError.message : t("dashboard.createError"));
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function handleProjectDrop(targetProjectId: string) {
-    if (!draggedProjectId || draggedProjectId === targetProjectId) {
-      setDraggedProjectId(null);
-      setDropTargetProjectId(null);
-      return;
-    }
-
+  async function handleReordered(projectId: string, toIndex: number) {
     const previousProjects = projects;
-    const nextProjects = reorderProjects(previousProjects, draggedProjectId, targetProjectId);
+    const nextProjects = moveProject(previousProjects, projectId, toIndex);
     setProjects(nextProjects);
-    setDraggedProjectId(null);
-    setDropTargetProjectId(null);
-    setError("");
+    setSavingOrder(true);
+    setListError("");
 
     try {
       const response = await api.reorderProjects(nextProjects.map((project) => project.id));
       setProjects(response.projects);
     } catch (nextError) {
       setProjects(previousProjects);
-      setError(nextError instanceof Error ? nextError.message : t("dashboard.reorderError"));
+      setListError(nextError instanceof Error ? nextError.message : t("dashboard.reorderError"));
+    } finally {
+      setSavingOrder(false);
     }
   }
 
@@ -110,63 +112,24 @@ export function ProjectListPage() {
                   <SectionTitle>{t("dashboard.projects")}</SectionTitle>
                   <Badge tone="accent">{t("dashboard.projectsCount", { count: projects.length })}</Badge>
                 </div>
-                {error ? <ErrorText>{error}</ErrorText> : null}
-                <List>
-                  {!loading && projects.length === 0 ? <Item>{t("dashboard.noProjects")}</Item> : null}
-                  {projects.map((project) => (
-                    <Item
-                      $interactive
-                      key={project.id}
-                      draggable
-                      onDragStart={(event) => {
-                        setDraggedProjectId(project.id);
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("text/plain", project.id);
-                      }}
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        if (draggedProjectId && draggedProjectId !== project.id) {
-                          setDropTargetProjectId(project.id);
-                        }
-                      }}
-                      onDragLeave={(event) => {
-                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                          setDropTargetProjectId((current) => (current === project.id ? null : current));
-                        }
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        void handleProjectDrop(project.id);
-                      }}
-                      onDragEnd={() => {
-                        setDraggedProjectId(null);
-                        setDropTargetProjectId(null);
-                      }}
-                      style={{
-                        padding: 0,
-                        overflow: "hidden",
-                        cursor: "grab",
-                        borderColor: dropTargetProjectId === project.id ? theme.accentDragBorder : theme.line,
-                        // Only the drag states are inline: an inline background
-                        // would also override the row's hover face.
-                        background:
-                          draggedProjectId === project.id
-                            ? theme.accentDragBg
-                            : dropTargetProjectId === project.id
-                              ? theme.accentSoft
-                              : undefined
-                      }}
+                {listError ? <FailureNotice>{listError}</FailureNotice> : null}
+                {!loading && !loadFailed && projects.length === 0 ? <Item>{t("dashboard.noProjects")}</Item> : null}
+                <ReorderList
+                  items={projects}
+                  label={t("dashboard.projectOrder")}
+                  nameOf={(project) => project.title}
+                  busy={savingOrder}
+                  onReordered={(projectId, toIndex) => void handleReordered(projectId, toIndex)}
+                  renderItem={(project) => (
+                    <RouterLink
+                      data-row-link
+                      to={`/projects/${project.id}`}
+                      style={{ display: "block", padding: "14px 14px 14px 8px", overflowWrap: "anywhere" }}
                     >
-                      <RouterLink
-                        data-row-link
-                        to={`/projects/${project.id}`}
-                        style={{ display: "block", padding: 14, textDecoration: "none", color: "inherit" }}
-                      >
-                        <strong>{project.title}</strong>
-                      </RouterLink>
-                    </Item>
-                  ))}
-                </List>
+                      <strong>{project.title}</strong>
+                    </RouterLink>
+                  )}
+                />
               </Stack>
             </Card>
 
@@ -190,8 +153,18 @@ export function ProjectListPage() {
                       placeholder={t("dashboard.systemPromptPlaceholder")}
                     />
                   </Field>
-                  <Button type="submit" disabled={submitting}>
-                    {submitting ? t("dashboard.creating") : t("dashboard.createButton")}
+                  {createError ? <FailureNotice>{createError}</FailureNotice> : null}
+                  {/* While the project is being created the button keeps its
+                      focus, name and width: the busy figure takes the plus's
+                      place and presses are ignored (snz-design doc-8 §6.1). */}
+                  <Button
+                    type="submit"
+                    aria-busy={submitting || undefined}
+                    title={submitting ? t("dashboard.creating") : undefined}
+                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                  >
+                    {submitting ? <SpinnerIcon /> : <PlusIcon />}
+                    {t("dashboard.createButton")}
                   </Button>
                 </ComposerBox>
               </Stack>
@@ -203,16 +176,40 @@ export function ProjectListPage() {
   );
 }
 
-function reorderProjects(projects: Project[], draggedProjectId: string, targetProjectId: string) {
+function moveProject(projects: Project[], projectId: string, toIndex: number) {
   const next = [...projects];
-  const draggedIndex = next.findIndex((project) => project.id === draggedProjectId);
-  const targetIndex = next.findIndex((project) => project.id === targetProjectId);
-
-  if (draggedIndex < 0 || targetIndex < 0 || draggedIndex === targetIndex) {
+  const fromIndex = next.findIndex((project) => project.id === projectId);
+  if (fromIndex < 0) {
     return next;
   }
-
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
   return next;
+}
+
+function PlusIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
+      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <animateTransform
+          attributeName="transform"
+          attributeType="XML"
+          type="rotate"
+          from="0 8 8"
+          to="360 8 8"
+          dur="0.8s"
+          repeatCount="indefinite"
+        />
+      </path>
+    </svg>
+  );
 }

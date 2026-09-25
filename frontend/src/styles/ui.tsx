@@ -427,6 +427,10 @@ export const Button = styled.button<{ variant?: ButtonVariant }>`
   font-weight: 600;
   cursor: pointer;
 
+  &[aria-busy="true"] {
+    cursor: default;
+  }
+
   ${focusRing}
   ${disabledLook}
 `;
