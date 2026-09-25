@@ -158,6 +158,7 @@ export function ProjectListPage() {
                       }}
                     >
                       <RouterLink
+                        data-row-link
                         to={`/projects/${project.id}`}
                         style={{ display: "block", padding: 14, textDecoration: "none", color: "inherit" }}
                       >

@@ -4,6 +4,7 @@ title: '共通デザイン: ワークスペースサイドバーと画面枠を�
 status: To Do
 assignee: []
 created_date: '2026-09-24 20:11'
+updated_date: '2026-09-25 03:04'
 labels:
   - design
 dependencies:
@@ -24,10 +25,15 @@ snz-design の TASK-20 (snz_studio への共通デザインの本適用) が追�
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 サイドバーの現在地が `aria-current` を持ち、面に加えて枠と左端の帯で示される (doc-9 §6.8・doc-8 §5.2)
-- [ ] #2 スクロールする並びの先頭・末尾の行でも焦点の枠が切れない (doc-16 §6.3)
-- [ ] #3 900px 以下でサイドバーが畳まれた入口へ切り替わり、本体の上に積まれない (doc-9 §6.8)
-- [ ] #4 チャットの種類のメニューが Tab で閉じ、Home / End を持つ (doc-9 §6.11)
-- [ ] #5 この画面の無効の操作部品が焦点を受け、無効の理由を語で持つ (doc-8 §5.4)。処理中のボタンは語と幅を保つ (doc-8 §6.1・doc-9 §5.6)
-- [ ] #6 4配色で doc-5 §3.2 の測定点の比を測り、キーボードだけで画面の全操作へ届くことを確かめ、測定環境 (doc-5 §5.3) とともに Implementation Notes に記録している。実窓 (WKWebView) の目視はオーナーの確認を記録する
-- [ ] #7 `pnpm check:client`・`pnpm build:client` が通る (Go を変えたときは `go test ./...` も)
+- [ ] #2 900px 以下でサイドバーが畳まれた入口へ切り替わり、本体の上に積まれない (doc-9 §6.8)
+- [ ] #3 チャットの種類のメニューが Tab で閉じ、Home / End を持つ (doc-9 §6.11)
+- [ ] #4 この画面の無効の操作部品が焦点を受け、無効の理由を語で持つ (doc-8 §5.4)。処理中のボタンは語と幅を保つ (doc-8 §6.1・doc-9 §5.6)
+- [ ] #5 4配色で doc-5 §3.2 の測定点の比を測り、キーボードだけで画面の全操作へ届くことを確かめ、測定環境 (doc-5 §5.3) とともに Implementation Notes に記録している。実窓 (WKWebView) の目視はオーナーの確認を記録する
+- [ ] #6 `pnpm check:client`・`pnpm build:client` が通る (Go を変えたときは `go test ./...` も)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- 2026-09-25 AC「スクロールする並びの先頭・末尾の行でも焦点の枠が切れない」を TASK-50 へ移した (オーナーの実窓の確認で NG だったため先に直す)。
+<!-- SECTION:NOTES:END -->
