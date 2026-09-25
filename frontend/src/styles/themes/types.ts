@@ -150,6 +150,8 @@ export interface ThemeTokens {
   danger: string;
   dangerText: string;
   dangerSoft: string;
+  // The words on a failure notice's danger-soft face (snz-design doc-9 §6.4).
+  onDangerSoft: string;
   dangerBorder: string;
 
   // markdown surfaces
@@ -270,6 +272,9 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     danger: spec.danger,
     dangerText: spec.dangerText,
     dangerSoft: w(spec.dangerRgb, 0.12),
+    // dangerText on this wash drops below 4.5:1 in these palettes; the band,
+    // the figure and the face already carry the failure, so the words take ink.
+    onDangerSoft: spec.ink,
     dangerBorder: rgba(spec.dangerRgb, 0.33),
 
     codeBg: w(spec.lineRgb, 0.12),

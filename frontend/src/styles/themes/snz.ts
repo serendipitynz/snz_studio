@@ -91,6 +91,7 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     danger: c.danger,
     dangerText: c.danger,
     dangerSoft: c.dangerSoft,
+    onDangerSoft: c.onDangerSoft,
     dangerBorder: c.danger,
 
     codeBg: c.surfaceAlt,

@@ -88,6 +88,7 @@ const en = {
   "dashboard.loadError": "Failed to load projects",
   "dashboard.createError": "Failed to create project",
   "dashboard.reorderError": "Failed to reorder projects",
+  "notice.failure": "Failure",
 
   "project.loading": "Loading project…",
   "project.notFound": "Project not found",
@@ -508,6 +509,7 @@ const ja: Record<MessageKey, string> = {
   "dashboard.loadError": "プロジェクトの読み込みに失敗しました",
   "dashboard.createError": "プロジェクトの作成に失敗しました",
   "dashboard.reorderError": "プロジェクトの並び替えに失敗しました",
+  "notice.failure": "失敗",
 
   "project.loading": "プロジェクトを読み込み中…",
   "project.notFound": "プロジェクトが見つかりません",
