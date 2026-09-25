@@ -492,7 +492,7 @@ workspace-wide configuration として次を持ちます。
 ### 11.1 Dashboard
 
 - Projects 一覧
-- drag and drop reorder
+- 並べ替え: つまみのドラッグ、つまみと落とせる位置の2回の押下、キーボード (Space で掴む・矢印・Space で置く・Escape で取り消す)
 - project 作成
 - Configuration 表示 / 編集
 

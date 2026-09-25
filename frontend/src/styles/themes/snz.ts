@@ -54,6 +54,7 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     ink: c.fg,
     inkStrong: c.fgStrong,
     muted: c.fgMuted,
+    figure: c.figure,
 
     fieldBorder: c.lineControl,
     lineSoft: c.lineDivider,
@@ -91,6 +92,7 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     danger: c.danger,
     dangerText: c.danger,
     dangerSoft: c.dangerSoft,
+    onDangerSoft: c.onDangerSoft,
     dangerBorder: c.danger,
 
     codeBg: c.surfaceAlt,

@@ -366,7 +366,7 @@ Current values:
 ### Dashboard
 
 - project list
-- drag-and-drop reorder
+- reorder: drag the handle, press the handle then a drop position, or use the keyboard (Space to pick up, arrows, Space to place, Escape to cancel)
 - project creation
 - configuration display and editing
 

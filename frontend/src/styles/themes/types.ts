@@ -109,6 +109,9 @@ export interface ThemeTokens {
   ink: string;
   inkStrong: string;
   muted: string;
+  // A figure that stands alone as a control, without a face or outline
+  // around it (snz-design's figure role).
+  figure: string;
 
   // borders / lines
   fieldBorder: string;
@@ -150,6 +153,8 @@ export interface ThemeTokens {
   danger: string;
   dangerText: string;
   dangerSoft: string;
+  // The words on a failure notice's danger-soft face (snz-design doc-9 §6.4).
+  onDangerSoft: string;
   dangerBorder: string;
 
   // markdown surfaces
@@ -233,6 +238,9 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     ink: spec.ink,
     inkStrong: spec.ink,
     muted: spec.muted,
+    // muted falls below 3:1 on the surface in One Light, so a figure that
+    // stands alone as a control takes ink in these palettes.
+    figure: spec.ink,
 
     fieldBorder: spec.fieldBorder,
     lineSoft: w(spec.lineRgb, 0.06),
@@ -270,6 +278,9 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     danger: spec.danger,
     dangerText: spec.dangerText,
     dangerSoft: w(spec.dangerRgb, 0.12),
+    // dangerText on this wash drops below 4.5:1 in these palettes; the band,
+    // the figure and the face already carry the failure, so the words take ink.
+    onDangerSoft: spec.ink,
     dangerBorder: rgba(spec.dangerRgb, 0.33),
 
     codeBg: w(spec.lineRgb, 0.12),
