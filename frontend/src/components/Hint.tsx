@@ -34,8 +34,11 @@ export function Hint({ name, body }: { name: string; body: string }) {
     if (!open) {
       return;
     }
+    // Captured and marked as handled, so a region the hint sits in does not
+    // close on the same Escape: only the innermost closes (doc-9 §5.2).
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.isComposing) {
+        event.preventDefault();
         setOpen(false);
         triggerRef.current?.focus();
       }
@@ -45,10 +48,10 @@ export function Hint({ name, body }: { name: string; body: string }) {
         setOpen(false);
       }
     };
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("pointerdown", handlePointerDown);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [open]);

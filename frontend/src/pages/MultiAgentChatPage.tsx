@@ -41,6 +41,7 @@ import {
   MessageScroller,
   MetaText,
   PaneHeader,
+  RegionCloseButton,
   RegionToggleButton,
   Row,
   SectionTitle,
@@ -807,8 +808,14 @@ export function MultiAgentChatPage() {
       {/* Hidden rather than unmounted: the panel holds unsaved edits (display name,
           role prompt, endpoint, model, scene), and hiding it must not throw away
           an edit in progress. Hidden also takes it out of the grid, so the
-          transcript gets the full width. */}
+          transcript gets the full width; on a narrow screen it lies over the
+          transcript instead. */}
       <InspectorPane $toggled {...rosterRegion.regionProps} aria-label={t("participants.title")}>
+        {rosterRegion.overlay ? (
+          <RegionCloseButton type="button" {...rosterRegion.closeProps}>
+            <PanelRightCloseIcon />
+          </RegionCloseButton>
+        ) : null}
         <ParticipantPanel
           chat={state.chat}
           participants={participants}

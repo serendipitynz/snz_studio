@@ -55,6 +55,7 @@ import {
   MessageScroller,
   MetaText,
   PaneHeader,
+  RegionCloseButton,
   RegionToggleButton,
   Row,
   SectionTitle,
@@ -874,6 +875,11 @@ export function ChatPage() {
       </MainPane>
 
       <InspectorPane $toggled {...inspector.regionProps} aria-labelledby={`${inspector.regionProps.id}-heading`}>
+        {inspector.overlay ? (
+          <RegionCloseButton type="button" {...inspector.closeProps}>
+            <PanelRightCloseIcon />
+          </RegionCloseButton>
+        ) : null}
         <SectionTitle id={`${inspector.regionProps.id}-heading`}>{t("chat.contextInspector")}</SectionTitle>
 
         <Card>

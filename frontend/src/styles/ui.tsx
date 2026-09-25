@@ -56,13 +56,13 @@ export const Container = styled.div`
   padding: ${snzTokens.space.sm};
 `;
 
-// Below this width the side region (the inspector, the participant column) is
-// no longer shown by default; a screen with a trigger for it can still show it.
+// Below this width the side region (the inspector, the participant column) has
+// no column of its own; a screen with a trigger for it lays it over the
+// conversation instead.
 export const SIDE_REGION_MEDIA = "(max-width: 1180px)";
 
-// $side: whether the side region's column is there. Left out, the column is
-// there on wide screens and drops out below SIDE_REGION_MEDIA, for a screen
-// whose side region has no trigger.
+// $side: whether the side region's column is there on a wide screen. Below
+// SIDE_REGION_MEDIA there is never a third column.
 export const WorkspaceShell = styled.div<{ $side?: boolean }>`
   height: calc(100vh - 2 * ${snzTokens.space.sm});
   display: grid;
@@ -70,7 +70,7 @@ export const WorkspaceShell = styled.div<{ $side?: boolean }>`
   gap: ${snzTokens.space.sm};
 
   @media ${SIDE_REGION_MEDIA} {
-    grid-template-columns: ${({ $side }) => ($side ? "250px minmax(0, 1fr) 300px" : "250px minmax(0, 1fr)")};
+    grid-template-columns: 250px minmax(0, 1fr);
   }
 
   @media ${NARROW_MEDIA} {
@@ -107,9 +107,10 @@ export const MainPane = styled.main`
   flex-direction: column;
 `;
 
-// A screen that shows and hides the pane itself puts the hidden attribute on it;
-// one without a trigger leaves the pane to drop out below SIDE_REGION_MEDIA.
-export const InspectorPane = styled.aside<{ $toggled?: boolean }>`
+// A screen that shows and hides the pane itself puts the hidden attribute on it,
+// and $overlay while it lies over the conversation below SIDE_REGION_MEDIA; one
+// without a trigger leaves the pane to drop out below that width.
+export const InspectorPane = styled.aside<{ $toggled?: boolean; $overlay?: boolean }>`
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
@@ -133,7 +134,21 @@ export const InspectorPane = styled.aside<{ $toggled?: boolean }>`
             display: none;
           }
         `}
+
+  ${({ $overlay, theme }) =>
+    $overlay
+      ? css`
+          position: fixed;
+          inset-block: ${snzTokens.space.sm};
+          inset-inline-end: ${snzTokens.space.sm};
+          inline-size: min(360px, calc(100vw - 2 * ${snzTokens.space.sm}));
+          z-index: 15;
+          background: ${theme.surfaceCard};
+          box-shadow: ${theme.shadowPopover};
+        `
+      : ""}
 `;
+
 
 export const Brand = styled.div`
   display: flex;
@@ -661,6 +676,14 @@ export const IconButton = styled.button`
 
   ${focusRing}
   ${disabledLook}
+`;
+
+// The overlay's own way out, at its top right corner: the trigger in the header
+// lies under the overlay while it is open.
+export const RegionCloseButton = styled(IconButton)`
+  position: absolute;
+  inset-block-start: 14px;
+  inset-inline-end: 14px;
 `;
 
 // The trigger that shows and hides a side region (snz-design doc-9 §6.3.1). Shown,
