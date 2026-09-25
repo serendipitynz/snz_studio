@@ -1,4 +1,4 @@
-import { css } from "@emotion/react";
+import { css, keyframes } from "@emotion/react";
 import type { Theme } from "@emotion/react";
 import styled from "@emotion/styled";
 import { Link } from "react-router-dom";
@@ -107,6 +107,33 @@ export const MainPane = styled.main`
   flex-direction: column;
 `;
 
+// How long the side region's overlay takes to slide in from the screen edge or out
+// again. An app value: the shared tokens hold no slide duration (the owner's pick,
+// 2026-09-26, maybe lengthened later).
+export const REGION_SLIDE_MS = 200;
+
+const regionOffscreen = `translateX(calc(100% + ${snzTokens.space.sm}))`;
+const regionSlideIn = keyframes`
+  from {
+    transform: ${regionOffscreen};
+  }
+`;
+const regionSlideOut = keyframes`
+  to {
+    transform: ${regionOffscreen};
+  }
+`;
+const regionFadeIn = keyframes`
+  from {
+    opacity: 0;
+  }
+`;
+const regionFadeOut = keyframes`
+  to {
+    opacity: 0;
+  }
+`;
+
 // A screen that shows and hides the pane itself puts the hidden attribute on it,
 // and $overlay while it lies over the conversation below SIDE_REGION_MEDIA; one
 // without a trigger leaves the pane to drop out below that width.
@@ -145,6 +172,22 @@ export const InspectorPane = styled.aside<{ $toggled?: boolean; $overlay?: boole
           z-index: 15;
           background: ${theme.surfaceCard};
           box-shadow: ${theme.shadowPopover};
+          animation: ${regionSlideIn} ${REGION_SLIDE_MS}ms ease-out;
+
+          &[data-closing] {
+            animation: ${regionSlideOut} ${REGION_SLIDE_MS}ms ease-in forwards;
+            pointer-events: none;
+          }
+
+          /* Moving the region is left out under reduced motion; only the fade
+             stays (snz-design doc-9 §6.3.1). */
+          @media (prefers-reduced-motion: reduce) {
+            animation: ${regionFadeIn} ${snzTokens.motion.state}ms ease-out;
+
+            &[data-closing] {
+              animation: ${regionFadeOut} ${snzTokens.motion.state}ms ease-in forwards;
+            }
+          }
         `
       : ""}
 `;

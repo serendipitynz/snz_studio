@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useLanguage } from "../i18n";
-import { SIDE_REGION_MEDIA } from "../styles/ui";
+import { snzTokens } from "../styles/themes/snz-tokens";
+import { REGION_SLIDE_MS, SIDE_REGION_MEDIA } from "../styles/ui";
 import { announce } from "./announce";
 import { useMediaQuery } from "./useMediaQuery";
 
@@ -28,6 +29,8 @@ function writeHidden(storageKey: string, hidden: boolean) {
 // modal: focus moves into it and goes back to the trigger when it closes (by its
 // close button, Escape or the trigger), but it is not confined, so the
 // conversation stays usable beside it. Neither is the overlay stored.
+// The overlay slides in from the screen edge and back out (a fade alone under
+// reduced motion); while it leaves it is still drawn but already reads as hidden.
 // name is the region's name in the words read out and on the close button.
 export function useSideRegion(storageKey: string, name: string) {
   const { t } = useLanguage();
@@ -37,9 +40,13 @@ export function useSideRegion(storageKey: string, name: string) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const [hiddenWide, setHiddenWide] = useState(() => readHidden(storageKey));
   const [shownNarrow, setShownNarrow] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
+  const closeTimer = useRef<number | null>(null);
   const narrow = useMediaQuery(SIDE_REGION_MEDIA);
   const shown = narrow ? shownNarrow : !hiddenWide;
   const overlay = narrow && shown;
+  const expanded = shown && !closing;
   const hiddenWideRef = useRef(hiddenWide);
   hiddenWideRef.current = hiddenWide;
 
@@ -54,16 +61,47 @@ export function useSideRegion(storageKey: string, name: string) {
       if (!willShow && regionRef.current?.contains(document.activeElement)) {
         triggerRef.current?.focus();
       }
+      cancelClosing();
       setShownNarrow(false);
     };
     list.addEventListener("change", handleChange);
-    return () => list.removeEventListener("change", handleChange);
+    return () => {
+      list.removeEventListener("change", handleChange);
+      cancelClosing();
+    };
   }, []);
 
-  function closeOverlay() {
-    setShownNarrow(false);
-    triggerRef.current?.focus();
+  function cancelClosing() {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+    closingRef.current = false;
+    setClosing(false);
+  }
+
+  // Starts the overlay's way out; it is taken off screen once the slide is over.
+  // Focus goes back to the trigger at once, not after the slide.
+  function closeOverlay(returnFocus = true) {
+    if (closingRef.current) {
+      return;
+    }
+    closingRef.current = true;
+    setClosing(true);
+    if (returnFocus) {
+      triggerRef.current?.focus();
+    }
     announce(t("region.hidden", { name }));
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    closeTimer.current = window.setTimeout(
+      () => {
+        closeTimer.current = null;
+        closingRef.current = false;
+        setClosing(false);
+        setShownNarrow(false);
+      },
+      reduced ? snzTokens.motion.state : REGION_SLIDE_MS
+    );
   }
 
   useEffect(() => {
@@ -92,7 +130,7 @@ export function useSideRegion(storageKey: string, name: string) {
     const handleFocusIn = (event: FocusEvent) => {
       const region = regionRef.current;
       const target = event.target;
-      if (!region || !(target instanceof HTMLElement) || region.contains(target)) {
+      if (closingRef.current || !region || !(target instanceof HTMLElement) || region.contains(target)) {
         return;
       }
       const a = region.getBoundingClientRect();
@@ -100,7 +138,7 @@ export function useSideRegion(storageKey: string, name: string) {
       const inside = b.left >= a.left && b.right <= a.right && b.top >= a.top && b.bottom <= a.bottom;
       const onTop = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
       if (inside && onTop && region.contains(onTop)) {
-        setShownNarrow(false);
+        closeOverlay(false);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -113,7 +151,10 @@ export function useSideRegion(storageKey: string, name: string) {
 
   function toggle() {
     if (narrow) {
-      if (shownNarrow) {
+      if (closing) {
+        // Pressed again while it leaves: it comes back instead.
+        cancelClosing();
+      } else if (shownNarrow) {
         closeOverlay();
       } else {
         setShownNarrow(true);
@@ -132,11 +173,11 @@ export function useSideRegion(storageKey: string, name: string) {
   }
 
   return {
-    shown,
+    shown: expanded,
     overlay,
     triggerProps: {
       ref: triggerRef,
-      "aria-expanded": shown,
+      "aria-expanded": expanded,
       "aria-controls": regionId,
       onClick: toggle
     },
@@ -144,13 +185,14 @@ export function useSideRegion(storageKey: string, name: string) {
       ref: regionRef,
       id: regionId,
       hidden: !shown,
+      "data-closing": closing || undefined,
       $overlay: overlay
     },
     closeProps: {
       ref: closeRef,
       "aria-label": t("region.close", { name }),
       title: t("region.close", { name }),
-      onClick: closeOverlay
+      onClick: () => closeOverlay()
     }
   };
 }
