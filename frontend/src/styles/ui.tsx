@@ -142,6 +142,32 @@ export const SectionTitle = styled.h2`
   line-height: 1.2;
 `;
 
+// A heading inside a section or a dialog, one level below SectionTitle. A section
+// is named by a heading, not by a badge (snz-design doc-9 §6.3).
+export const SubsectionTitle = styled.h3`
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: ${({ theme }) => theme.inkStrong};
+`;
+
+// A document title that opens the document: a real button, so the keyboard can
+// reach what the pointer reaches by pressing the row.
+export const TitleButton = styled.button`
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+
+  ${focusRing}
+`;
+
 export const Subtle = styled.p`
   margin: 0;
   color: ${({ theme }) => theme.muted};
@@ -341,14 +367,31 @@ export const Textarea = styled.textarea`
   }
 `;
 
+// The select draws its own chevron in the figure colour: the native one is about
+// 10px, too small to read as the control's affordance (snz-design doc-8 §6.3).
+const selectChevron = (colour: string) =>
+  `url("data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${colour}' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 9l7 7 7-7'/></svg>`
+  )}")`;
+
 export const Select = styled.select`
   width: 100%;
+  appearance: none;
   border: 1px solid ${({ theme }) => theme.fieldBorder};
-  background: ${({ theme }) => theme.surfaceField};
+  background-color: ${({ theme }) => theme.surfaceField};
+  background-image: ${({ theme }) => selectChevron(theme.figure)};
+  background-repeat: no-repeat;
+  background-position: right ${snzTokens.space.sm} center;
+  background-size: ${snzTokens.icon.sizeMd};
   color: ${({ theme }) => theme.ink};
   border-radius: ${({ theme }) => theme.radiusSm};
-  padding: 12px 14px;
+  padding: 12px calc(${snzTokens.icon.sizeMd} + 2 * ${snzTokens.space.sm}) 12px 14px;
   font: inherit;
+  cursor: pointer;
+
+  &${ENABLED}:hover {
+    background-color: ${({ theme }) => theme.surfaceHover};
+  }
 
   ${focusRing}
   ${disabledLook}
@@ -557,13 +600,16 @@ export const FloatingScrollButton = styled.button`
   }
 `;
 
+// A button without its words (snz-design doc-8 §6.2): the control's size and the
+// button's corner radius, not a circle.
 export const IconButton = styled.button`
-  width: 34px;
-  height: 34px;
+  width: ${snzTokens.size.control};
+  height: ${snzTokens.size.control};
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: ${({ theme }) => theme.radius};
   border: 1px solid ${({ theme }) => theme.iconBorder};
   background: ${({ theme }) => theme.surfaceButton};
   color: ${({ theme }) => theme.ink};

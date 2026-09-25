@@ -1,9 +1,13 @@
-import { DragEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import { api, DocumentRecord, ImageDescriptionAvailability } from "../api/client";
 import { useLanguage } from "../i18n";
-import { Button, DropZone, ErrorText, Field, Input, Row, Stack, Subtle, Textarea } from "../styles/ui";
+import { Field, Input, Row, Stack, Subtle, Textarea } from "../styles/ui";
+import { ActionButton } from "./ActionButton";
 import { useConfirm } from "./ConfirmDialog";
 import { Dialog, DialogTitle } from "./Dialog";
+import { FailureNotice } from "./FailureNotice";
+import { FileDropZone } from "./FileDropZone";
+import { ImageIcon, PlusIcon, SparklesIcon } from "./icons";
 import { generateBlockerReason, PreparedImage, prepareForDescription } from "./prepareForDescription";
 
 interface ImageDocumentDialogProps {
@@ -16,8 +20,8 @@ interface ImageDocumentDialogProps {
 export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }: ImageDocumentDialogProps) {
   const { t } = useLanguage();
   const confirm = useConfirm();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const generateAbortRef = useRef<AbortController | null>(null);
+  const lockedReasonId = useId();
   // Documents this dialog already deleted to overwrite them. If the create after the
   // delete fails, a retry must not try to delete them again from the stale list.
   const deletedIdsRef = useRef(new Set<string>());
@@ -31,15 +35,15 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
   const [derivedText, setDerivedText] = useState("");
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [dragActive, setDragActive] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [dropNotice, setDropNotice] = useState("");
 
   useEffect(() => {
     api
       .getImageDescription()
       .then(setAvailability)
-      .catch((nextError) => setError(nextError instanceof Error ? nextError.message : t("imageDialog.availabilityError")));
+      .catch((nextError) => setGenerateError(nextError instanceof Error ? nextError.message : t("imageDialog.availabilityError")));
     return () => generateAbortRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -61,67 +65,38 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
     };
   }, [file]);
 
-  const busy = generating || saving;
   const generateBlocker = file && availability ? generateBlockerReason(t, availability, file.type || file.name, prepared) : "";
 
-  function handleChooseFile(next: File | undefined) {
-    if (!next) {
+  // The drop zone hands over every image it accepted; one image is one document.
+  function handleFilesChosen(images: File[]) {
+    const [next] = images;
+    if (!next || saving || generating) {
       return;
     }
     setFile(next);
     setTitle(next.name);
-    setError("");
-    setDropNotice("");
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragActive(false);
-    if (busy) {
-      return;
-    }
-    const dropped = Array.from(event.dataTransfer.files);
-    const image = dropped.find((candidate) => candidate.type.startsWith("image/"));
-    if (!image) {
-      if (dropped.length > 0) {
-        setError(t("imageDialog.dropNotImage"));
-      }
-      return;
-    }
-    handleChooseFile(image);
-    if (dropped.length > 1) {
-      setDropNotice(t("imageDialog.dropOnlyFirst", { name: image.name, count: dropped.length }));
-    }
-  }
-
-  function handleDragOver(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragActive(!busy);
-  }
-
-  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      setDragActive(false);
-    }
+    setGenerateError("");
+    setSaveError("");
+    setDropNotice(images.length > 1 ? t("imageDialog.dropOnlyFirst", { name: next.name, count: images.length }) : "");
   }
 
   async function handleGenerate() {
     if (!prepared || !("blob" in prepared)) {
       return;
     }
-    if (derivedText.trim() && !(await confirm(t("imageDialog.replaceDraftPrompt")))) {
+    if (derivedText.trim() && !(await confirm(t("imageDialog.replaceDraftPrompt"), { confirmLabel: t("imageDialog.replaceConfirm") }))) {
       return;
     }
     const controller = new AbortController();
     generateAbortRef.current = controller;
     setGenerating(true);
-    setError("");
+    setGenerateError("");
     try {
       const response = await api.describeImage(prepared.blob, controller.signal);
       setDerivedText(response.description);
     } catch (nextError) {
       if (!controller.signal.aborted) {
-        setError(nextError instanceof Error ? nextError.message : t("imageDialog.generateError"));
+        setGenerateError(nextError instanceof Error ? nextError.message : t("imageDialog.generateError"));
       }
     } finally {
       if (generateAbortRef.current === controller) {
@@ -133,12 +108,12 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!file) {
+    if (!file || saving || generating) {
       return;
     }
     const documentTitle = title.trim() || file.name;
     setSaving(true);
-    setError("");
+    setSaveError("");
     try {
       // Same rule as the bulk upload: a title names one document, so a clash is an
       // overwrite. Declining keeps the form as it is.
@@ -146,7 +121,11 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
         (document) => document.title === documentTitle && !deletedIdsRef.current.has(document.id)
       );
       if (existing) {
-        if (!(await confirm(t("project.overwritePrompt", { name: documentTitle })))) {
+        const overwrite = await confirm(t("project.overwritePrompt", { name: documentTitle }), {
+          heading: t("project.overwriteHeading"),
+          confirmLabel: t("project.overwriteConfirm")
+        });
+        if (!overwrite) {
           return;
         }
         await api.deleteDocument(existing.id);
@@ -163,98 +142,134 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
       await api.createDocument(projectId, formData);
       onCreated();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.uploadError"));
+      setSaveError(nextError instanceof Error ? nextError.message : t("project.uploadError"));
     } finally {
       setSaving(false);
     }
   }
 
-  function handleClose() {
+  // Closing drops the chosen image and everything typed for it, so it asks first
+  // when there is any, through the button and Escape alike (snz-design doc-9 §5.7).
+  // While saving it does not close at all.
+  async function handleClose() {
     if (saving) {
+      return;
+    }
+    const dirty = Boolean(file || note.trim() || tags.trim() || derivedText.trim());
+    if (
+      dirty &&
+      !(await confirm(t("discard.message"), {
+        heading: t("discard.heading"),
+        confirmLabel: t("discard.confirm"),
+        cancelLabel: t("discard.keepEditing")
+      }))
+    ) {
       return;
     }
     generateAbortRef.current?.abort();
     onClose();
   }
 
+  // Locked fields stay focusable and say why (snz-design doc-8 §5.4).
+  const fieldsLocked = !file ? t("imageDialog.chooseFirst") : saving ? t("project.saving") : "";
+  const derivedLocked = fieldsLocked || (generating ? t("imageDialog.generatingNote") : "");
+  const lockedProps = (reason: string) =>
+    reason ? { readOnly: true, "aria-disabled": true, "aria-describedby": lockedReasonId, title: reason } : {};
+  const generateReason = !file
+    ? t("imageDialog.chooseFirst")
+    : saving
+      ? t("project.saving")
+      : generateBlocker || (!availability || !prepared ? t("imageDialog.checking") : undefined);
+  const submitReason = !file ? t("imageDialog.chooseFirst") : generating ? t("imageDialog.waitGenerate") : undefined;
+
   return (
-    <Dialog onClose={handleClose}>
+    <Dialog onClose={() => void handleClose()}>
       <form onSubmit={handleSubmit}>
         <Stack>
           <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
             <DialogTitle>{t("imageDialog.title")}</DialogTitle>
-            <Button type="button" variant="normal" onClick={handleClose} disabled={saving}>
+            <ActionButton
+              type="button"
+              variant="normal"
+              disabledReason={saving ? t("project.savingClose") : undefined}
+              onClick={() => void handleClose()}
+            >
               {t("common.close")}
-            </Button>
+            </ActionButton>
           </Row>
 
-          {error ? <ErrorText>{error}</ErrorText> : null}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(event) => {
-              handleChooseFile(event.target.files?.[0]);
-              event.target.value = "";
-            }}
-          />
-          <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
-            <Stack>
-              <Row style={{ alignItems: "center" }}>
-                <Button type="button" variant="normal" onClick={() => fileInputRef.current?.click()} disabled={busy} autoFocus>
-                  {file ? t("imageDialog.changeFile") : t("imageDialog.chooseFile")}
-                </Button>
-                {file ? <Subtle>{file.name}</Subtle> : null}
-              </Row>
-              <Subtle>{t("imageDialog.dropHint")}</Subtle>
-              {dropNotice ? <Subtle>{dropNotice}</Subtle> : null}
-            </Stack>
-          </DropZone>
+          <FileDropZone
+            label={t("imageDialog.dropLabel")}
+            acceptWords={t("imageDialog.dropAccept")}
+            accepts={(candidate) => candidate.type.startsWith("image/")}
+            acceptsType={(mime) => mime.startsWith("image/")}
+            inputAccept="image/*"
+            chooseLabel={file ? t("imageDialog.changeFile") : t("imageDialog.chooseFile")}
+            chooseIcon={<ImageIcon />}
+            autoFocusChoose
+            disabledReason={saving ? t("project.saving") : generating ? t("imageDialog.waitGenerate") : undefined}
+            onFilesChosen={handleFilesChosen}
+          >
+            {file ? <Subtle>{file.name}</Subtle> : null}
+            {dropNotice ? <Subtle>{dropNotice}</Subtle> : null}
+          </FileDropZone>
           {previewUrl ? (
             <img src={previewUrl} alt="" style={{ maxWidth: "100%", maxHeight: 280, objectFit: "contain", borderRadius: 16 }} />
           ) : null}
 
+          <span hidden id={lockedReasonId}>
+            {derivedLocked}
+          </span>
           <Field>
             {t("imageDialog.titleField")}
-            <Input value={title} onChange={(event) => setTitle(event.target.value)} disabled={!file || saving} />
+            <Input value={title} onChange={(event) => setTitle(event.target.value)} {...lockedProps(fieldsLocked)} />
           </Field>
           <Field>
             {t("imageDialog.note")}
             <Textarea
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              disabled={!file || saving}
               style={{ minHeight: 64 }}
+              {...lockedProps(fieldsLocked)}
             />
           </Field>
           <Field>
             {t("imageDialog.tags")}
-            <Input value={tags} onChange={(event) => setTags(event.target.value)} disabled={!file || saving} />
+            <Input value={tags} onChange={(event) => setTags(event.target.value)} {...lockedProps(fieldsLocked)} />
           </Field>
           <Field>
             {t("imageDialog.derivedText")}
-            <Textarea value={derivedText} onChange={(event) => setDerivedText(event.target.value)} disabled={!file || busy} />
+            <Textarea value={derivedText} onChange={(event) => setDerivedText(event.target.value)} {...lockedProps(derivedLocked)} />
             <Subtle>{t("imageDialog.derivedTextHint")}</Subtle>
           </Field>
 
           <Row style={{ alignItems: "center" }}>
-            <Button
+            <ActionButton
               type="button"
               variant="normal"
+              icon={<SparklesIcon />}
+              busy={generating}
+              title={generating ? t("imageDialog.generatingNote") : undefined}
+              disabledReason={generating ? undefined : generateReason}
               onClick={() => void handleGenerate()}
-              disabled={!file || busy || !availability || !prepared || Boolean(generateBlocker)}
             >
-              {generating ? t("imageDialog.generating") : t("imageDialog.generate")}
-            </Button>
-            {generateBlocker ? <Subtle>{generateBlocker}</Subtle> : null}
+              {t("imageDialog.generate")}
+            </ActionButton>
+            {generating ? <Subtle>{t("imageDialog.generatingNote")}</Subtle> : generateBlocker ? <Subtle>{generateBlocker}</Subtle> : null}
           </Row>
+          {generateError ? <FailureNotice>{generateError}</FailureNotice> : null}
 
+          {saveError ? <FailureNotice>{saveError}</FailureNotice> : null}
           <Row style={{ justifyContent: "flex-end" }}>
-            <Button type="submit" disabled={!file || busy}>
-              {saving ? t("imageDialog.saving") : t("imageDialog.create")}
-            </Button>
+            <ActionButton
+              type="submit"
+              icon={<PlusIcon />}
+              busy={saving}
+              title={saving ? t("project.saving") : undefined}
+              disabledReason={submitReason}
+            >
+              {t("imageDialog.create")}
+            </ActionButton>
           </Row>
         </Stack>
       </form>

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import styled from "@emotion/styled";
 import { api, ChatKind, ChatRecord, Project } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
+import { HouseIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
 import { SettingsModal } from "./SettingsModal";
 import { usePopupMenu } from "./usePopupMenu";
 import {
@@ -146,7 +147,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
                 onKeyDown={creatingChat ? undefined : kindMenu.triggerProps.onKeyDown}
                 title={t(creatingChat ? "sidebar.creatingChat" : "sidebar.createChat")}
               >
-                {creatingChat ? <SpinnerIcon /> : <PlusIcon />}
+                {creatingChat ? <SpinnerIcon /> : <MessageSquarePlusIcon />}
               </IconButton>
               {kindMenu.isOpen ? (
                 <KindMenu
@@ -193,7 +194,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 
   const settingsButton = (
     <SidebarButton type="button" onClick={openSettings} style={{ flexShrink: 0 }}>
-      <GearIcon />
+      <SettingsIcon size={18} />
       <span>{t("sidebar.settings")}</span>
     </SidebarButton>
   );
@@ -233,7 +234,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
       <Row style={{ justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <Brand />
         <RouterLink to="/" aria-label={t("sidebar.home")}>
-          <HomeIcon />
+          <HouseIcon size={18} />
         </RouterLink>
       </Row>
 
@@ -368,19 +369,6 @@ function renderChatTitle(t: (key: MessageKey) => string, chat: ChatRecord) {
   return <Subtle>{`${prefix}${t("sidebar.untitled")}`}</Subtle>;
 }
 
-function HomeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style={{ display: "block" }}>
-      <path
-        d="M3 7.75 9 3l6 4.75V15h-4.25v-4H7.25v4H3V7.75Z"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function MenuIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -389,44 +377,5 @@ function MenuIcon() {
   );
 }
 
-function SpinnerIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
-      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <animateTransform
-          attributeName="transform"
-          attributeType="XML"
-          type="rotate"
-          from="0 8 8"
-          to="360 8 8"
-          dur="0.8s"
-          repeatCount="indefinite"
-        />
-      </path>
-    </svg>
-  );
-}
 
-function PlusIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
 
-function GearIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ display: "block", flexShrink: 0 }}>
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-      <path
-        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}

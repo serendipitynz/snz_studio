@@ -15,6 +15,7 @@ interface DialogProps {
   children: ReactNode;
   // Overrides the DialogTitle id, for a dialog whose label is not a heading.
   labelledBy?: string;
+  describedBy?: string;
   // For a dialog opened after an await: by then focus may no longer be on the control the
   // user activated, so the default — whatever was focused when the dialog first rendered —
   // would miss it.
@@ -22,7 +23,7 @@ interface DialogProps {
   style?: CSSProperties;
 }
 
-export function Dialog({ onClose, children, labelledBy, returnFocusTo, style }: DialogProps) {
+export function Dialog({ onClose, children, labelledBy, describedBy, returnFocusTo, style }: DialogProps) {
   const titleId = useId();
   const cardRef = useRef<HTMLDivElement | null>(null);
   // Read during the first render, not in an effect: React applies autoFocus during commit,
@@ -88,6 +89,7 @@ export function Dialog({ onClose, children, labelledBy, returnFocusTo, style }: 
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy ?? titleId}
+        aria-describedby={describedBy}
         tabIndex={-1}
         style={{ outline: "none", ...style }}
       >
@@ -97,9 +99,9 @@ export function Dialog({ onClose, children, labelledBy, returnFocusTo, style }: 
   );
 }
 
-export function DialogTitle({ children }: { children: ReactNode }) {
-  const id = useContext(DialogTitleIdContext);
-  return <SectionTitle id={id}>{children}</SectionTitle>;
+export function DialogTitle({ children, id }: { children: ReactNode; id?: string }) {
+  const contextId = useContext(DialogTitleIdContext);
+  return <SectionTitle id={id ?? contextId}>{children}</SectionTitle>;
 }
 
 // The overlay hides the page's controls without taking them out of the tab order, so Tab

@@ -10,6 +10,7 @@ import {
   TurnRule
 } from "../api/client";
 import { useConfirm } from "./ConfirmDialog";
+import { Checkbox } from "./Checkbox";
 import { PresetChoice, PresetPicker } from "./PresetPicker";
 import { useLanguage } from "../i18n";
 import {
@@ -102,16 +103,6 @@ const HintBubble = styled.span`
   visibility: hidden;
   transition: opacity 120ms ease;
   pointer-events: none;
-`;
-
-// The label of a checkbox that has to carry a (?) of its own: the checkbox and
-// its text form one click target, and the toggle sits beside it rather than
-// inside it, so pointing at the hint cannot flip the setting.
-const CheckboxLabel = styled.label`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
 `;
 
 // The character counter under a state sheet. It turns to the error colour past
@@ -678,14 +669,11 @@ function ParticipantEditor(props: ParticipantEditorProps) {
             say where its turn runs. */}
         <FieldHint
           label={
-            <CheckboxLabel>
-              <input
-                type="checkbox"
-                checked={receivesProjectMaterial}
-                onChange={(event) => setReceivesProjectMaterial(event.target.checked)}
-              />
+            // The checkbox and its words form one click target, and the (?) sits
+            // beside it rather than inside it, so pointing at the hint cannot flip the setting.
+            <Checkbox checked={receivesProjectMaterial} onChange={setReceivesProjectMaterial}>
               {t("participants.receivesProjectMaterial")}
-            </CheckboxLabel>
+            </Checkbox>
           }
           hint={t("participants.receivesProjectMaterialHint")}
         />

@@ -1,5 +1,4 @@
-import { useTheme } from "@emotion/react";
-import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   api,
@@ -14,8 +13,27 @@ import {
   MultiAgentPresetSelection,
   Project
 } from "../api/client";
+import { ActionButton } from "../components/ActionButton";
+import { Checkbox } from "../components/Checkbox";
 import { useConfirm } from "../components/ConfirmDialog";
 import { Dialog, DialogTitle } from "../components/Dialog";
+import { FailureNotice } from "../components/FailureNotice";
+import { DropZoneProgress, FileDropZone } from "../components/FileDropZone";
+import {
+  CheckIcon,
+  FilePlusIcon,
+  FolderIcon,
+  ImageIcon,
+  LockIcon,
+  LockOpenIcon,
+  MessageSquarePlusIcon,
+  PencilIcon,
+  PlusIcon,
+  SlidersIcon,
+  TrashIcon,
+  UserShieldIcon,
+  UsersIcon
+} from "../components/icons";
 import { ImageDocumentDialog } from "../components/ImageDocumentDialog";
 import { ImageDocumentEditor } from "../components/ImageDocumentEditor";
 import { MarkdownPreview } from "../components/MarkdownPreview";
@@ -24,11 +42,8 @@ import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { MessageKey, useLanguage } from "../i18n";
 import {
   Badge,
-  Button,
   Card,
   ComposerBox,
-  DropZone,
-  ErrorText,
   Field,
   Grid,
   IconButton,
@@ -44,8 +59,10 @@ import {
   SectionTitle,
   Select,
   Stack,
+  SubsectionTitle,
   Subtle,
   Textarea,
+  TitleButton,
   WorkspaceShell
 } from "../styles/ui";
 
@@ -56,17 +73,38 @@ interface ProjectDetailState {
   chats: ChatRecord[];
 }
 
+// A failure is told next to what failed (snz-design doc-9 §5.5), so each part of the
+// screen that can fail keeps its own message; a dialog's failure stays in the dialog
+// instead of landing behind it.
+type ErrorArea =
+  | "page"
+  | "newChat"
+  | "documents"
+  | "danger"
+  | "chats"
+  | "memories"
+  | "newMemory"
+  | "memoryPlan"
+  | "title"
+  | "systemPrompt"
+  | "document";
+
 export function ProjectDetailPage() {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
-  const theme = useTheme();
   const { t } = useLanguage();
   const confirm = useConfirm();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageButtonRef = useRef<HTMLButtonElement | null>(null);
+  const editMemoriesRef = useRef<HTMLButtonElement | null>(null);
+  const organizeRef = useRef<HTMLButtonElement | null>(null);
   const [state, setState] = useState<ProjectDetailState | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState<Partial<Record<ErrorArea, string>>>({});
   const [loading, setLoading] = useState(true);
+  // Each operation is busy on its own, so one save no longer disables every other
+  // control on the screen; the ref answers "already running" synchronously.
+  const pendingRef = useRef(new Set<string>());
+  const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [chatTitle, setChatTitle] = useState("");
   const [newChatIsTemporary, setNewChatIsTemporary] = useState(false);
   const [newChatKind, setNewChatKind] = useState<ChatKind>("assistant");
@@ -74,15 +112,11 @@ export function ProjectDetailPage() {
   const [memoryKind, setMemoryKind] = useState<MemoryKind>("semantic");
   const [memoryContent, setMemoryContent] = useState("");
   const [memoryLocked, setMemoryLocked] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState("");
-  const [dragActive, setDragActive] = useState(false);
-  const [pendingDeleteDocumentId, setPendingDeleteDocumentId] = useState<string | null>(null);
-  const [pendingDeleteChatId, setPendingDeleteChatId] = useState<string | null>(null);
-  const [pendingDeleteMemoryId, setPendingDeleteMemoryId] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<DropZoneProgress | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null);
   const [documentCategoryDraft, setDocumentCategoryDraft] = useState<DocumentCategory>("misc");
   const [isEditingDocument, setIsEditingDocument] = useState(false);
+  const [documentEditorDirty, setDocumentEditorDirty] = useState(false);
   const [savingDocumentContent, setSavingDocumentContent] = useState(false);
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
@@ -91,23 +125,50 @@ export function ProjectDetailPage() {
   const [titleDraft, setTitleDraft] = useState("");
   const [systemPromptDraft, setSystemPromptDraft] = useState("");
   const [memoryPlan, setMemoryPlan] = useState<MemoryOrganizationPlan | null>(null);
-  const [organizingMemories, setOrganizingMemories] = useState(false);
 
+  function setAreaError(area: ErrorArea, message: string) {
+    setErrors((current) => ({ ...current, [area]: message }));
+  }
+
+  const isPending = (key: string) => pending.has(key);
+
+  async function run(key: string, area: ErrorArea, fallback: MessageKey, task: () => Promise<void>): Promise<boolean> {
+    if (pendingRef.current.has(key)) {
+      return false;
+    }
+    pendingRef.current.add(key);
+    setPending(new Set(pendingRef.current));
+    setAreaError(area, "");
+    try {
+      await task();
+      return true;
+    } catch (nextError) {
+      setAreaError(area, nextError instanceof Error ? nextError.message : t(fallback));
+      return false;
+    } finally {
+      pendingRef.current.delete(key);
+      setPending(new Set(pendingRef.current));
+    }
+  }
+
+  // Reloads keep the page mounted: swapping it for the loading card would close any
+  // open dialog and drop the focus to the top of the page.
   async function load() {
-    setLoading(true);
-    setError("");
     try {
       const [projectResponse, projectsResponse] = await Promise.all([api.getProjectDetail(projectId), api.getProjects()]);
       setState(projectResponse);
       setProjects(projectsResponse.projects);
+      setAreaError("page", "");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.loadError"));
+      setAreaError("page", nextError instanceof Error ? nextError.message : t("project.loadError"));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
+    setState(null);
+    setLoading(true);
     void load();
   }, [projectId]);
 
@@ -125,6 +186,7 @@ export function ProjectDetailPage() {
 
   useEffect(() => {
     setIsEditingDocument(false);
+    setDocumentEditorDirty(false);
   }, [selectedDocument?.id]);
 
   const groupedMemories = useMemo(() => {
@@ -141,6 +203,20 @@ export function ProjectDetailPage() {
     return base;
   }, [state]);
 
+  function confirmDelete(heading: MessageKey, message: MessageKey, name: string) {
+    return confirm(t(message, { name }), { heading: t(heading), confirmLabel: t("common.delete") });
+  }
+
+  // Asked only when there is something unsaved to lose; the default stays with
+  // keeping it (snz-design doc-9 §5.7).
+  function confirmDiscard() {
+    return confirm(t("discard.message"), {
+      heading: t("discard.heading"),
+      confirmLabel: t("discard.confirm"),
+      cancelLabel: t("discard.keepEditing")
+    });
+  }
+
   // The preset picker is mounted only while the form is set to a multi-agent
   // chat, so a preset chosen before switching back must not travel with an
   // assistant chat — the server refuses one there.
@@ -153,8 +229,7 @@ export function ProjectDetailPage() {
 
   async function handleCreateChat(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
-    try {
+    await run("createChat", "newChat", "project.createChatError", async () => {
       const response = await api.createChat(projectId, {
         title: chatTitle,
         isTemporary: newChatIsTemporary,
@@ -162,68 +237,40 @@ export function ProjectDetailPage() {
         ...presetInput()
       });
       navigate(`/chats/${response.chat.id}`);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.createChatError"));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function handleCreateMemory(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
-    try {
+    await run("createMemory", "newMemory", "project.createMemoryError", async () => {
       await api.createMemory(projectId, { content: memoryContent, kind: memoryKind, locked: memoryLocked });
       setMemoryContent("");
       setMemoryLocked(true);
       setMemoryPlan(null);
       await load();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.createMemoryError"));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function handleAnalyzeMemories() {
-    setIsMemoryModalOpen(true);
-    setOrganizingMemories(true);
-    setError("");
-
-    try {
+    await run("analyze", "memoryPlan", "project.analyzeError", async () => {
       const response = await api.analyzeMemoryOrganization(projectId);
       setMemoryPlan(response.plan);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.analyzeError"));
-    } finally {
-      setOrganizingMemories(false);
-    }
+    });
   }
 
   async function handleApplyMemoryPlan() {
     if (!memoryPlan) {
       return;
     }
-
-    setOrganizingMemories(true);
-    setError("");
-
-    try {
+    await run("apply", "memoryPlan", "project.applyError", async () => {
       const response = await api.applyMemoryOrganization(projectId, memoryPlan);
       setState((current) => (current ? { ...current, memories: response.memories } : current));
       setMemoryPlan(null);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.applyError"));
-    } finally {
-      setOrganizingMemories(false);
-    }
+    });
   }
 
   async function handleToggleMemoryLock(memoryId: string, locked: boolean) {
-    setBusy(true);
-    setError("");
-
-    try {
+    await run(`memLock:${memoryId}`, "memories", "project.updateMemoryError", async () => {
       const response = await api.updateMemoryLock(memoryId, locked);
       setState((current) =>
         current
@@ -242,33 +289,23 @@ export function ProjectDetailPage() {
           : current
       );
       setMemoryPlan(null);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.updateMemoryError"));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
-  async function handleDeleteMemory(memoryId: string) {
-    setBusy(true);
-    setError("");
-
-    try {
-      await api.deleteMemory(memoryId);
+  async function handleDeleteMemory(memory: MemoryRecord, trigger: HTMLElement) {
+    if (!(await confirmDelete("project.deleteMemory", "project.deleteMemoryConfirm", memory.title))) {
+      return;
+    }
+    const next = focusTargetAfterRemoval(trigger, organizeRef.current);
+    const deleted = await run(`deleteMem:${memory.id}`, "memories", "project.deleteMemoryError", async () => {
+      await api.deleteMemory(memory.id);
       setState((current) =>
-        current
-          ? {
-              ...current,
-              memories: current.memories.filter((memory) => memory.id !== memoryId)
-            }
-          : current
+        current ? { ...current, memories: current.memories.filter((item) => item.id !== memory.id) } : current
       );
-      setPendingDeleteMemoryId(null);
       setMemoryPlan(null);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.deleteMemoryError"));
-    } finally {
-      setBusy(false);
+    });
+    if (deleted) {
+      focusIfLost(trigger, next);
     }
   }
 
@@ -277,22 +314,18 @@ export function ProjectDetailPage() {
       return;
     }
 
-    const confirmed = await confirm(t("project.deleteProjectConfirm", { title: state.project.title }));
+    const confirmed = await confirm(t("project.deleteProjectConfirm", { title: state.project.title }), {
+      heading: t("project.deleteProject"),
+      confirmLabel: t("common.delete")
+    });
     if (!confirmed) {
       return;
     }
 
-    setBusy(true);
-    setError("");
-
-    try {
+    await run("deleteProject", "danger", "project.deleteProjectError", async () => {
       await api.deleteProject(state.project.id);
       navigate("/");
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.deleteProjectError"));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function handleUpdateProjectTitle(event: FormEvent) {
@@ -301,18 +334,13 @@ export function ProjectDetailPage() {
       return;
     }
 
-    setBusy(true);
-    setError("");
-
-    try {
+    const saved = await run("title", "title", "project.updateTitleError", async () => {
       const response = await api.updateProjectTitle(state.project.id, titleDraft);
       setState((current) => (current ? { ...current, project: response.project } : current));
       setProjects((current) => current.map((project) => (project.id === response.project.id ? response.project : project)));
+    });
+    if (saved) {
       setIsTitleModalOpen(false);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.updateTitleError"));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -322,97 +350,110 @@ export function ProjectDetailPage() {
       return;
     }
 
-    setBusy(true);
-    setError("");
-
-    try {
+    const saved = await run("systemPrompt", "systemPrompt", "project.updateSystemPromptError", async () => {
       const response = await api.updateProjectSystemPrompt(state.project.id, systemPromptDraft);
       setState((current) => (current ? { ...current, project: response.project } : current));
       setProjects((current) => current.map((project) => (project.id === response.project.id ? response.project : project)));
+    });
+    if (saved) {
       setIsSystemPromptModalOpen(false);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.updateSystemPromptError"));
-    } finally {
-      setBusy(false);
     }
   }
 
-  async function handleUploadFiles(fileList: FileList | File[]) {
+  // Titles are compared with the saved values, so reopening after a discard or a
+  // save starts clean. A modal that is saving cannot close: its result would come
+  // back to a screen that no longer shows what it was for (doc-9 §6.6).
+  async function closeTitleModal() {
+    if (pendingRef.current.has("title")) {
+      return;
+    }
+    if (state && titleDraft !== state.project.title && !(await confirmDiscard())) {
+      return;
+    }
+    setTitleDraft(state?.project.title ?? "");
+    setAreaError("title", "");
+    setIsTitleModalOpen(false);
+  }
+
+  async function closeSystemPromptModal() {
+    if (pendingRef.current.has("systemPrompt")) {
+      return;
+    }
+    if (state && systemPromptDraft !== state.project.systemPrompt && !(await confirmDiscard())) {
+      return;
+    }
+    setSystemPromptDraft(state?.project.systemPrompt ?? "");
+    setAreaError("systemPrompt", "");
+    setIsSystemPromptModalOpen(false);
+  }
+
+  async function handleFilesChosen(files: File[]) {
     if (!state) {
       return;
     }
+    const startingDocuments = state.documents;
 
-    const files = Array.from(fileList);
-    if (!files.length) {
-      return;
-    }
-
-    setBusy(true);
-    setError("");
-    setUploadStatus("");
-
-    try {
-      let currentDocuments = [...state.documents];
-
-      for (const file of files) {
-        const nextType = detectDocumentType(file);
-        if (!nextType) {
-          throw new Error(t("project.unsupportedFile", { name: file.name }));
-        }
-
-        const existing = currentDocuments.find((document) => document.title === file.name);
-        if (existing) {
-          const overwrite = await confirm(t("project.overwritePrompt", { name: file.name }));
-          if (!overwrite) {
+    await run("upload", "documents", "project.uploadError", async () => {
+      let currentDocuments = [...startingDocuments];
+      try {
+        for (const [index, file] of files.entries()) {
+          const nextType = detectDocumentType(file);
+          if (!nextType) {
             continue;
           }
 
-          await api.deleteDocument(existing.id);
-          currentDocuments = currentDocuments.filter((document) => document.id !== existing.id);
+          const existing = currentDocuments.find((document) => document.title === file.name);
+          if (
+            existing &&
+            !(await confirm(t("project.overwritePrompt", { name: file.name }), {
+              heading: t("project.overwriteHeading"),
+              confirmLabel: t("project.overwriteConfirm")
+            }))
+          ) {
+            continue;
+          }
+
+          setUploadProgress({ label: t("project.savingDocument", { name: file.name }), done: index, total: files.length });
+          if (existing) {
+            await api.deleteDocument(existing.id);
+            currentDocuments = currentDocuments.filter((document) => document.id !== existing.id);
+          }
+
+          const formData = new FormData();
+          formData.set("type", nextType);
+          formData.set("title", file.name);
+          formData.set("file", file);
+          const response = await api.createDocument(projectId, formData);
+          currentDocuments = [response.document, ...currentDocuments];
         }
-
-        const formData = new FormData();
-        formData.set("type", nextType);
-        formData.set("title", file.name);
-        formData.set("file", file);
-        setUploadStatus(t("project.savingDocument", { name: file.name }));
-        const response = await api.createDocument(projectId, formData);
-        currentDocuments = [response.document, ...currentDocuments];
+      } finally {
+        // Also after a failure: the files saved before it are in the project now.
+        // The zone stays busy through the reload, since a drop in that window is refused.
+        await load();
+        setUploadProgress(null);
       }
-
-      await load();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.uploadError"));
-    } finally {
-      setBusy(false);
-      setUploadStatus("");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
+    });
   }
 
-  async function handleDeleteDocument(documentId: string) {
-    setBusy(true);
-    setError("");
-
-    try {
-      await api.deleteDocument(documentId);
-      setPendingDeleteDocumentId(null);
-      setSelectedDocument((current) => (current?.id === documentId ? null : current));
-      await load();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.deleteDocumentError"));
-    } finally {
-      setBusy(false);
+  async function handleDeleteDocument(document: DocumentRecord, trigger: HTMLElement) {
+    if (!(await confirmDelete("project.deleteDocument", "project.deleteDocumentConfirm", document.title))) {
+      return;
+    }
+    const next = focusTargetAfterRemoval(trigger, imageButtonRef.current);
+    const deleted = await run(`deleteDoc:${document.id}`, "documents", "project.deleteDocumentError", async () => {
+      await api.deleteDocument(document.id);
+      setSelectedDocument((current) => (current?.id === document.id ? null : current));
+      setState((current) =>
+        current ? { ...current, documents: current.documents.filter((item) => item.id !== document.id) } : current
+      );
+    });
+    if (deleted) {
+      focusIfLost(trigger, next);
     }
   }
 
   async function handleUpdateDocumentCategory(documentId: string, category: DocumentCategory) {
-    setBusy(true);
-    setError("");
-
-    try {
+    await run("category", "document", "project.updateCategoryError", async () => {
       const response = await api.updateDocumentCategory(documentId, category);
       setState((current) =>
         current
@@ -425,11 +466,7 @@ export function ProjectDetailPage() {
           : current
       );
       setSelectedDocument(response.document);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.updateCategoryError"));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   // The saved document replaces selectedDocument rather than being patched into
@@ -444,26 +481,29 @@ export function ProjectDetailPage() {
     );
     setSelectedDocument((current) => (current?.id === document.id ? document : current));
     setIsEditingDocument(false);
+    setDocumentEditorDirty(false);
   }
 
   // The detail dialog stays open while an edit is being saved (the save waits on
   // the embedding sync, which can be slow): its late response would otherwise
   // land on whatever document the dialog shows by then and drop that draft.
-  function closeSelectedDocument() {
-    if (savingDocumentContent) {
+  async function closeSelectedDocument() {
+    if (savingDocumentContent || !selectedDocument) {
       return;
     }
+    const dirty = (isEditingDocument && documentEditorDirty) || documentCategoryDraft !== selectedDocument.category;
+    if (dirty && !(await confirmDiscard())) {
+      return;
+    }
+    setAreaError("document", "");
     setSelectedDocument(null);
   }
 
   // The common project material is the one thing about a document or a memory the
   // human toggles from the list, so it saves on the click rather than through a
   // draft and a save button (design §4.4).
-  async function handleUpdateDocumentSharedWithAll(documentId: string, sharedWithAll: boolean) {
-    setBusy(true);
-    setError("");
-
-    try {
+  async function handleUpdateDocumentSharedWithAll(documentId: string, sharedWithAll: boolean, area: ErrorArea) {
+    await run(`docShare:${documentId}`, area, "project.updateSharedWithAllError", async () => {
       const response = await api.updateDocumentSharedWithAll(documentId, sharedWithAll);
       setState((current) =>
         current
@@ -476,18 +516,11 @@ export function ProjectDetailPage() {
           : current
       );
       setSelectedDocument((current) => (current?.id === response.document.id ? response.document : current));
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.updateSharedWithAllError"));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function handleUpdateMemorySharedWithAll(memoryId: string, sharedWithAll: boolean) {
-    setBusy(true);
-    setError("");
-
-    try {
+    await run(`memShare:${memoryId}`, "memories", "project.updateSharedWithAllError", async () => {
       const response = await api.updateMemorySharedWithAll(memoryId, sharedWithAll);
       setState((current) =>
         current
@@ -497,52 +530,37 @@ export function ProjectDetailPage() {
             }
           : current
       );
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.updateSharedWithAllError"));
-    } finally {
-      setBusy(false);
+    });
+  }
+
+  // Failures in the memory dialog belong to that visit, like the other dialogs'.
+  function closeMemoryModal() {
+    setAreaError("memoryPlan", "");
+    setAreaError("newMemory", "");
+    setAreaError("memories", "");
+    setIsMemoryModalOpen(false);
+  }
+
+  async function handleDeleteChat(chat: ChatRecord, trigger: HTMLElement) {
+    const name = chat.title.trim() || t("sidebar.untitled");
+    if (!(await confirmDelete("project.deleteChat", "project.deleteChatConfirm", name))) {
+      return;
     }
-  }
-
-  async function handleDeleteChat(chatId: string) {
-    setBusy(true);
-    setError("");
-
-    try {
-      await api.deleteChat(chatId);
-      setPendingDeleteChatId(null);
-      await load();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("project.deleteChatError"));
-    } finally {
-      setBusy(false);
+    const next = focusTargetAfterRemoval(trigger, editMemoriesRef.current);
+    const deleted = await run(`deleteChat:${chat.id}`, "chats", "project.deleteChatError", async () => {
+      await api.deleteChat(chat.id);
+      setState((current) => (current ? { ...current, chats: current.chats.filter((item) => item.id !== chat.id) } : current));
+    });
+    if (deleted) {
+      focusIfLost(trigger, next);
     }
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragActive(false);
-    void handleUploadFiles(event.dataTransfer.files);
-  }
-
-  function handleDragOver(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragActive(true);
-  }
-
-  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      setDragActive(false);
-    }
-  }
-
-  if (loading) {
-    return <Card>{t("project.loading")}</Card>;
   }
 
   if (!state) {
-    return <Card>{error || t("project.notFound")}</Card>;
+    return <Card>{loading ? t("project.loading") : errors.page ? <FailureNotice>{errors.page}</FailureNotice> : t("project.notFound")}</Card>;
   }
+
+  const documentBusy = savingDocumentContent ? t("project.savingClose") : undefined;
 
   return (
     <>
@@ -552,17 +570,22 @@ export function ProjectDetailPage() {
         <MainPane>
           <PaneHeader>
             <Row style={{ alignItems: "center" }}>
-              <FolderIcon />
+              <FolderIcon size={18} />
               <SectionTitle>{state.project.title}</SectionTitle>
             </Row>
-            <IconButton type="button" aria-label={t("project.editTitle")} onClick={() => setIsTitleModalOpen(true)}>
-              <EditIcon />
+            <IconButton
+              type="button"
+              aria-label={t("project.editTitle")}
+              title={t("project.editTitle")}
+              onClick={() => setIsTitleModalOpen(true)}
+            >
+              <PencilIcon />
             </IconButton>
           </PaneHeader>
 
           <PaneBody>
             <Stack>
-              {error ? <ErrorText>{error}</ErrorText> : null}
+              {errors.page ? <FailureNotice>{errors.page}</FailureNotice> : null}
 
               <Card as="form" onSubmit={handleCreateChat}>
                 <Stack>
@@ -583,19 +606,21 @@ export function ProjectDetailPage() {
                         <option value="multi_agent">{t("multiAgent.kindMultiAgent")}</option>
                       </Select>
                     </Field>
-                    {newChatKind === "multi_agent" ? <PresetPicker disabled={busy} onChange={setPresetChoice} /> : null}
-                    <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <input
-                        type="checkbox"
-                        checked={newChatIsTemporary}
-                        onChange={(event) => setNewChatIsTemporary(event.target.checked)}
-                      />
-                      <span>{t("project.temporaryChat")}</span>
-                    </label>
+                    {newChatKind === "multi_agent" ? <PresetPicker onChange={setPresetChoice} /> : null}
+                    <Checkbox checked={newChatIsTemporary} onChange={setNewChatIsTemporary}>
+                      {t("project.temporaryChat")}
+                    </Checkbox>
                     <Subtle>{t("project.temporaryChatNote")}</Subtle>
-                    <Button type="submit" disabled={busy}>
+                    {errors.newChat ? <FailureNotice>{errors.newChat}</FailureNotice> : null}
+                    {/* The screen's one primary action (snz-design doc-8 §6.1). */}
+                    <ActionButton
+                      type="submit"
+                      icon={<MessageSquarePlusIcon />}
+                      busy={isPending("createChat")}
+                      title={isPending("createChat") ? t("project.creatingChat") : undefined}
+                    >
                       {t("project.openChat")}
-                    </Button>
+                    </ActionButton>
                   </ComposerBox>
                 </Stack>
               </Card>
@@ -604,61 +629,55 @@ export function ProjectDetailPage() {
                 <Stack>
                   <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                     <SectionTitle>{t("project.documents")}</SectionTitle>
-                    <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                      <IconButton
-                        type="button"
-                        onClick={() => setIsImageDialogOpen(true)}
-                        aria-label={t("project.addImage")}
-                        title={t("project.addImage")}
-                        disabled={busy}
-                      >
-                        <ImageIcon />
-                      </IconButton>
-                      <IconButton type="button" onClick={() => fileInputRef.current?.click()} aria-label={t("project.addDocument")} disabled={busy}>
-                        <PlusIcon />
-                      </IconButton>
-                    </Row>
+                    <IconButton
+                      ref={imageButtonRef}
+                      type="button"
+                      onClick={() => setIsImageDialogOpen(true)}
+                      aria-label={t("project.addImage")}
+                      title={t("project.addImage")}
+                    >
+                      <ImageIcon />
+                    </IconButton>
                   </Row>
-                  {uploadStatus ? (
-                    <Row style={{ alignItems: "center", gap: 10 }}>
-                      <SpinnerIcon />
-                      <Subtle>{uploadStatus}</Subtle>
-                    </Row>
-                  ) : null}
 
-                  <input
-                    ref={fileInputRef}
-                    type="file"
+                  <FileDropZone
+                    label={t("project.dropLabel")}
+                    acceptWords={t("project.dropAccept")}
+                    accepts={(file) => detectDocumentType(file) !== null}
+                    acceptsType={isDocumentMime}
+                    inputAccept=".md,.markdown,.txt,image/*"
                     multiple
-                    accept=".md,.markdown,.txt,image/*"
-                    style={{ display: "none" }}
-                    onChange={(event) => {
-                      if (event.target.files) {
-                        void handleUploadFiles(event.target.files);
-                      }
-                    }}
+                    chooseLabel={t("project.chooseFiles")}
+                    chooseIcon={<FilePlusIcon />}
+                    progress={uploadProgress}
+                    onFilesChosen={(files) => void handleFilesChosen(files)}
                   />
 
-                  <DropZone $active={dragActive} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
-                    <Stack>
-                      <Subtle>{t("project.dropHint")}</Subtle>
-                      <Subtle>{t("project.overwriteHint")}</Subtle>
-                      {uploadStatus ? <Subtle>{t("project.embedSyncHint")}</Subtle> : null}
-                    </Stack>
-                  </DropZone>
+                  {errors.documents ? <FailureNotice>{errors.documents}</FailureNotice> : null}
 
                   <List>
                     {state.documents.length === 0 ? <Item>{t("project.noDocuments")}</Item> : null}
                     {state.documents.map((document) => (
                       <Item
                         key={document.id}
-                        style={{ cursor: "pointer", position: "relative" }}
+                        data-row=""
+                        style={{ cursor: "pointer" }}
                         onClick={() => setSelectedDocument(document)}
                       >
                         <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <Row style={{ alignItems: "center" }}>
-                              <strong style={{ overflowWrap: "anywhere" }}>{document.title}</strong>
+                              {/* The row answers the pointer; this button is the same
+                                  action for the keyboard. */}
+                              <TitleButton
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedDocument(document);
+                                }}
+                              >
+                                {document.title}
+                              </TitleButton>
                               <Badge tone={categoryTone(document.category)}>{t(`category.${document.category}`)}</Badge>
                               <Badge tone={document.type === "image" ? "warm" : "accent"}>{document.type}</Badge>
                               {document.sharedWithAll ? <Badge tone="accent">{t("project.sharedWithAll")}</Badge> : null}
@@ -666,72 +685,30 @@ export function ProjectDetailPage() {
                             <Subtle>{describeDocument(t, document)}</Subtle>
                           </div>
 
-                          <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                            <IconButton
+                          <Row style={{ alignItems: "center", flexWrap: "nowrap" }} onClick={(event) => event.stopPropagation()}>
+                            <ActionButton
+                              iconOnly
                               type="button"
-                              disabled={busy}
-                              aria-label={
-                                document.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")
-                              }
+                              busy={isPending(`docShare:${document.id}`)}
+                              aria-label={document.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
                               title={document.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void handleUpdateDocumentSharedWithAll(document.id, !document.sharedWithAll);
-                              }}
+                              onClick={() =>
+                                void handleUpdateDocumentSharedWithAll(document.id, !document.sharedWithAll, "documents")
+                              }
                             >
-                              {document.sharedWithAll ? <SharedIcon /> : <NotSharedIcon />}
-                            </IconButton>
-
-                            <div style={{ position: "relative" }}>
-                              <IconButton
-                                type="button"
-                                aria-label={t("project.deleteDocument")}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setPendingDeleteDocumentId((current) => (current === document.id ? null : document.id));
-                                }}
-                              >
-                                <TrashIcon />
-                              </IconButton>
-
-                              {pendingDeleteDocumentId === document.id ? (
-                                <div
-                                  onClick={(event) => event.stopPropagation()}
-                                  style={{
-                                    position: "absolute",
-                                    right: 0,
-                                    top: 40,
-                                    width: 210,
-                                    zIndex: 2,
-                                    padding: 12,
-                                    borderRadius: 14,
-                                    border: `1px solid ${theme.lineStrong}`,
-                                    background: theme.surfaceCard,
-                                    boxShadow: theme.shadowPopover
-                                  }}
-                                >
-                                  <Stack>
-                                    <Subtle>{t("project.deleteDocumentConfirm")}</Subtle>
-                                    <Row>
-                                      <Button
-                                        type="button"
-                                        variant="normal"
-                                        onClick={() => setPendingDeleteDocumentId(null)}
-                                      >
-                                        {t("common.cancel")}
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        variant="danger"
-                                        onClick={() => void handleDeleteDocument(document.id)}
-                                      >
-                                        {t("common.ok")}
-                                      </Button>
-                                    </Row>
-                                  </Stack>
-                                </div>
-                              ) : null}
-                            </div>
+                              {document.sharedWithAll ? <UsersIcon /> : <UserShieldIcon />}
+                            </ActionButton>
+                            <ActionButton
+                              iconOnly
+                              type="button"
+                              data-delete=""
+                              busy={isPending(`deleteDoc:${document.id}`)}
+                              aria-label={t("project.deleteDocument")}
+                              title={t("project.deleteDocument")}
+                              onClick={(event) => void handleDeleteDocument(document, event.currentTarget)}
+                            >
+                              <TrashIcon />
+                            </ActionButton>
                           </Row>
                         </Row>
                       </Item>
@@ -742,18 +719,20 @@ export function ProjectDetailPage() {
 
               <Card>
                 <Stack>
-                  <Badge tone="muted">{t("project.dangerZone")}</Badge>
+                  <SectionTitle>{t("project.dangerZone")}</SectionTitle>
                   <Subtle>{t("project.dangerDesc")}</Subtle>
+                  {errors.danger ? <FailureNotice>{errors.danger}</FailureNotice> : null}
                   <div>
-                    <Button
+                    <ActionButton
                       type="button"
-                      variant="normal"
-                      onClick={handleDeleteProject}
-                      disabled={busy}
-                      style={{ borderColor: theme.dangerBorder, color: theme.danger }}
+                      variant="danger"
+                      icon={<TrashIcon />}
+                      busy={isPending("deleteProject")}
+                      title={isPending("deleteProject") ? t("project.deletingProject") : undefined}
+                      onClick={() => void handleDeleteProject()}
                     >
                       {t("project.deleteProject")}
-                    </Button>
+                    </ActionButton>
                   </div>
                 </Stack>
               </Card>
@@ -767,9 +746,14 @@ export function ProjectDetailPage() {
           <Card>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <Badge tone="accent">{t("project.systemPrompt")}</Badge>
-                <IconButton type="button" aria-label={t("project.editSystemPrompt")} onClick={() => setIsSystemPromptModalOpen(true)}>
-                  <EditIcon />
+                <SubsectionTitle>{t("project.systemPrompt")}</SubsectionTitle>
+                <IconButton
+                  type="button"
+                  aria-label={t("project.editSystemPrompt")}
+                  title={t("project.editSystemPrompt")}
+                  onClick={() => setIsSystemPromptModalOpen(true)}
+                >
+                  <PencilIcon />
                 </IconButton>
               </Row>
               <Subtle>{state.project.systemPrompt || t("project.noSystemPrompt")}</Subtle>
@@ -779,9 +763,15 @@ export function ProjectDetailPage() {
           <Card>
             <Stack>
               <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <Badge tone="muted">{t("project.memories")}</Badge>
-                <IconButton type="button" aria-label={t("project.editMemories")} onClick={() => setIsMemoryModalOpen(true)}>
-                  <EditIcon />
+                <SubsectionTitle>{t("project.memories")}</SubsectionTitle>
+                <IconButton
+                  ref={editMemoriesRef}
+                  type="button"
+                  aria-label={t("project.editMemories")}
+                  title={t("project.editMemories")}
+                  onClick={() => setIsMemoryModalOpen(true)}
+                >
+                  <PencilIcon />
                 </IconButton>
               </Row>
               {(["procedural", "semantic", "episodic"] as const).map((kind) => (
@@ -807,11 +797,12 @@ export function ProjectDetailPage() {
 
           <Card>
             <Stack>
-              <Badge tone="accent">{t("project.chats")}</Badge>
+              <SubsectionTitle>{t("project.chats")}</SubsectionTitle>
+              {errors.chats ? <FailureNotice>{errors.chats}</FailureNotice> : null}
               <List>
                 {state.chats.length === 0 ? <Subtle>{t("project.noChats")}</Subtle> : null}
                 {state.chats.slice(0, 8).map((chat) => (
-                  <Item key={chat.id} style={{ position: "relative" }}>
+                  <Item key={chat.id} data-row="">
                     <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <RouterLink to={`/chats/${chat.id}`}>
@@ -826,56 +817,28 @@ export function ProjectDetailPage() {
                         <Subtle>{new Date(chat.updatedAt).toLocaleString()}</Subtle>
                       </div>
 
-                      <div style={{ position: "relative" }}>
-                        <IconButton
-                          type="button"
-                          aria-label={t("project.deleteChat")}
-                          onClick={() => setPendingDeleteChatId((current) => (current === chat.id ? null : chat.id))}
-                        >
-                          <TrashIcon />
-                        </IconButton>
-
-                        {pendingDeleteChatId === chat.id ? (
-                          <div
-                            style={{
-                              position: "absolute",
-                              right: 0,
-                              top: 40,
-                              width: 210,
-                              zIndex: 2,
-                              padding: 12,
-                              borderRadius: 14,
-                              border: `1px solid ${theme.lineStrong}`,
-                              background: theme.surfaceCard,
-                              boxShadow: theme.shadowPopover
-                            }}
-                          >
-                            <Stack>
-                              <Subtle>{t("project.deleteChatConfirm")}</Subtle>
-                              <Row>
-                                <Button type="button" variant="normal" onClick={() => setPendingDeleteChatId(null)}>
-                                  {t("common.cancel")}
-                                </Button>
-                                <Button type="button" variant="danger" onClick={() => void handleDeleteChat(chat.id)}>
-                                  {t("common.ok")}
-                                </Button>
-                              </Row>
-                            </Stack>
-                          </div>
-                        ) : null}
-                      </div>
+                      <ActionButton
+                        iconOnly
+                        type="button"
+                        data-delete=""
+                        busy={isPending(`deleteChat:${chat.id}`)}
+                        aria-label={t("project.deleteChat")}
+                        title={t("project.deleteChat")}
+                        onClick={(event) => void handleDeleteChat(chat, event.currentTarget)}
+                      >
+                        <TrashIcon />
+                      </ActionButton>
                     </Row>
                   </Item>
                 ))}
               </List>
             </Stack>
           </Card>
-
         </InspectorPane>
       </WorkspaceShell>
 
       {selectedDocument ? (
-        <Dialog onClose={closeSelectedDocument}>
+        <Dialog onClose={() => void closeSelectedDocument()}>
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <div>
@@ -885,18 +848,29 @@ export function ProjectDetailPage() {
                   {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
                 </Subtle>
               </div>
-              <Button type="button" variant="normal" onClick={closeSelectedDocument} disabled={savingDocumentContent}>
+              <ActionButton
+                type="button"
+                variant="normal"
+                disabledReason={documentBusy}
+                onClick={() => void closeSelectedDocument()}
+              >
                 {t("common.close")}
-              </Button>
+              </ActionButton>
             </Row>
+
+            {errors.document ? <FailureNotice>{errors.document}</FailureNotice> : null}
 
             {isEditingDocument ? (
               <Card>
                 <ImageDocumentEditor
                   document={selectedDocument}
                   onSaved={handleDocumentContentSaved}
-                  onCancel={() => setIsEditingDocument(false)}
+                  onCancel={() => {
+                    setIsEditingDocument(false);
+                    setDocumentEditorDirty(false);
+                  }}
                   onSavingChange={setSavingDocumentContent}
+                  onDirtyChange={setDocumentEditorDirty}
                 />
               </Card>
             ) : (
@@ -907,9 +881,9 @@ export function ProjectDetailPage() {
                 {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
                 {selectedDocument.type === "image" ? (
                   <div>
-                    <Button type="button" variant="normal" disabled={busy} onClick={() => setIsEditingDocument(true)}>
+                    <ActionButton type="button" variant="normal" icon={<PencilIcon />} onClick={() => setIsEditingDocument(true)}>
                       {t("documentEditor.edit")}
-                    </Button>
+                    </ActionButton>
                   </div>
                 ) : null}
               </>
@@ -931,29 +905,32 @@ export function ProjectDetailPage() {
                   </Select>
                 </Field>
                 <div>
-                  <Button
+                  {/* Normal rather than primary: the editor's save is this dialog's
+                      primary action while it is open (doc-8 §6.1). */}
+                  <ActionButton
                     type="button"
-                    disabled={busy || documentCategoryDraft === selectedDocument.category}
+                    variant="normal"
+                    icon={<CheckIcon />}
+                    busy={isPending("category")}
+                    title={isPending("category") ? t("project.saving") : undefined}
+                    disabledReason={
+                      documentCategoryDraft === selectedDocument.category ? t("project.categoryUnchanged") : undefined
+                    }
                     onClick={() => void handleUpdateDocumentCategory(selectedDocument.id, documentCategoryDraft)}
                   >
                     {t("project.saveCategory")}
-                  </Button>
+                  </ActionButton>
                 </div>
 
-                <Field>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedDocument.sharedWithAll}
-                      disabled={busy}
-                      onChange={(event) =>
-                        void handleUpdateDocumentSharedWithAll(selectedDocument.id, event.target.checked)
-                      }
-                    />
+                <Stack style={{ gap: 6 }}>
+                  <Checkbox
+                    checked={selectedDocument.sharedWithAll}
+                    onChange={(checked) => void handleUpdateDocumentSharedWithAll(selectedDocument.id, checked, "document")}
+                  >
                     {t("project.shareWithAll")}
-                  </label>
+                  </Checkbox>
                   <Subtle>{t("project.shareWithAllHint")}</Subtle>
-                </Field>
+                </Stack>
               </Stack>
             </Card>
 
@@ -976,7 +953,7 @@ export function ProjectDetailPage() {
 
               {selectedDocument.type === "image" && selectedDocument.derivedText && !isEditingDocument ? (
                 <div style={{ marginTop: 14 }}>
-                  <Badge tone="warm">{t("project.derivedText")}</Badge>
+                  <SubsectionTitle>{t("project.derivedText")}</SubsectionTitle>
                   <div style={{ marginTop: 10, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{selectedDocument.derivedText}</div>
                 </div>
               ) : null}
@@ -986,13 +963,18 @@ export function ProjectDetailPage() {
       ) : null}
 
       {isTitleModalOpen ? (
-        <Dialog onClose={() => setIsTitleModalOpen(false)}>
+        <Dialog onClose={() => void closeTitleModal()}>
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("project.editTitleModal")}</DialogTitle>
-              <Button type="button" variant="normal" onClick={() => setIsTitleModalOpen(false)}>
+              <ActionButton
+                type="button"
+                variant="normal"
+                disabledReason={isPending("title") ? t("project.savingClose") : undefined}
+                onClick={() => void closeTitleModal()}
+              >
                 {t("common.close")}
-              </Button>
+              </ActionButton>
             </Row>
             <Card as="form" onSubmit={handleUpdateProjectTitle}>
               <Stack>
@@ -1004,10 +986,17 @@ export function ProjectDetailPage() {
                     placeholder={t("project.titlePlaceholder")}
                   />
                 </Field>
+                {errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}
                 <div>
-                  <Button type="submit" disabled={busy || !titleDraft.trim()}>
+                  <ActionButton
+                    type="submit"
+                    icon={<CheckIcon />}
+                    busy={isPending("title")}
+                    title={isPending("title") ? t("project.saving") : undefined}
+                    disabledReason={titleDraft.trim() ? undefined : t("project.titleRequired")}
+                  >
                     {t("project.saveTitle")}
-                  </Button>
+                  </ActionButton>
                 </div>
               </Stack>
             </Card>
@@ -1016,13 +1005,18 @@ export function ProjectDetailPage() {
       ) : null}
 
       {isSystemPromptModalOpen ? (
-        <Dialog onClose={() => setIsSystemPromptModalOpen(false)}>
+        <Dialog onClose={() => void closeSystemPromptModal()}>
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("project.editSystemPromptModal")}</DialogTitle>
-              <Button type="button" variant="normal" onClick={() => setIsSystemPromptModalOpen(false)}>
+              <ActionButton
+                type="button"
+                variant="normal"
+                disabledReason={isPending("systemPrompt") ? t("project.savingClose") : undefined}
+                onClick={() => void closeSystemPromptModal()}
+              >
                 {t("common.close")}
-              </Button>
+              </ActionButton>
             </Row>
             <Card as="form" onSubmit={handleUpdateProjectSystemPrompt}>
               <Stack>
@@ -1034,10 +1028,16 @@ export function ProjectDetailPage() {
                     placeholder={t("project.systemPromptPlaceholder")}
                   />
                 </Field>
+                {errors.systemPrompt ? <FailureNotice>{errors.systemPrompt}</FailureNotice> : null}
                 <div>
-                  <Button type="submit" disabled={busy}>
+                  <ActionButton
+                    type="submit"
+                    icon={<CheckIcon />}
+                    busy={isPending("systemPrompt")}
+                    title={isPending("systemPrompt") ? t("project.saving") : undefined}
+                  >
                     {t("project.saveSystemPrompt")}
-                  </Button>
+                  </ActionButton>
                 </div>
               </Stack>
             </Card>
@@ -1057,33 +1057,49 @@ export function ProjectDetailPage() {
         />
       ) : null}
 
+      {/* The memory being written stays in the page state when this closes, so
+          closing loses nothing and asks nothing (doc-9 §5.7). */}
       {isMemoryModalOpen ? (
-        <Dialog onClose={() => setIsMemoryModalOpen(false)}>
+        <Dialog onClose={closeMemoryModal}>
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("project.projectMemories")}</DialogTitle>
               <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                <Button type="button" variant="normal" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
-                  {organizingMemories ? t("project.organizing") : t("project.organize")}
-                </Button>
-                <Button type="button" variant="normal" onClick={() => setIsMemoryModalOpen(false)}>
+                <ActionButton
+                  ref={organizeRef}
+                  type="button"
+                  variant="normal"
+                  icon={<SlidersIcon />}
+                  busy={isPending("analyze")}
+                  title={isPending("analyze") ? t("project.organizing") : undefined}
+                  onClick={() => void handleAnalyzeMemories()}
+                >
+                  {t("project.organize")}
+                </ActionButton>
+                <ActionButton type="button" variant="normal" onClick={closeMemoryModal}>
                   {t("common.close")}
-                </Button>
+                </ActionButton>
               </Row>
             </Row>
+
+            {errors.memoryPlan ? <FailureNotice>{errors.memoryPlan}</FailureNotice> : null}
 
             {memoryPlan ? (
               <Card>
                 <Stack>
                   <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
                     <SectionTitle>{t("project.organizationPlan")}</SectionTitle>
-                    <Button
+                    <ActionButton
                       type="button"
+                      variant="normal"
+                      icon={<CheckIcon />}
+                      busy={isPending("apply")}
+                      title={isPending("apply") ? t("project.saving") : undefined}
+                      disabledReason={memoryPlan.changes.length === 0 ? t("project.applyNothing") : undefined}
                       onClick={() => void handleApplyMemoryPlan()}
-                      disabled={organizingMemories || memoryPlan.changes.length === 0}
                     >
                       {t("project.apply")}
-                    </Button>
+                    </ActionButton>
                   </Row>
                   <Subtle>{memoryPlan.summary || t("project.noSummary")}</Subtle>
                   {memoryPlan.changes.length === 0 ? (
@@ -1129,88 +1145,73 @@ export function ProjectDetailPage() {
                       placeholder={t("project.contentPlaceholder")}
                     />
                   </Field>
-                  <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <input type="checkbox" checked={memoryLocked} onChange={(event) => setMemoryLocked(event.target.checked)} />
-                    <span>{t("project.lockHint")}</span>
-                  </label>
+                  <Checkbox checked={memoryLocked} onChange={setMemoryLocked}>
+                    {t("project.lockHint")}
+                  </Checkbox>
+                  {errors.newMemory ? <FailureNotice>{errors.newMemory}</FailureNotice> : null}
                   <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                    <Button type="submit" disabled={busy}>
+                    {/* The dialog's one primary action; applying a plan is normal. */}
+                    <ActionButton
+                      type="submit"
+                      icon={<PlusIcon />}
+                      busy={isPending("createMemory")}
+                      title={isPending("createMemory") ? t("project.saving") : undefined}
+                    >
                       {t("project.saveMemory")}
-                    </Button>
+                    </ActionButton>
                   </Row>
                 </ComposerBox>
               </Stack>
             </Card>
 
+            {errors.memories ? <FailureNotice>{errors.memories}</FailureNotice> : null}
+
             <Grid columns="1fr 1fr 1fr">
               {(["procedural", "semantic", "episodic"] as const).map((kind) => (
                 <Card key={kind}>
                   <Stack>
-                    <Badge tone={kind === "procedural" ? "accent" : kind === "semantic" ? "warm" : "muted"}>{t(`memoryKind.${kind}`)}</Badge>
+                    <SubsectionTitle>{t(`memoryKind.${kind}`)}</SubsectionTitle>
                     {groupedMemories[kind].length === 0 ? <Subtle>{t("project.noKindMemoryYet", { kind: t(`memoryKind.${kind}`) })}</Subtle> : null}
                     <List>
                       {groupedMemories[kind].map((memory) => (
-                        <Item key={memory.id} style={{ position: "relative" }}>
+                        <Item key={memory.id} data-row="">
                           {/* Title, actions and badges each get their own line. Sharing the
                               first line between the title and three icon buttons left the
                               title a few characters wide in the memory pane's narrow column
                               (observed on a memory whose title is a long sentence). */}
                           <strong style={{ display: "block", overflowWrap: "anywhere" }}>{memory.title}</strong>
                           <Row style={{ justifyContent: "flex-end", alignItems: "center", flexWrap: "nowrap" }}>
-                            <IconButton
+                            <ActionButton
+                              iconOnly
                               type="button"
-                              disabled={busy}
+                              busy={isPending(`memShare:${memory.id}`)}
                               aria-label={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
                               title={memory.sharedWithAll ? t("project.unshareWithAll") : t("project.shareWithAll")}
                               onClick={() => void handleUpdateMemorySharedWithAll(memory.id, !memory.sharedWithAll)}
                             >
-                              {memory.sharedWithAll ? <SharedIcon /> : <NotSharedIcon />}
-                            </IconButton>
-                            <IconButton
+                              {memory.sharedWithAll ? <UsersIcon /> : <UserShieldIcon />}
+                            </ActionButton>
+                            <ActionButton
+                              iconOnly
                               type="button"
+                              busy={isPending(`memLock:${memory.id}`)}
                               aria-label={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
+                              title={memory.locked ? t("project.unlockMemory") : t("project.lockMemory")}
                               onClick={() => void handleToggleMemoryLock(memory.id, !memory.locked)}
                             >
-                              {memory.locked ? <UnlockIcon /> : <LockIcon />}
-                            </IconButton>
-                            <div style={{ position: "relative" }}>
-                              <IconButton
-                                type="button"
-                                aria-label={t("project.deleteMemory")}
-                                onClick={() => setPendingDeleteMemoryId((current) => (current === memory.id ? null : memory.id))}
-                              >
-                                <TrashIcon />
-                              </IconButton>
-
-                              {pendingDeleteMemoryId === memory.id ? (
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    right: 0,
-                                    top: 40,
-                                    width: 210,
-                                    zIndex: 2,
-                                    padding: 12,
-                                    borderRadius: 14,
-                                    border: `1px solid ${theme.lineStrong}`,
-                                    background: theme.surfaceCard,
-                                    boxShadow: theme.shadowPopover
-                                  }}
-                                >
-                                  <Stack>
-                                    <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
-                                    <Row>
-                                      <Button type="button" variant="normal" onClick={() => setPendingDeleteMemoryId(null)}>
-                                        {t("common.cancel")}
-                                      </Button>
-                                      <Button type="button" variant="danger" onClick={() => void handleDeleteMemory(memory.id)}>
-                                        {t("common.ok")}
-                                      </Button>
-                                    </Row>
-                                  </Stack>
-                                </div>
-                              ) : null}
-                            </div>
+                              {memory.locked ? <LockOpenIcon /> : <LockIcon />}
+                            </ActionButton>
+                            <ActionButton
+                              iconOnly
+                              type="button"
+                              data-delete=""
+                              busy={isPending(`deleteMem:${memory.id}`)}
+                              aria-label={t("project.deleteMemory")}
+                              title={t("project.deleteMemory")}
+                              onClick={(event) => void handleDeleteMemory(memory, event.currentTarget)}
+                            >
+                              <TrashIcon />
+                            </ActionButton>
                           </Row>
                           <Row style={{ alignItems: "center" }}>
                             <Badge tone="muted">{memory.source}</Badge>
@@ -1232,6 +1233,41 @@ export function ProjectDetailPage() {
   );
 }
 
+// A deleted row takes its delete button with it, and focus would fall to the top of
+// the page. It goes to the same button on a neighbouring row instead, or to the
+// nearest control of the region when the row was the last (snz-design doc-9 §5.1).
+// Found before the delete, while the row is still there to look around from.
+function focusTargetAfterRemoval(trigger: HTMLElement, fallback: HTMLElement | null): HTMLElement | null {
+  const row = trigger.closest("[data-row]");
+  for (const sibling of [row?.nextElementSibling, row?.previousElementSibling]) {
+    if (sibling instanceof HTMLElement && sibling.matches("[data-row]")) {
+      const control = sibling.querySelector<HTMLElement>("[data-delete]");
+      if (control) {
+        return control;
+      }
+    }
+  }
+  return fallback;
+}
+
+// Waits for the row to leave the DOM: the render that removes it is not always done
+// by the next frame (WebKit ran the frame first). Gives up after a few frames.
+function focusIfLost(trigger: HTMLElement, target: HTMLElement | null) {
+  let frames = 0;
+  const step = () => {
+    if (trigger.isConnected && frames < 10) {
+      frames += 1;
+      requestAnimationFrame(step);
+      return;
+    }
+    const active = document.activeElement;
+    if ((!active || active === document.body) && target?.isConnected) {
+      target.focus();
+    }
+  };
+  requestAnimationFrame(step);
+}
+
 function detectDocumentType(file: File): "markdown" | "text" | "image" | null {
   const lowerName = file.name.toLowerCase();
 
@@ -1248,6 +1284,12 @@ function detectDocumentType(file: File): "markdown" | "text" | "image" | null {
   }
 
   return null;
+}
+
+// Only a MIME type seen while dragging, before any name is known: a Markdown file
+// often has none, which the drop zone reads as "not known yet" rather than refused.
+function isDocumentMime(mime: string) {
+  return mime.startsWith("image/") || mime === "text/plain" || mime === "text/markdown" || mime === "text/x-markdown";
 }
 
 const DOCUMENT_CATEGORIES: DocumentCategory[] = ["world", "character", "rule", "plot", "timeline", "index", "story", "misc"];
@@ -1270,129 +1312,4 @@ function describeDocument(t: (key: MessageKey) => string, document: DocumentReco
   }
 
   return document.note || document.contentText.slice(0, 140) || t("project.textDocument");
-}
-
-function ImageIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="6" cy="6.5" r="1.1" stroke="currentColor" strokeWidth="1.1" />
-      <path d="m3 11.5 3.2-3 2.3 2.1 1.6-1.4 2.9 2.6" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M3.5 4.5h9M6.5 2.75h3M5 4.5v7m3-7v7m3-7v7M4.5 4.5l.5 8.25c.03.52.46.92.98.92h4.04c.52 0 .95-.4.98-.92L11.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M3 11.75V13h1.25l7.1-7.1-1.25-1.25L3 11.75ZM12.2 5.05l.75-.75a.88.88 0 0 0 0-1.25l-.95-.95a.88.88 0 0 0-1.25 0l-.75.75 1.25 1.25.95.95Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M5.75 7V5.75a2.25 2.25 0 1 1 4.5 0V7M4.75 7h6.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-4.5A.75.75 0 0 1 4.75 7Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function UnlockIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M10.25 7V5.75a2.25 2.25 0 0 0-4.36-.77M4.75 7h6.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-4.5A.75.75 0 0 1 4.75 7Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-// SharedIcon / NotSharedIcon mark whether a document or memory is common project
-// material: several figures for "everyone reads it", one for "only the speakers
-// that receive the project material do".
-function SharedIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M6 7.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 0c-1.8 0-3.25 1.1-3.25 2.5v1.75h6.5V10c0-1.4-1.45-2.5-3.25-2.5Zm4.9-4a2 2 0 0 1 0 4m.35.6c1.35.35 2.25 1.2 2.25 2.25v1.4h-2.5"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function NotSharedIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M8 7.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 0c-1.95 0-3.5 1.2-3.5 2.7v1.55h7V10.2C11.5 8.7 9.95 7.5 8 7.5Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SpinnerIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
-      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <animateTransform
-          attributeName="transform"
-          attributeType="XML"
-          type="rotate"
-          from="0 8 8"
-          to="360 8 8"
-          dur="0.8s"
-          repeatCount="indefinite"
-        />
-      </path>
-    </svg>
-  );
-}
-
-function FolderIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path
-        d="M2.75 5.25A1.75 1.75 0 0 1 4.5 3.5h3.07c.45 0 .88.18 1.2.5l.73.75c.14.14.34.22.54.22h3.46a1.75 1.75 0 0 1 1.75 1.75v5.78a1.75 1.75 0 0 1-1.75 1.75h-9A1.75 1.75 0 0 1 2.75 12.5V5.25Z"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }

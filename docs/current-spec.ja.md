@@ -521,12 +521,15 @@ temporary chat は `⏱️` prefix で表示します。
 
 documents card:
 
-- file picker
-- drag and drop
+- ドロップゾーンとファイル選択（受け付ける種類を述べ、それ以外は名を挙げて取り込まない。取り込み中は件数の進捗を出す）
 - overwrite confirm
 - modal preview
 - markdown render
 - category edit
+
+ドキュメント・チャット・メモリの削除は、対象の名を述べるダイアログで確認します。
+題名・システムプロンプトの編集と画像の追加ダイアログは、未保存の入力があるまま閉じるときに破棄を確認します。
+失敗は、ページの先頭ではなく失敗した操作の近くに出します。
 
 ### 11.4 Chat screen
 
