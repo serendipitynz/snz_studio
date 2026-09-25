@@ -658,7 +658,7 @@ export function ChatPage() {
   }
 
   return (
-    <WorkspaceShell style={isInspectorCollapsed ? { gridTemplateColumns: "280px minmax(0, 1fr)" } : undefined}>
+    <WorkspaceShell $columns={isInspectorCollapsed ? "280px minmax(0, 1fr)" : undefined}>
       <WorkspaceSidebar
         projects={projects}
         currentProjectId={state.project.id}

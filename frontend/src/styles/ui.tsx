@@ -8,7 +8,7 @@ import { snzTokens } from "./themes/snz-tokens";
 // a recoloured border is measured against the border it replaces and cannot
 // reach 3:1, an outer ring is measured against the surface (snz-design
 // doc-8 §5.1). :focus-visible keeps it off pointer presses.
-const focusRing = ({ theme }: { theme: Theme }) => css`
+export const focusRing = ({ theme }: { theme: Theme }) => css`
   &:focus-visible {
     outline: ${snzTokens.border.focus} solid ${theme.focus};
     outline-offset: ${snzTokens.border.focusOffset};
@@ -33,6 +33,10 @@ const ENABLED = ':not(:disabled):not([aria-disabled="true"])';
 // clips at its padding edge, so one holding focusable rows pads by this much
 // (cancelling it sideways with a negative margin) to keep the ring whole.
 export const FOCUS_RING_REACH = `calc(${snzTokens.border.focus} + ${snzTokens.border.focusOffset})`;
+
+// Below this width the workspace is one column and the sidebar folds into its
+// collapsed entry (snz-design doc-9 §6.8).
+export const NARROW_MEDIA = "(max-width: 900px)";
 
 export const Page = styled.div`
   min-height: 100vh;
@@ -60,10 +64,12 @@ export const WorkspaceShell = styled.div<{ $columns?: string }>`
     grid-template-columns: 250px minmax(0, 1fr);
   }
 
-  @media (max-width: 900px) {
+  @media ${NARROW_MEDIA} {
     height: auto;
     min-height: calc(100vh - 2 * ${snzTokens.space.sm});
     grid-template-columns: 1fr;
+    /* The collapsed entry keeps its own height; the page body takes the rest. */
+    grid-template-rows: auto 1fr;
   }
 `;
 
@@ -231,19 +237,28 @@ export const SidebarSectionLabel = styled.div`
   color: ${({ theme }) => theme.muted};
 `;
 
-export const SidebarLink = styled(Link, {
-  shouldForwardProp: (prop) => prop !== "$active"
-})<{ $active?: boolean }>`
+// The current location is drawn from aria-current, so what the screen shows and
+// what a screen reader hears cannot drift apart. The face alone is too close to
+// the unselected row to read, so the frame and the left band carry it as well
+// (snz-design doc-8 §5.2, doc-9 §6.8).
+export const SidebarLink = styled(Link)`
   display: block;
   text-decoration: none;
   color: inherit;
   padding: 11px 12px;
   border-radius: ${({ theme }) => theme.radiusSm};
-  background: ${({ $active, theme }) => ($active ? theme.accentSoft : "transparent")};
-  border: 1px solid ${({ $active, theme }) => ($active ? theme.accentBorder : theme.lineIdle)};
+  background: transparent;
+  border: 1px solid ${({ theme }) => theme.lineIdle};
 
-  &:hover {
+  &:not([aria-current]):hover {
     background: ${({ theme }) => theme.surfaceHover};
+  }
+
+  &[aria-current] {
+    background: ${({ theme }) => theme.surfaceSelected};
+    border-color: ${({ theme }) => theme.selected};
+    box-shadow: inset ${snzTokens.border.band} 0 0 ${({ theme }) => theme.selected};
+    color: ${({ theme }) => theme.inkStrong};
   }
 
   ${focusRing}
