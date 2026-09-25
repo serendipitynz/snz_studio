@@ -1,10 +1,10 @@
 ---
 id: TASK-43
 title: '共通デザイン: 配色の基盤と基本部品の状態を本適用する'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-09-24 20:11'
-updated_date: '2026-09-24 22:15'
+updated_date: '2026-09-25 02:12'
 labels:
   - design
 dependencies: []
@@ -23,14 +23,14 @@ snz-design の TASK-20 (snz_studio への共通デザインの本適用) が追�
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 試験の変更 (標準 と Solarized を共通の値で描く、2つのキーの読み替えと両方書き、保存できないときもその起動中は選択が効く、TabFocusesLinks) が入り、写し `frontend/src/styles/themes/snz-tokens.ts` が `vendor.mjs verify` で 0.1.0 と照合される
+- [x] #1 試験の変更 (標準 と Solarized を共通の値で描く、2つのキーの読み替えと両方書き、保存できないときもその起動中は選択が効く、TabFocusesLinks) が入り、写し `frontend/src/styles/themes/snz-tokens.ts` が `vendor.mjs verify` で 0.1.1 と照合される
 - [x] #2 ボタン・アイコンのみボタン・入力欄・選択欄・サイドバーの項目・最新へ戻るボタンが、キーボードで焦点を受けたときに外側へ焦点の枠 (2px・offset 1px・焦点の色) を描き、ポインタで押したときは描かない (doc-8 §5.1)
 - [x] #3 ボタンの3変種が doc-8 §6.1 の主操作・通常・破壊的操作の面・語・輪郭で描かれ、hover と押下で面を動かし、位置は動かさない
 - [x] #4 無効の部品が破線の輪郭と不透明度 0.45 で描かれ、カーソルを not-allowed に変えない (doc-8 §5.4)
 - [x] #5 標準 と Solarized の面と操作部品の角丸が共通寸法 (10px / 6px) から来て、追加の5配色系統は各自の値を持つ
 - [x] #6 AGENTS.md と AGENTS.ja.md に共通デザインのガイドと適用記録への入口がある (doc-16 §11)
 - [x] #7 `pnpm check:client`・`pnpm build:client`・`go test ./...` が通る
-- [ ] #8 区画の面と hover・押下の段を、snz-design の tokens 0.2.0 (snz-design TASK-27) から写して当てている
+- [x] #8 入れ子のパネルの面 (区画) と、その中の行の面、押下の段を、snz-design の tokens 0.1.1 (snz-design TASK-27) から写して当てている
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -94,4 +94,11 @@ Catppuccin Latte では主操作が黒の語 対 teal の面で 5.61、焦点の
 - 共通の面の段を snz-design TASK-27 で足す (区画の面の役割、hover・押下の相対規則。tokens 0.2.0)。この PR はそれを待って写しを置き直し、区画と行と hover・押下を当て直す (AC#8)。
 - 区画のボックスの影を消した。変換が `shadow` を `shadow.modal` に写していたので、ボックスにモーダルの影が付いていた。モーダルの影は残す。ボックス間の隙間を 14px から共通の `space.sm` (0.55rem) に狭めた。
 - ダッシュボードに置く要素の見直しは別タスク (TASK-49)。
+
+## tokens 0.1.1 の取り込み (2026-09-25)
+- 写しを tokens-v0.1.1 から置き直した (`vendor.mjs verify` で一致)。snz-design TASK-27 で、入れ子のパネルの面 (`surface-nested`) と押下の段 (`surface-pressed`・`accent-pressed`) が足された版。
+- `ThemeTokens` に `surfaceNested`・`surfaceItem`・`surfacePressed`・`accentPressed` を足した。標準 と Solarized は、区画 (`Card`) を `surface-nested` に、区画の中の行 (`Item`) を `surface` に写す (snz-design doc-9 §6.3: 行を区画より暗い面に置くと hover が効かない)。`surfaceElevate` は会話の user の面と入力欄の箱にも使っているので、行には専用のキー `surfaceItem` を立てた。追加の5配色系統は、区画を `surfaceCardFaint`、行を `surfaceElevate` のままにして見た目を変えていない。
+- 押下: 主操作は `accentPressed`、通常・破壊的・アイコンのみボタン・サイドバーのボタン・最新へ戻るボタンは `surfacePressed`。hover と押下を別の面にした。チャットの種類のメニューの項目の hover を `surfaceCardFaint` から `surfaceHover` に替えた (`surfaceCardFaint` は区画の面と同じ値になったため)。
+- 確かめたこと (Chromium 152、macOS 26.6.2、1280×800、固定データの API): ダッシュボードで ボックス / 区画 / 行 の面は Solarized Light #fdf6e3 / #f6efdc / #fdf6e3、Solarized Dark #073642 / #04303c / #073642、標準 Light #ffffff / #f4f6f8 / #ffffff、標準 Dark #232833 / #1d222a / #232833。ボックス 対 区画 と 区画 対 行 はどちらも 1.06 / 1.08 / 1.08 / 1.08 (Sol L / Sol D / 標準 L / 標準 D)、行の輪郭 対 区画 は 1.25 / 1.29 / 1.28 / 1.42、行の語は 12.05 / 10.61 / 14.42 / 11.44、区画の見出しは 11.33 / 11.48 / 13.31 / 12.38。`:active` の規則の面は 標準 Dark で #323847 (`surface-pressed`) と #accdf1 (`accent-pressed`)。`pnpm check:client`・`pnpm build:client`・`go test ./...` が通った。
+- 行の hover は、行が押せる部品になる画面のタスク (TASK-45・TASK-46) で当てる。
 <!-- SECTION:NOTES:END -->
