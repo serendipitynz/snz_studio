@@ -352,6 +352,22 @@ Persisted in:
 
 `.env` acts as the initial/default source, but saved app config overrides it.
 
+The settings modal (Settings in the left sidebar) has three sections: appearance, language and connection.
+Appearance and language apply as they are chosen and are stored in localStorage. Only the connection settings
+are a draft, sent with "Save configuration".
+
+- A stored theme family or mode this build does not have is drawn as Standard + Auto (follow OS) and left as it is;
+  the appearance section says so in a dismissible note (it returns when the modal is reopened). Choosing again here
+  replaces it.
+- A theme choice that cannot be stored still applies for this run, and the appearance section shows the failure.
+- Each endpoint's connection state is shown in words ("Connected" / "Not connected") beside its label, for the
+  saved value.
+- Closing (close button, Escape) with a connection draft that differs from the saved values asks before discarding
+  it, keeping it by default. The modal does not close while saving. A field edited while the configuration is still
+  loading keeps the edit.
+- While the bundled embedding model downloads, a progress band shows the amount transferred and the percentage; until
+  the size is known, a mark flows through the band.
+
 ## Supported response formats
 
 Current values:
