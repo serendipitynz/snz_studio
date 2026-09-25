@@ -16,6 +16,12 @@ interface ThemeControllerValue {
   families: typeof THEME_FAMILIES;
   setFamily: (family: ThemeFamily) => void;
   setMode: (mode: ThemeMode) => void;
+  // The stored choice names a family or a mode this build does not have, so the
+  // shared default is drawn in its place (snz-design doc-7 §5.1). It stays true
+  // until a choice made here is saved over it.
+  storedChoiceUnknown: boolean;
+  // The last choice applies for this run but could not be stored (doc-7 §5.3).
+  saveFailed: boolean;
 }
 
 const ThemeControllerContext = createContext<ThemeControllerValue | null>(null);
@@ -23,6 +29,7 @@ const ThemeControllerContext = createContext<ThemeControllerValue | null>(null);
 interface StoredChoice {
   family: ThemeFamily;
   mode: ThemeMode;
+  unknown?: boolean;
 }
 
 function readKey(key: string): string | null {
@@ -56,18 +63,23 @@ function readStoredChoice(): StoredChoice {
     return SHARED_DEFAULT;
   }
   if ((storedFamily !== null && !isThemeFamily(storedFamily)) || (storedMode !== null && !isThemeMode(storedMode))) {
-    return SHARED_DEFAULT;
+    return { ...SHARED_DEFAULT, unknown: true };
   }
   return { family: storedFamily ?? "solarized", mode: storedMode ?? "light" };
 }
 
 // A failed write still applies the choice for this run (snz-design doc-7
-// §5.3); telling the user it was not saved belongs to the settings modal.
-function writeKey(key: string, value: string): void {
+// §5.3); the settings modal tells the user it was not saved.
+function writeChoice(choice: StoredChoice): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
   try {
-    window.localStorage.setItem(key, value);
+    window.localStorage.setItem(FAMILY_KEY, choice.family);
+    window.localStorage.setItem(MODE_KEY, choice.mode);
+    return true;
   } catch {
-    // Private mode / disabled storage: keep the in-memory choice.
+    return false;
   }
 }
 
@@ -80,6 +92,8 @@ export function ThemeController({ children }: { children: ReactNode }) {
   const [family, setFamilyState] = useState<ThemeFamily>(initial.family);
   const [mode, setModeState] = useState<ThemeMode>(initial.mode);
   const [systemDark, setSystemDark] = useState<boolean>(prefersDark);
+  const [storedChoiceUnknown, setStoredChoiceUnknown] = useState(Boolean(initial.unknown));
+  const [saveFailed, setSaveFailed] = useState(false);
 
   // Track the OS appearance only matters when mode === "auto", but the listener is
   // cheap so keep it always attached and resolve lazily below.
@@ -97,34 +111,46 @@ export function ThemeController({ children }: { children: ReactNode }) {
   // the other one missing, and on the next launch the missing half falls back
   // to this build's old default (readStoredChoice) rather than to what was on
   // screen: a new user who picked only Dark would come back to Solarized Dark.
+  // An unknown stored value is replaced only here, by a choice the user made.
+  const store = useCallback((choice: StoredChoice) => {
+    const saved = writeChoice(choice);
+    setSaveFailed(!saved);
+    if (saved) {
+      setStoredChoiceUnknown(false);
+    }
+  }, []);
+
   const setFamily = useCallback(
     (next: ThemeFamily) => {
       setFamilyState(next);
-      if (typeof window !== "undefined") {
-        writeKey(FAMILY_KEY, next);
-        writeKey(MODE_KEY, mode);
-      }
+      store({ family: next, mode });
     },
-    [mode]
+    [mode, store]
   );
 
   const setMode = useCallback(
     (next: ThemeMode) => {
       setModeState(next);
-      if (typeof window !== "undefined") {
-        writeKey(FAMILY_KEY, family);
-        writeKey(MODE_KEY, next);
-      }
+      store({ family, mode: next });
     },
-    [family]
+    [family, store]
   );
 
   const variant: ThemeVariant = mode === "auto" ? (systemDark ? "dark" : "light") : mode;
   const tokens = useMemo(() => resolveTokens(family, variant), [family, variant]);
 
   const value = useMemo<ThemeControllerValue>(
-    () => ({ family, mode, variant, families: THEME_FAMILIES, setFamily, setMode }),
-    [family, mode, variant, setFamily, setMode]
+    () => ({
+      family,
+      mode,
+      variant,
+      families: THEME_FAMILIES,
+      setFamily,
+      setMode,
+      storedChoiceUnknown,
+      saveFailed
+    }),
+    [family, mode, variant, setFamily, setMode, storedChoiceUnknown, saveFailed]
   );
 
   return (
