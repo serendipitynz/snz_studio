@@ -432,9 +432,11 @@ Center:
 
 Right pane:
 
-- context inspector, shown and hidden from the header. On wide windows the choice is kept in
-  localStorage. At 1180px and below the inspector starts hidden without changing that choice; the
-  header button still shows it (as a third column, or under the conversation at 900px and below)
+- context inspector, shown and hidden from the header. On wide windows it is a column and the
+  choice is kept in localStorage. At 1180px and below it starts hidden without changing that choice;
+  the header button lays it over the conversation's right edge, with its own close button. The
+  overlay does not confine focus: Escape or the close button closes it, and focus moving onto a
+  control it covers closes it too
 
 A failure is told next to what failed — the composer, the dialog, the message, or under the
 header — rather than at the top of the page.
