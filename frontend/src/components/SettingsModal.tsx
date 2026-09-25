@@ -321,6 +321,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
   async function requestClose() {
     if (savingConfig) {
+      announce(t("settings.savingClose"));
       return;
     }
     if (
@@ -340,14 +341,21 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     if (loading) {
       return t("settings.loadingConfig");
     }
+    // Without the stored values every untouched field would be sent empty and
+    // wipe what is saved.
+    if (!configuration) {
+      return t("settings.saveNeedsLoad");
+    }
     if (!connectionDirty) {
       return t("settings.unchanged");
     }
     return undefined;
   }
 
-  function connectionBadge(connected: boolean | undefined) {
-    if (!configuration) {
+  // The state was checked for the saved values, so it says nothing about an
+  // endpoint the draft has changed (keys: the draft fields the check used).
+  function connectionBadge(connected: boolean, keys: (keyof ConfigDraft)[]) {
+    if (!configuration || keys.some((key) => configDraft[key] !== configuration[key])) {
       return null;
     }
     return (
@@ -439,7 +447,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <Field>
               <FieldHeader>
                 <span>{t("settings.llmEndpoint")}</span>
-                {connectionBadge(configuration?.llmConnected)}
+                {connectionBadge(Boolean(configuration?.llmConnected), ["llmBaseUrl", "llmModel"])}
               </FieldHeader>
               <Input
                 value={configDraft.llmBaseUrl}
@@ -480,7 +488,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <Field>
               <FieldHeader>
                 <span>{t("settings.reviewEndpoint")}</span>
-                {connectionBadge(configuration?.reviewConnected)}
+                {connectionBadge(Boolean(configuration?.reviewConnected), ["reviewBaseUrl", "reviewModel"])}
               </FieldHeader>
               <Input
                 value={configDraft.reviewBaseUrl}
@@ -506,7 +514,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <Field>
               <FieldHeader>
                 <span>{t("settings.embeddingSource")}</span>
-                {configDraft.embeddingMode === "external" ? connectionBadge(configuration?.embeddingConnected) : null}
+                {configDraft.embeddingMode === "external"
+                  ? connectionBadge(Boolean(configuration?.embeddingConnected), [
+                      "embeddingMode",
+                      "embeddingBaseUrl",
+                      "embeddingModel"
+                    ])
+                  : null}
               </FieldHeader>
               <Select
                 value={configDraft.embeddingMode}

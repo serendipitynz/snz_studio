@@ -360,11 +360,12 @@ are a draft, sent with "Save configuration".
   the appearance section says so in a dismissible note (it returns when the modal is reopened). Choosing again here
   replaces it.
 - A theme choice that cannot be stored still applies for this run, and the appearance section shows the failure.
-- Each endpoint's connection state is shown in words ("Connected" / "Not connected") beside its label, for the
-  saved value.
+- Each endpoint's connection state is shown in words ("Connected" / "Not connected") beside its label. It was
+  checked for the saved values, so it is hidden while the draft changes that endpoint or its model.
 - Closing (close button, Escape) with a connection draft that differs from the saved values asks before discarding
-  it, keeping it by default. The modal does not close while saving. A field edited while the configuration is still
-  loading keeps the edit.
+  it, keeping it by default. The modal does not close while saving. A field given a non-empty value while the
+  configuration is still loading keeps it. A failed load leaves the configuration unsavable, since every untouched
+  field would be sent empty.
 - While the bundled embedding model downloads, a progress band shows the amount transferred and the percentage; until
   the size is known, a mark flows through the band.
 
