@@ -517,7 +517,12 @@ export function ChatPage() {
     }
   }
 
+  // An import still running would report its failure into a dialog no longer on
+  // screen, so the dialog stays until the import has finished.
   function closeDocumentModal() {
+    if (uploadProgress) {
+      return;
+    }
     setIsDocumentModalOpen(false);
     setError("upload", "");
   }
@@ -952,9 +957,14 @@ export function ChatPage() {
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("chat.addDocumentModal")}</DialogTitle>
-              <Button type="button" variant="normal" onClick={closeDocumentModal}>
+              <ActionButton
+                type="button"
+                variant="normal"
+                disabledReason={uploadProgress ? t("chat.uploadingClose") : undefined}
+                onClick={closeDocumentModal}
+              >
                 {t("common.close")}
-              </Button>
+              </ActionButton>
             </Row>
 
             <FileDropZone
