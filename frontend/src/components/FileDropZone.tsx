@@ -155,7 +155,8 @@ export function FileDropZone(props: FileDropZoneProps) {
           />
         </div>
       </SharedCell>
-      {props.children}
+      {/* The owner's words (the chosen file's name) change colour with the zone's own. */}
+      {props.children ? <ZoneExtra data-zone-words="">{props.children}</ZoneExtra> : null}
       <input
         ref={inputRef}
         type="file"
@@ -228,7 +229,8 @@ const Zone = styled.div`
   /* Only the zone's own words: a refusal from an earlier drop keeps its colour. */
   &[data-state="over"],
   &[data-state="over"] > svg,
-  &[data-state="over"] [data-zone-words] {
+  &[data-state="over"] [data-zone-words],
+  &[data-state="over"] [data-zone-words] * {
     color: ${({ theme }) => theme.onAccentSoft};
   }
 
@@ -266,6 +268,12 @@ const SharedCell = styled.div`
   & > :not([data-shown]) {
     visibility: hidden;
   }
+`;
+
+const ZoneExtra = styled.div`
+  display: grid;
+  justify-items: center;
+  gap: ${snzTokens.space.xs};
 `;
 
 const ZoneHint = styled.p`
