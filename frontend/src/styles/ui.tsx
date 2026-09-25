@@ -1,5 +1,33 @@
+import { css } from "@emotion/react";
+import type { Theme } from "@emotion/react";
 import styled from "@emotion/styled";
 import { Link } from "react-router-dom";
+import { snzTokens } from "./themes/snz-tokens";
+
+// Focus is drawn outside the control rather than by recolouring its border:
+// a recoloured border is measured against the border it replaces and cannot
+// reach 3:1, an outer ring is measured against the surface (snz-design
+// doc-8 §5.1). :focus-visible keeps it off pointer presses.
+const focusRing = ({ theme }: { theme: Theme }) => css`
+  &:focus-visible {
+    outline: ${snzTokens.border.focus} solid ${theme.focus};
+    outline-offset: ${snzTokens.border.focusOffset};
+  }
+`;
+
+// Disabled reads from shape, not only colour, and keeps the default cursor
+// (snz-design doc-8 §5.4). aria-disabled is styled alike so a control can stay
+// focusable while it explains why it is disabled.
+const disabledLook = css`
+  &:disabled,
+  &[aria-disabled="true"] {
+    border-style: ${snzTokens.border.disabledStyle};
+    opacity: ${snzTokens.opacity.disabled};
+    cursor: default;
+  }
+`;
+
+const ENABLED = ':not(:disabled):not([aria-disabled="true"])';
 
 export const Page = styled.div`
   min-height: 100vh;
@@ -10,16 +38,18 @@ export const Page = styled.div`
   color: ${({ theme }) => theme.ink};
 `;
 
+// The panes sit flat on the canvas, separated by a narrow gap rather than by
+// shadows, so the gutter comes from the shared spacing scale.
 export const Container = styled.div`
   min-height: 100vh;
-  padding: 14px;
+  padding: ${snzTokens.space.sm};
 `;
 
 export const WorkspaceShell = styled.div<{ $columns?: string }>`
-  height: calc(100vh - 28px);
+  height: calc(100vh - 2 * ${snzTokens.space.sm});
   display: grid;
   grid-template-columns: ${({ $columns }) => $columns ?? "280px minmax(0, 1fr) 340px"};
-  gap: 14px;
+  gap: ${snzTokens.space.sm};
 
   @media (max-width: 1180px) {
     grid-template-columns: 250px minmax(0, 1fr);
@@ -27,7 +57,7 @@ export const WorkspaceShell = styled.div<{ $columns?: string }>`
 
   @media (max-width: 900px) {
     height: auto;
-    min-height: calc(100vh - 28px);
+    min-height: calc(100vh - 2 * ${snzTokens.space.sm});
     grid-template-columns: 1fr;
   }
 `;
@@ -35,9 +65,8 @@ export const WorkspaceShell = styled.div<{ $columns?: string }>`
 export const SidebarPane = styled.aside`
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
-  border-radius: 24px;
+  border-radius: ${({ theme }) => theme.radius};
   padding: 18px;
-  box-shadow: ${({ theme }) => theme.shadow};
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -52,8 +81,7 @@ export const MainPane = styled.main`
   position: relative;
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
-  border-radius: 24px;
-  box-shadow: ${({ theme }) => theme.shadow};
+  border-radius: ${({ theme }) => theme.radius};
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -62,9 +90,8 @@ export const MainPane = styled.main`
 export const InspectorPane = styled.aside`
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
-  border-radius: 24px;
+  border-radius: ${({ theme }) => theme.radius};
   padding: 18px;
-  box-shadow: ${({ theme }) => theme.shadow};
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -145,7 +172,7 @@ export const Grid = styled.div<{ columns?: string }>`
 `;
 
 export const Card = styled.section`
-  background: ${({ theme }) => theme.surfaceCardFaint};
+  background: ${({ theme }) => theme.surfaceNested};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
   padding: 16px;
@@ -206,13 +233,15 @@ export const SidebarLink = styled(Link, {
   text-decoration: none;
   color: inherit;
   padding: 11px 12px;
-  border-radius: 14px;
+  border-radius: ${({ theme }) => theme.radiusSm};
   background: ${({ $active, theme }) => ($active ? theme.accentSoft : "transparent")};
   border: 1px solid ${({ $active, theme }) => ($active ? theme.accentBorder : theme.lineIdle)};
 
   &:hover {
-    background: ${({ theme }) => theme.lineSoft};
+    background: ${({ theme }) => theme.surfaceHover};
   }
+
+  ${focusRing}
 `;
 
 export const SidebarButton = styled.button`
@@ -224,15 +253,22 @@ export const SidebarButton = styled.button`
   text-decoration: none;
   color: inherit;
   padding: 11px 12px;
-  border-radius: 14px;
+  border-radius: ${({ theme }) => theme.radiusSm};
   background: transparent;
   border: 1px solid ${({ theme }) => theme.lineIdle};
   font: inherit;
   cursor: pointer;
 
-  &:hover {
-    background: ${({ theme }) => theme.lineSoft};
+  &${ENABLED}:hover {
+    background: ${({ theme }) => theme.surfaceHover};
   }
+
+  &${ENABLED}:active {
+    background: ${({ theme }) => theme.surfacePressed};
+  }
+
+  ${focusRing}
+  ${disabledLook}
 `;
 
 export const SidebarMeta = styled.div`
@@ -246,9 +282,12 @@ export const Input = styled.input`
   border: 1px solid ${({ theme }) => theme.fieldBorder};
   background: ${({ theme }) => theme.surfaceField};
   color: ${({ theme }) => theme.ink};
-  border-radius: 14px;
+  border-radius: ${({ theme }) => theme.radiusSm};
   padding: 12px 14px;
   font: inherit;
+
+  ${focusRing}
+  ${disabledLook}
 
   &::placeholder {
     color: ${({ theme }) => theme.muted};
@@ -261,9 +300,12 @@ export const Textarea = styled.textarea`
   border: 1px solid ${({ theme }) => theme.fieldBorder};
   background: ${({ theme }) => theme.surfaceField};
   color: ${({ theme }) => theme.ink};
-  border-radius: 14px;
+  border-radius: ${({ theme }) => theme.radiusSm};
   padding: 12px 14px;
   font: inherit;
+
+  ${focusRing}
+  ${disabledLook}
   resize: vertical;
 
   &::placeholder {
@@ -276,9 +318,12 @@ export const Select = styled.select`
   border: 1px solid ${({ theme }) => theme.fieldBorder};
   background: ${({ theme }) => theme.surfaceField};
   color: ${({ theme }) => theme.ink};
-  border-radius: 14px;
+  border-radius: ${({ theme }) => theme.radiusSm};
   padding: 12px 14px;
   font: inherit;
+
+  ${focusRing}
+  ${disabledLook}
 `;
 
 export const Field = styled.label`
@@ -305,22 +350,57 @@ export const StatusDot = styled.span<{ $connected: boolean }>`
   box-shadow: 0 0 0 3px ${({ $connected, theme }) => ($connected ? theme.statusOkGlow : theme.dangerSoft)};
 `;
 
-export const Button = styled.button<{ variant?: "solid" | "ghost" | "warm" }>`
-  border: 1px solid
-    ${({ variant, theme }) =>
-      variant === "ghost" ? theme.fieldBorder : variant === "warm" ? theme.warmBorderStrong : theme.warmBorder};
-  background: ${({ variant, theme }) =>
-    variant === "ghost"
-      ? "transparent"
-      : variant === "warm"
-        ? theme.warmSoft
-        : `linear-gradient(180deg, ${theme.warmBtnFrom} 0%, ${theme.warmBtnTo} 100%)`};
-  color: ${({ theme }) => theme.ink};
-  border-radius: 12px;
+// The variants are snz-design doc-8 §6.1's primary / normal / destructive.
+// The default stays primary because that is how the unmarked buttons looked
+// before; keeping one primary per screen is each screen's call.
+type ButtonVariant = "primary" | "normal" | "danger";
+
+const buttonFace = (variant: ButtonVariant, theme: Theme) => {
+  if (variant === "primary") {
+    return css`
+      border-color: ${theme.accent};
+      background: ${theme.accent};
+      color: ${theme.onAccent};
+
+      &${ENABLED}:hover {
+        border-color: ${theme.accentHover};
+        background: ${theme.accentHover};
+      }
+
+      &${ENABLED}:active {
+        border-color: ${theme.accentPressed};
+        background: ${theme.accentPressed};
+      }
+    `;
+  }
+  // The destructive button keeps the plain surface: filling it with the
+  // danger colour would make it look like the error notices (doc-8 §6.1).
+  return css`
+    border-color: ${variant === "danger" ? theme.danger : theme.fieldBorder};
+    background: ${theme.surfaceButton};
+    color: ${variant === "danger" ? theme.dangerText : theme.ink};
+
+    &${ENABLED}:hover {
+      background: ${theme.surfaceHover};
+    }
+
+    &${ENABLED}:active {
+      background: ${theme.surfacePressed};
+    }
+  `;
+};
+
+export const Button = styled.button<{ variant?: ButtonVariant }>`
+  border: 1px solid;
+  ${({ variant, theme }) => buttonFace(variant ?? "primary", theme)}
+  border-radius: ${({ theme }) => theme.radius};
   padding: 11px 16px;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+
+  ${focusRing}
+  ${disabledLook}
 `;
 
 export const List = styled.div`
@@ -330,12 +410,24 @@ export const List = styled.div`
   min-width: 0;
 `;
 
-export const Item = styled.article`
+// $interactive marks a row the whole of which opens something; only those
+// rows take the list-item hover face (snz-design doc-9 §6.1), and like list
+// items they have no pressed step.
+export const Item = styled.article<{ $interactive?: boolean }>`
   border: 1px solid ${({ theme }) => theme.line};
-  border-radius: 16px;
+  border-radius: ${({ theme }) => theme.radius};
   padding: 14px;
-  background: ${({ theme }) => theme.surfaceElevate};
+  background: ${({ theme }) => theme.surfaceItem};
   min-width: 0;
+
+  ${({ $interactive, theme }) =>
+    $interactive
+      ? css`
+          &:hover {
+            background: ${theme.surfaceHover};
+          }
+        `
+      : ""}
 `;
 
 export const Badge = styled.span<{ tone?: "accent" | "warm" | "muted" }>`
@@ -352,6 +444,8 @@ export const Badge = styled.span<{ tone?: "accent" | "warm" | "muted" }>`
 export const RouterLink = styled(Link)`
   color: inherit;
   text-decoration: none;
+
+  ${focusRing}
 `;
 
 export const MessageScroller = styled.div`
@@ -369,7 +463,7 @@ export const MessageBubble = styled.article<{ $role: "user" | "assistant" | "sys
   max-width: min(860px, 100%);
   margin-left: ${({ $role }) => ($role === "user" ? "auto" : "0")};
   padding: 16px 18px;
-  border-radius: 20px;
+  border-radius: ${({ theme }) => theme.radius};
   border: 1px solid
     ${({ $role, theme }) => ($role === "assistant" ? theme.accentBubbleBorder : theme.line)};
   background: ${({ $role, theme }) =>
@@ -390,7 +484,7 @@ export const ComposerBox = styled.div`
   flex-direction: column;
   gap: 12px;
   border: 1px solid ${({ theme }) => theme.lineMedium};
-  border-radius: 18px;
+  border-radius: ${({ theme }) => theme.radius};
   padding: 14px;
   background: ${({ theme }) => theme.surfaceElevate};
 `;
@@ -417,6 +511,16 @@ export const FloatingScrollButton = styled.button`
   color: ${({ theme }) => theme.ink};
   cursor: pointer;
 
+  &:hover {
+    background: ${({ theme }) => theme.surfaceHover};
+  }
+
+  &:active {
+    background: ${({ theme }) => theme.surfacePressed};
+  }
+
+  ${focusRing}
+
   @media (max-width: 900px) {
     bottom: 108px;
   }
@@ -433,12 +537,23 @@ export const IconButton = styled.button`
   background: ${({ theme }) => theme.surfaceButton};
   color: ${({ theme }) => theme.ink};
   cursor: pointer;
+
+  &${ENABLED}:hover {
+    background: ${({ theme }) => theme.surfaceHover};
+  }
+
+  &${ENABLED}:active {
+    background: ${({ theme }) => theme.surfacePressed};
+  }
+
+  ${focusRing}
+  ${disabledLook}
 `;
 
 export const DropZone = styled.div<{ $active?: boolean }>`
   border: 1px dashed ${({ $active, theme }) => ($active ? theme.accentDropActive : theme.dropzoneBorder)};
   background: ${({ $active, theme }) => ($active ? theme.accentDragBg : theme.surfaceDropzone)};
-  border-radius: 18px;
+  border-radius: ${({ theme }) => theme.radius};
   padding: 18px;
 `;
 
@@ -459,7 +574,7 @@ export const ModalCard = styled.div`
   overflow: auto;
   background: ${({ theme }) => theme.surfaceCard};
   border: 1px solid ${({ theme }) => theme.lineMedium};
-  border-radius: 24px;
+  border-radius: ${({ theme }) => theme.radius};
   box-shadow: ${({ theme }) => theme.shadow};
   padding: 20px;
 `;

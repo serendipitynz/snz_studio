@@ -113,6 +113,17 @@ Must include:
 The UI can be simple, but should be comfortable to use.
 CLI-only UX is not acceptable.
 
+## Shared design (snz-design)
+The UI follows the shared design specification kept in the snz-design repository
+(`serendipitynz/snz-design`). Check it out beside this repository as `../snz-design`.
+
+- Before building or changing a screen, read the adoption guide (snz-design doc-16) and
+  snz_studio's adoption record (snz-design doc-17), which lists what each screen already
+  follows and its recorded exceptions.
+- `frontend/src/styles/themes/snz-tokens.ts` is a generated copy. Do not edit it by hand;
+  replace it with `node ../snz-design/tokens/vendor.mjs copy <version> snz-tokens.ts <path>`
+  and check it with `vendor.mjs verify`.
+
 ## Implementation style
 - Start from the smallest working version
 - Prefer clear code over abstraction

@@ -658,7 +658,7 @@ export function MultiAgentChatPage() {
                 </Button>
                 <Button
                   type="button"
-                  variant={autoRunning ? "warm" : "solid"}
+                  variant={autoRunning ? "normal" : "primary"}
                   onClick={() => void handleToggleAutoRun()}
                   disabled={manualRule || (!autoRunning && (turnRunning || turnBlocked))}
                 >
@@ -800,7 +800,7 @@ export function MultiAgentChatPage() {
               {memorySaveBlocked ? <MetaText>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
               {memoryError ? <ErrorText>{memoryError}</ErrorText> : null}
               <Row style={{ justifyContent: "flex-end" }}>
-                <Button type="button" variant="ghost" onClick={closeMemoryDialog} disabled={memorySaving}>
+                <Button type="button" variant="normal" onClick={closeMemoryDialog} disabled={memorySaving}>
                   {t("common.cancel")}
                 </Button>
                 <Button type="submit" disabled={memorySaveBlocked || memorySaving || !memoryDraft.content.trim()}>

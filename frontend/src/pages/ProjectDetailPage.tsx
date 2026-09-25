@@ -715,14 +715,14 @@ export function ProjectDetailPage() {
                                     <Row>
                                       <Button
                                         type="button"
-                                        variant="ghost"
+                                        variant="normal"
                                         onClick={() => setPendingDeleteDocumentId(null)}
                                       >
                                         {t("common.cancel")}
                                       </Button>
                                       <Button
                                         type="button"
-                                        variant="warm"
+                                        variant="danger"
                                         onClick={() => void handleDeleteDocument(document.id)}
                                       >
                                         {t("common.ok")}
@@ -747,7 +747,7 @@ export function ProjectDetailPage() {
                   <div>
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="normal"
                       onClick={handleDeleteProject}
                       disabled={busy}
                       style={{ borderColor: theme.dangerBorder, color: theme.danger }}
@@ -853,10 +853,10 @@ export function ProjectDetailPage() {
                             <Stack>
                               <Subtle>{t("project.deleteChatConfirm")}</Subtle>
                               <Row>
-                                <Button type="button" variant="ghost" onClick={() => setPendingDeleteChatId(null)}>
+                                <Button type="button" variant="normal" onClick={() => setPendingDeleteChatId(null)}>
                                   {t("common.cancel")}
                                 </Button>
-                                <Button type="button" variant="warm" onClick={() => void handleDeleteChat(chat.id)}>
+                                <Button type="button" variant="danger" onClick={() => void handleDeleteChat(chat.id)}>
                                   {t("common.ok")}
                                 </Button>
                               </Row>
@@ -885,7 +885,7 @@ export function ProjectDetailPage() {
                   {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
                 </Subtle>
               </div>
-              <Button type="button" variant="ghost" onClick={closeSelectedDocument} disabled={savingDocumentContent}>
+              <Button type="button" variant="normal" onClick={closeSelectedDocument} disabled={savingDocumentContent}>
                 {t("common.close")}
               </Button>
             </Row>
@@ -907,7 +907,7 @@ export function ProjectDetailPage() {
                 {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
                 {selectedDocument.type === "image" ? (
                   <div>
-                    <Button type="button" variant="ghost" disabled={busy} onClick={() => setIsEditingDocument(true)}>
+                    <Button type="button" variant="normal" disabled={busy} onClick={() => setIsEditingDocument(true)}>
                       {t("documentEditor.edit")}
                     </Button>
                   </div>
@@ -990,7 +990,7 @@ export function ProjectDetailPage() {
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("project.editTitleModal")}</DialogTitle>
-              <Button type="button" variant="ghost" onClick={() => setIsTitleModalOpen(false)}>
+              <Button type="button" variant="normal" onClick={() => setIsTitleModalOpen(false)}>
                 {t("common.close")}
               </Button>
             </Row>
@@ -1020,7 +1020,7 @@ export function ProjectDetailPage() {
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("project.editSystemPromptModal")}</DialogTitle>
-              <Button type="button" variant="ghost" onClick={() => setIsSystemPromptModalOpen(false)}>
+              <Button type="button" variant="normal" onClick={() => setIsSystemPromptModalOpen(false)}>
                 {t("common.close")}
               </Button>
             </Row>
@@ -1063,10 +1063,10 @@ export function ProjectDetailPage() {
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("project.projectMemories")}</DialogTitle>
               <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                <Button type="button" variant="ghost" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
+                <Button type="button" variant="normal" onClick={() => void handleAnalyzeMemories()} disabled={organizingMemories}>
                   {organizingMemories ? t("project.organizing") : t("project.organize")}
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => setIsMemoryModalOpen(false)}>
+                <Button type="button" variant="normal" onClick={() => setIsMemoryModalOpen(false)}>
                   {t("common.close")}
                 </Button>
               </Row>
@@ -1200,10 +1200,10 @@ export function ProjectDetailPage() {
                                   <Stack>
                                     <Subtle>{t("project.deleteMemoryConfirm")}</Subtle>
                                     <Row>
-                                      <Button type="button" variant="ghost" onClick={() => setPendingDeleteMemoryId(null)}>
+                                      <Button type="button" variant="normal" onClick={() => setPendingDeleteMemoryId(null)}>
                                         {t("common.cancel")}
                                       </Button>
-                                      <Button type="button" variant="warm" onClick={() => void handleDeleteMemory(memory.id)}>
+                                      <Button type="button" variant="danger" onClick={() => void handleDeleteMemory(memory.id)}>
                                         {t("common.ok")}
                                       </Button>
                                     </Row>

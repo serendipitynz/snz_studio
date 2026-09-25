@@ -3,6 +3,7 @@ import { github } from "./github";
 import { one } from "./one";
 import { rosePine } from "./rosePine";
 import { solarized } from "./solarized";
+import { standard } from "./standard";
 import { tokyoNight } from "./tokyoNight";
 import type { ThemeFamily, ThemeTokens, ThemeVariant } from "./types";
 
@@ -10,6 +11,7 @@ export type { ThemeFamily, ThemeTokens, ThemeVariant };
 
 // PALETTES maps every family to its { light, dark } token sets.
 export const PALETTES: Record<ThemeFamily, { light: ThemeTokens; dark: ThemeTokens }> = {
+  standard,
   solarized,
   catppuccin,
   rosePine,
@@ -20,6 +22,7 @@ export const PALETTES: Record<ThemeFamily, { light: ThemeTokens; dark: ThemeToke
 
 // THEME_FAMILIES drives the switcher UI (ordered, with display labels).
 export const THEME_FAMILIES: { id: ThemeFamily; label: string }[] = [
+  { id: "standard", label: "Standard" },
   { id: "solarized", label: "Solarized" },
   { id: "catppuccin", label: "Catppuccin" },
   { id: "rosePine", label: "Rosé Pine" },

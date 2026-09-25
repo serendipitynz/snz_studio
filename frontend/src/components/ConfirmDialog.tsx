@@ -61,10 +61,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             <Row style={{ justifyContent: "flex-end" }}>
               {/* Cancel takes the initial focus: every current caller asks about a destructive
                   action, so a stray Enter right after the click must not confirm one. */}
-              <Button type="button" variant="ghost" autoFocus onClick={() => close(false)}>
+              <Button type="button" variant="normal" autoFocus onClick={() => close(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button type="button" variant="warm" onClick={() => close(true)}>
+              <Button type="button" variant="danger" onClick={() => close(true)}>
                 {t("common.ok")}
               </Button>
             </Row>

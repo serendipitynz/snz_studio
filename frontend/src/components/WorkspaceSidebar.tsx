@@ -218,14 +218,14 @@ const KindMenu = styled.div`
   padding: 6px;
   background: ${({ theme }) => theme.surfaceCard};
   border: 1px solid ${({ theme }) => theme.lineMedium};
-  border-radius: 14px;
+  border-radius: ${({ theme }) => theme.radius};
   box-shadow: ${({ theme }) => theme.shadowPopover};
 `;
 
 const KindMenuItem = styled.button`
   padding: 8px 10px;
   border: 0;
-  border-radius: 10px;
+  border-radius: ${({ theme }) => theme.radiusSm};
   background: transparent;
   color: ${({ theme }) => theme.ink};
   font: inherit;
@@ -235,7 +235,7 @@ const KindMenuItem = styled.button`
 
   &:hover,
   &:focus-visible {
-    background: ${({ theme }) => theme.surfaceCardFaint};
+    background: ${({ theme }) => theme.surfaceHover};
   }
 `;
 

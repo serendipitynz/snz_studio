@@ -247,7 +247,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       <Stack>
         <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
           <DialogTitle>{t("settings.title")}</DialogTitle>
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="normal" onClick={onClose}>
             {t("common.close")}
           </Button>
         </Row>
@@ -262,7 +262,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               <Select value={family} onChange={(event) => setFamily(event.target.value as ThemeFamily)}>
                 {families.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.label}
+                    {item.id === "standard" ? t("settings.themeStandard") : item.label}
                   </option>
                 ))}
               </Select>

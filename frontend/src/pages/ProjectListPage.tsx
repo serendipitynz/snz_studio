@@ -115,6 +115,7 @@ export function ProjectListPage() {
                   {!loading && projects.length === 0 ? <Item>{t("dashboard.noProjects")}</Item> : null}
                   {projects.map((project) => (
                     <Item
+                      $interactive
                       key={project.id}
                       draggable
                       onDragStart={(event) => {
@@ -146,12 +147,14 @@ export function ProjectListPage() {
                         overflow: "hidden",
                         cursor: "grab",
                         borderColor: dropTargetProjectId === project.id ? theme.accentDragBorder : theme.line,
+                        // Only the drag states are inline: an inline background
+                        // would also override the row's hover face.
                         background:
                           draggedProjectId === project.id
                             ? theme.accentDragBg
                             : dropTargetProjectId === project.id
                               ? theme.accentSoft
-                              : theme.surfaceElevate
+                              : undefined
                       }}
                     >
                       <RouterLink
