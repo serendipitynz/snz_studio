@@ -152,8 +152,11 @@ export function useSideRegion(storageKey: string, name: string) {
   function toggle() {
     if (narrow) {
       if (closing) {
-        // Pressed again while it leaves: it comes back instead.
+        // Pressed again while it leaves: it comes back instead. The opening effect
+        // does not run again (the overlay never went away), so focus is moved here,
+        // off the trigger the overlay covers once more.
         cancelClosing();
+        closeRef.current?.focus();
       } else if (shownNarrow) {
         closeOverlay();
       } else {
