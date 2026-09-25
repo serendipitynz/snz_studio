@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, Project } from "../api/client";
 import { FailureNotice } from "../components/FailureNotice";
+import { SpinnerIcon } from "../components/icons";
 import { ReorderList } from "../components/ReorderList";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { useLanguage } from "../i18n";
@@ -97,7 +98,7 @@ export function ProjectListPage() {
   }
 
   return (
-    <WorkspaceShell $columns="280px minmax(0, 1fr)">
+    <WorkspaceShell $side={false}>
       <WorkspaceSidebar projects={projects} />
 
       <MainPane>
@@ -204,25 +205,6 @@ function PlusIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function SpinnerIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1.6" />
-      <path d="M13.5 8A5.5 5.5 0 0 0 8 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <animateTransform
-          attributeName="transform"
-          attributeType="XML"
-          type="rotate"
-          from="0 8 8"
-          to="360 8 8"
-          dur="0.8s"
-          repeatCount="indefinite"
-        />
-      </path>
     </svg>
   );
 }

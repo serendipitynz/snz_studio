@@ -1,4 +1,4 @@
-import { css } from "@emotion/react";
+import { css, keyframes } from "@emotion/react";
 import type { Theme } from "@emotion/react";
 import styled from "@emotion/styled";
 import { Link } from "react-router-dom";
@@ -56,13 +56,20 @@ export const Container = styled.div`
   padding: ${snzTokens.space.sm};
 `;
 
-export const WorkspaceShell = styled.div<{ $columns?: string }>`
+// Below this width the side region (the inspector, the participant column) has
+// no column of its own; a screen with a trigger for it lays it over the
+// conversation instead.
+export const SIDE_REGION_MEDIA = "(max-width: 1180px)";
+
+// $side: whether the side region's column is there on a wide screen. Below
+// SIDE_REGION_MEDIA there is never a third column.
+export const WorkspaceShell = styled.div<{ $side?: boolean }>`
   height: calc(100vh - 2 * ${snzTokens.space.sm});
   display: grid;
-  grid-template-columns: ${({ $columns }) => $columns ?? "280px minmax(0, 1fr) 340px"};
+  grid-template-columns: ${({ $side }) => ($side === false ? "280px minmax(0, 1fr)" : "280px minmax(0, 1fr) 340px")};
   gap: ${snzTokens.space.sm};
 
-  @media (max-width: 1180px) {
+  @media ${SIDE_REGION_MEDIA} {
     grid-template-columns: 250px minmax(0, 1fr);
   }
 
@@ -100,7 +107,37 @@ export const MainPane = styled.main`
   flex-direction: column;
 `;
 
-export const InspectorPane = styled.aside`
+// How long the side region's overlay takes to slide in from the screen edge or out
+// again. An app value: the shared tokens hold no slide duration (the owner's pick,
+// 2026-09-26, maybe lengthened later).
+export const REGION_SLIDE_MS = 200;
+
+const regionOffscreen = `translateX(calc(100% + ${snzTokens.space.sm}))`;
+const regionSlideIn = keyframes`
+  from {
+    transform: ${regionOffscreen};
+  }
+`;
+const regionSlideOut = keyframes`
+  to {
+    transform: ${regionOffscreen};
+  }
+`;
+const regionFadeIn = keyframes`
+  from {
+    opacity: 0;
+  }
+`;
+const regionFadeOut = keyframes`
+  to {
+    opacity: 0;
+  }
+`;
+
+// A screen that shows and hides the pane itself puts the hidden attribute on it,
+// and $overlay while it lies over the conversation below SIDE_REGION_MEDIA; one
+// without a trigger leaves the pane to drop out below that width.
+export const InspectorPane = styled.aside<{ $toggled?: boolean; $overlay?: boolean }>`
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
@@ -112,10 +149,49 @@ export const InspectorPane = styled.aside`
   min-height: 0;
   overflow: auto;
 
-  @media (max-width: 1180px) {
+  &[hidden] {
     display: none;
   }
+
+  ${({ $toggled }) =>
+    $toggled
+      ? ""
+      : css`
+          @media ${SIDE_REGION_MEDIA} {
+            display: none;
+          }
+        `}
+
+  ${({ $overlay, theme }) =>
+    $overlay
+      ? css`
+          position: fixed;
+          inset-block: ${snzTokens.space.sm};
+          inset-inline-end: ${snzTokens.space.sm};
+          inline-size: min(360px, calc(100vw - 2 * ${snzTokens.space.sm}));
+          z-index: 15;
+          background: ${theme.surfaceCard};
+          box-shadow: ${theme.shadowPopover};
+          animation: ${regionSlideIn} ${REGION_SLIDE_MS}ms ease-out;
+
+          &[data-closing] {
+            animation: ${regionSlideOut} ${REGION_SLIDE_MS}ms ease-in forwards;
+            pointer-events: none;
+          }
+
+          /* Moving the region is left out under reduced motion; only the fade
+             stays (snz-design doc-9 §6.3.1). */
+          @media (prefers-reduced-motion: reduce) {
+            animation: ${regionFadeIn} ${snzTokens.motion.state}ms ease-out;
+
+            &[data-closing] {
+              animation: ${regionFadeOut} ${snzTokens.motion.state}ms ease-in forwards;
+            }
+          }
+        `
+      : ""}
 `;
+
 
 export const Brand = styled.div`
   display: flex;
@@ -164,6 +240,16 @@ export const TitleButton = styled.button`
   text-align: start;
   cursor: pointer;
   overflow-wrap: anywhere;
+
+  ${focusRing}
+`;
+
+// The disclosure line of a <details> in the conversation. The native element keeps
+// its keyboard and its expanded state; this gives it the shared focus ring.
+export const Summary = styled.summary`
+  inline-size: fit-content;
+  border-radius: ${({ theme }) => theme.radiusSm};
+  cursor: pointer;
 
   ${focusRing}
 `;
@@ -533,7 +619,11 @@ export const MessageScroller = styled.div`
   }
 `;
 
+// The assistant's face is the accent's soft surface, where the muted words fall
+// below 4.5:1 (Solarized Dark 4.42), so the meta words there take the words role
+// of that surface (snz-design doc-5 §3.2).
 export const MessageBubble = styled.article<{ $role: "user" | "assistant" | "system" }>`
+  ${({ $role, theme }) => ($role === "assistant" ? `--meta-ink: ${theme.onAccentSoft};` : "")}
   max-width: min(860px, 100%);
   margin-left: ${({ $role }) => ($role === "user" ? "auto" : "0")};
   padding: 16px 18px;
@@ -565,7 +655,7 @@ export const ComposerBox = styled.div`
 
 export const MetaText = styled.div`
   font-size: 12px;
-  color: ${({ theme }) => theme.muted};
+  color: var(--meta-ink, ${({ theme }) => theme.muted});
 `;
 
 export const FloatingScrollButton = styled.button`
@@ -631,11 +721,23 @@ export const IconButton = styled.button`
   ${disabledLook}
 `;
 
-export const DropZone = styled.div<{ $active?: boolean }>`
-  border: 1px dashed ${({ $active, theme }) => ($active ? theme.accentDropActive : theme.dropzoneBorder)};
-  background: ${({ $active, theme }) => ($active ? theme.accentDragBg : theme.surfaceDropzone)};
-  border-radius: ${({ theme }) => theme.radius};
-  padding: 18px;
+// The overlay's own way out, at its top right corner: the trigger in the header
+// lies under the overlay while it is open. Tucked into the corner so it clears the
+// first section below the heading, with room left for its focus ring.
+export const RegionCloseButton = styled(IconButton)`
+  position: absolute;
+  inset-block-start: ${snzTokens.space.xs};
+  inset-inline-end: ${snzTokens.space.xs};
+`;
+
+// The trigger that shows and hides a side region (snz-design doc-9 §6.3.1). Shown,
+// it takes the selected face and outline as well as aria-expanded and its figure,
+// so the state is not told by colour alone.
+export const RegionToggleButton = styled(IconButton)`
+  &[aria-expanded="true"] {
+    background: ${({ theme }) => theme.surfaceSelected};
+    border-color: ${({ theme }) => theme.selected};
+  }
 `;
 
 export const ModalOverlay = styled.div`

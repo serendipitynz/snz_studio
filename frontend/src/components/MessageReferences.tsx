@@ -1,6 +1,6 @@
 import { AssistantReference } from "../api/client";
 import { useLanguage } from "../i18n";
-import { Badge, Item, List, Row, Subtle } from "../styles/ui";
+import { Badge, Item, List, Row, Subtle, Summary } from "../styles/ui";
 
 // The collapsed "references used" list under a message. One component serves the
 // single-assistant chat and the multi-agent conversation so that both screens
@@ -13,7 +13,7 @@ export function MessageReferences({ references }: { references: AssistantReferen
 
   return (
     <details>
-      <summary>{t("chat.referencesUsed", { count: references.length })}</summary>
+      <Summary>{t("chat.referencesUsed", { count: references.length })}</Summary>
       <List style={{ marginTop: 10 }}>
         {references.map((reference) => (
           <Item key={reference.id}>

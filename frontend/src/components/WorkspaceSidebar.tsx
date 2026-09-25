@@ -5,6 +5,7 @@ import { api, ChatKind, ChatRecord, Project } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
 import { HouseIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
 import { SettingsModal } from "./SettingsModal";
+import { useMediaQuery } from "./useMediaQuery";
 import { usePopupMenu } from "./usePopupMenu";
 import {
   Button,
@@ -245,20 +246,6 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
       {settingsModal}
     </SidebarPane>
   );
-}
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
-
-  useEffect(() => {
-    const list = window.matchMedia(query);
-    const update = () => setMatches(list.matches);
-    update();
-    list.addEventListener("change", update);
-    return () => list.removeEventListener("change", update);
-  }, [query]);
-
-  return matches;
 }
 
 function Brand() {

@@ -417,6 +417,7 @@ Right pane:
   applying a preset (collapsed by default)
 
 Removed participants are listed separately from the roster, since their past utterances remain.
+The organisation panel is shown and hidden from the header exactly like the chat screen's context inspector (below).
 
 ### Chat screen
 
@@ -426,11 +427,20 @@ Center:
 - streaming output
 - auto-growing composer
 - document insert selector
-- document add modal
+- document add modal: a drop zone and a file picker that name the accepted kinds and leave the
+  rest out by name, an import progress, and a confirm before a file replaces a same-named document
 
 Right pane:
 
-- collapsible context inspector
+- context inspector, shown and hidden from the header. On wide windows it is a column and the
+  choice is kept in localStorage. At 1180px and below it starts hidden without changing that choice;
+  the header button slides it in over the conversation's right edge (a fade alone under reduced
+  motion), with its own close button. The
+  overlay does not confine focus: Escape or the close button closes it, and focus moving onto a
+  control it covers closes it too
+
+A failure is told next to what failed — the composer, the dialog, the message, or under the
+header — rather than at the top of the page.
 
 Assistant footer shows:
 
