@@ -1,10 +1,10 @@
 ---
 id: TASK-48
 title: '共通デザイン: 設定モーダルと確認ダイアログを本適用する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-24 20:12'
-updated_date: '2026-09-25 22:52'
+updated_date: '2026-09-25 23:06'
 labels:
   - design
 dependencies:
@@ -31,7 +31,7 @@ snz-design の TASK-20 (snz_studio への共通デザインの本適用) が追�
 - [x] #5 埋め込みモデルの取得が、量の分かる進捗の表示で描かれる (doc-8 §6.7.1)
 - [x] #6 確認ダイアログの実行のボタンが「OK」ではなく操作の語を持つ。区画の見出しをバッジで代用しない (doc-9 §6.6・§6.3)
 - [x] #7 この画面の無効の操作部品が焦点を受け、無効の理由を語で持つ (doc-8 §5.4)。処理中のボタンは語と幅を保つ (doc-8 §6.1・doc-9 §5.6)
-- [ ] #8 4配色で doc-5 §3.2 の測定点の比を測り、キーボードだけで画面の全操作へ届くことを確かめ、測定環境 (doc-5 §5.3) とともに Implementation Notes に記録している。実窓 (WKWebView) の目視はオーナーの確認を記録する
+- [x] #8 4配色で doc-5 §3.2 の測定点の比を測り、キーボードだけで画面の全操作へ届くことを確かめ、測定環境 (doc-5 §5.3) とともに Implementation Notes に記録している。実窓 (WKWebView) の目視はオーナーの確認を記録する
 - [x] #9 `pnpm check:client`・`pnpm build:client` が通る (Go を変えたときは `go test ./...` も)
 <!-- AC:END -->
 
@@ -103,4 +103,8 @@ snz-design の TASK-20 (snz_studio への共通デザインの本適用) が追�
 - [P3] 状態バッジの語が入力欄の名に入る (「LLM エンドポイント 接続済み」): そのままにした。欄を読んだときに接続の状態も届くので、利用者に役立つ。
 - [P3] InfoNotice が FailureNotice.tsx にある: この PR では動かさない (改名は TASK-45〜47 の取り込みを全部触る)。警告の段を足すときに Notice.tsx へまとめる。
 - 両エンジンで挙動 86 項目・進捗 28 項目が通った。`pnpm check:client`・`pnpm build:client` が通った。
+
+## オーナーの実窓 (WKWebView) の確認 (2026-09-26、#48)
+- AC#8 の目視: 基本動作は問題なし。
+- 指摘: モーダルの主操作のボタンが、画面ごとに左寄せと右寄せで混ざっている。オーナー判断で右寄せを基本とし、アプリ側の揃え直しを TASK-57、共通仕様の本文 (doc-9 §6.6) への追記を snz-design の TASK-30 に分けた。
 <!-- SECTION:NOTES:END -->
