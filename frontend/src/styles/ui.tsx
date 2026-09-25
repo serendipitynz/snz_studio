@@ -142,6 +142,32 @@ export const SectionTitle = styled.h2`
   line-height: 1.2;
 `;
 
+// A heading inside a section or a dialog, one level below SectionTitle. A section
+// is named by a heading, not by a badge (snz-design doc-9 §6.3).
+export const SubsectionTitle = styled.h3`
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: ${({ theme }) => theme.inkStrong};
+`;
+
+// A document title that opens the document: a real button, so the keyboard can
+// reach what the pointer reaches by pressing the row.
+export const TitleButton = styled.button`
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+
+  ${focusRing}
+`;
+
 export const Subtle = styled.p`
   margin: 0;
   color: ${({ theme }) => theme.muted};
