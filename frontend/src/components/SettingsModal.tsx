@@ -1,21 +1,25 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, EmbeddingStatus, WorkspaceConfiguration } from "../api/client";
 import { Language, MessageKey, useLanguage } from "../i18n";
 import { ThemeMode, useThemeController } from "../styles/ThemeController";
 import type { ThemeFamily } from "../styles/themes";
+import { ActionButton } from "./ActionButton";
+import { announce } from "./announce";
+import { useConfirm } from "./ConfirmDialog";
 import { Dialog, DialogTitle } from "./Dialog";
+import { FailureNotice, InfoNotice } from "./FailureNotice";
+import { CheckIcon } from "./icons";
+import { Progress } from "./Progress";
 import {
-  Badge,
-  Button,
   Card,
-  ErrorText,
   Field,
   FieldHeader,
   Input,
   Row,
   Select,
   Stack,
-  StatusDot,
+  StateBadge,
+  SubsectionTitle,
   Subtle
 } from "../styles/ui";
 
@@ -23,17 +27,106 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
+type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
+
+type ConfigDraft = Pick<
+  WorkspaceConfiguration,
+  | "llmBaseUrl"
+  | "llmModel"
+  | "llmResponseFormat"
+  | "reviewBaseUrl"
+  | "reviewModel"
+  | "embeddingBaseUrl"
+  | "embeddingModel"
+  | "embeddingMode"
+  | "imageDescriptionBaseUrl"
+  | "imageDescriptionModel"
+>;
+
+const EMPTY_DRAFT: ConfigDraft = {
+  llmBaseUrl: "",
+  llmModel: "",
+  llmResponseFormat: "standard",
+  reviewBaseUrl: "",
+  reviewModel: "",
+  embeddingBaseUrl: "",
+  embeddingModel: "",
+  embeddingMode: "internal",
+  imageDescriptionBaseUrl: "",
+  imageDescriptionModel: ""
+};
+
+function draftFrom(configuration: WorkspaceConfiguration): ConfigDraft {
+  return {
+    llmBaseUrl: configuration.llmBaseUrl,
+    llmModel: configuration.llmModel,
+    llmResponseFormat: configuration.llmResponseFormat,
+    reviewBaseUrl: configuration.reviewBaseUrl,
+    reviewModel: configuration.reviewModel,
+    embeddingBaseUrl: configuration.embeddingBaseUrl,
+    embeddingModel: configuration.embeddingModel,
+    embeddingMode: configuration.embeddingMode,
+    imageDescriptionBaseUrl: configuration.imageDescriptionBaseUrl,
+    imageDescriptionModel: configuration.imageDescriptionModel
+  };
+}
+
+function sameDraft(a: ConfigDraft, b: ConfigDraft): boolean {
+  return (Object.keys(a) as (keyof ConfigDraft)[]).every((key) => a[key] === b[key]);
+}
+
+function megabytes(bytes: number): string {
+  return (bytes / 1_000_000).toFixed(1);
+}
+
+// The download reads as a progress band (snz-design doc-8 §6.7.1): with the size in
+// hand the band fills and the amount sits beside the words; before the first bytes
+// tell the size, a mark flows instead of an empty band that would read as stalled.
+function EmbeddingDownload({ t, status }: { t: Translate; status: EmbeddingStatus }) {
+  const label = t("settings.embedDownloadingLabel");
+  const known = status.total > 0;
+  const readout = known
+    ? t("settings.embedDownloadAmount", {
+        done: megabytes(status.downloaded),
+        total: megabytes(status.total),
+        pct: Math.floor((status.downloaded / status.total) * 100)
+      })
+    : undefined;
+
+  // Read out when the download starts and when its size becomes known, not on every
+  // poll: the amount changes every two seconds and would drown out other speech.
+  const announcedRef = useRef<"started" | "known" | null>(null);
+  useEffect(() => {
+    if (announcedRef.current === null) {
+      announcedRef.current = known ? "known" : "started";
+      announce(readout ? `${label} ${readout}` : label);
+    } else if (announcedRef.current === "started" && known) {
+      announcedRef.current = "known";
+      announce(`${label} ${readout}`);
+    }
+  }, [known, label, readout]);
+
+  return (
+    <>
+      <Progress
+        label={label}
+        total={known ? status.total : undefined}
+        done={status.downloaded}
+        readout={readout}
+        fullWidth
+      />
+      <Subtle>{t("settings.embedKeywordMeanwhile")}</Subtle>
+    </>
+  );
+}
+
 // embeddingStatusLabel renders the internal sidecar's lifecycle into a short status
 // line, reassuring the user that keyword search keeps working while the model loads.
-function embeddingStatusLabel(t: (key: MessageKey, vars?: Record<string, string | number>) => string, status: EmbeddingStatus | null): string {
+function embeddingStatusLabel(t: Translate, status: EmbeddingStatus | null): string {
   if (!status) {
     return t("settings.embedPreparing");
   }
   switch (status.state) {
-    case "downloading": {
-      const pct = status.total > 0 ? Math.floor((status.downloaded / status.total) * 100) : 0;
-      return t("settings.embedDownloading", { pct });
-    }
     case "starting":
       return t("settings.embedStarting");
     case "ready":
@@ -47,20 +140,10 @@ function embeddingStatusLabel(t: (key: MessageKey, vars?: Record<string, string 
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { lang, setLang, t } = useLanguage();
-  const { family, mode, families, setFamily, setMode } = useThemeController();
+  const { family, mode, families, setFamily, setMode, storedChoiceUnknown, saveFailed } = useThemeController();
+  const confirm = useConfirm();
   const [configuration, setConfiguration] = useState<WorkspaceConfiguration | null>(null);
-  const [configDraft, setConfigDraft] = useState({
-    llmBaseUrl: "",
-    llmModel: "",
-    llmResponseFormat: "standard" as "standard" | "llm_jp_thinking",
-    reviewBaseUrl: "",
-    reviewModel: "",
-    embeddingBaseUrl: "",
-    embeddingModel: "",
-    embeddingMode: "internal" as "internal" | "external",
-    imageDescriptionBaseUrl: "",
-    imageDescriptionModel: ""
-  });
+  const [configDraft, setConfigDraft] = useState<ConfigDraft>(EMPTY_DRAFT);
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -72,7 +155,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false);
   const [imageDescriptionModelOptions, setImageDescriptionModelOptions] = useState<string[]>([]);
   const [loadingImageDescriptionModels, setLoadingImageDescriptionModels] = useState(false);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  // Dismissed for this opening only: the stored value is still unknown, so the
+  // note returns the next time the modal opens (snz-design doc-9 §6.4).
+  const [unknownChoiceDismissed, setUnknownChoiceDismissed] = useState(false);
+  const familySelectRef = useRef<HTMLSelectElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -82,22 +170,22 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       .then((response) => {
         if (!active) return;
         setConfiguration(response.configuration);
-        setConfigDraft({
-          llmBaseUrl: response.configuration.llmBaseUrl,
-          llmModel: response.configuration.llmModel,
-          llmResponseFormat: response.configuration.llmResponseFormat,
-          reviewBaseUrl: response.configuration.reviewBaseUrl,
-          reviewModel: response.configuration.reviewModel,
-          embeddingBaseUrl: response.configuration.embeddingBaseUrl,
-          embeddingModel: response.configuration.embeddingModel,
-          embeddingMode: response.configuration.embeddingMode,
-          imageDescriptionBaseUrl: response.configuration.imageDescriptionBaseUrl,
-          imageDescriptionModel: response.configuration.imageDescriptionModel
+        // The load waits on the connection checks and can take seconds; a field the
+        // user already edited keeps the edit, which then counts as unsaved.
+        const loaded = draftFrom(response.configuration);
+        setConfigDraft((current) => {
+          const merged = { ...loaded };
+          for (const key of Object.keys(current) as (keyof ConfigDraft)[]) {
+            if (current[key] !== EMPTY_DRAFT[key]) {
+              Object.assign(merged, { [key]: current[key] });
+            }
+          }
+          return merged;
         });
       })
       .catch((nextError) => {
         if (!active) return;
-        setError(nextError instanceof Error ? nextError.message : t("settings.loadError"));
+        setLoadError(nextError instanceof Error ? nextError.message : t("settings.loadError"));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -211,28 +299,70 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   async function handleConfigurationSubmit(event: FormEvent) {
     event.preventDefault();
     setSavingConfig(true);
-    setError("");
+    setSaveError("");
 
     try {
       const response = await api.updateConfiguration(configDraft);
       setConfiguration(response.configuration);
-      setConfigDraft({
-        llmBaseUrl: response.configuration.llmBaseUrl,
-        llmModel: response.configuration.llmModel,
-        llmResponseFormat: response.configuration.llmResponseFormat,
-        reviewBaseUrl: response.configuration.reviewBaseUrl,
-        reviewModel: response.configuration.reviewModel,
-        embeddingBaseUrl: response.configuration.embeddingBaseUrl,
-        embeddingModel: response.configuration.embeddingModel,
-        embeddingMode: response.configuration.embeddingMode,
-        imageDescriptionBaseUrl: response.configuration.imageDescriptionBaseUrl,
-        imageDescriptionModel: response.configuration.imageDescriptionModel
-      });
+      setConfigDraft(draftFrom(response.configuration));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : t("settings.saveError"));
+      setSaveError(nextError instanceof Error ? nextError.message : t("settings.saveError"));
     } finally {
       setSavingConfig(false);
     }
+  }
+
+  // Only the connection settings are a draft: the theme and the language apply as
+  // they are chosen. A modal that is saving cannot close, since the result would
+  // land on a screen that no longer shows what it was for (doc-9 §6.6). Unsaved
+  // connection edits ask before they are thrown away, keeping them by default
+  // (doc-9 §5.7).
+  const connectionDirty = !sameDraft(configDraft, configuration ? draftFrom(configuration) : EMPTY_DRAFT);
+
+  async function requestClose() {
+    if (savingConfig) {
+      announce(t("settings.savingClose"));
+      return;
+    }
+    if (
+      connectionDirty &&
+      !(await confirm(t("discard.message"), {
+        heading: t("discard.heading"),
+        confirmLabel: t("discard.confirm"),
+        cancelLabel: t("discard.keepEditing")
+      }))
+    ) {
+      return;
+    }
+    onClose();
+  }
+
+  function saveDisabledReason(): string | undefined {
+    if (loading) {
+      return t("settings.loadingConfig");
+    }
+    // Without the stored values every untouched field would be sent empty and
+    // wipe what is saved.
+    if (!configuration) {
+      return t("settings.saveNeedsLoad");
+    }
+    if (!connectionDirty) {
+      return t("settings.unchanged");
+    }
+    return undefined;
+  }
+
+  // The state was checked for the saved values, so it says nothing about an
+  // endpoint the draft has changed (keys: the draft fields the check used).
+  function connectionBadge(connected: boolean, keys: (keyof ConfigDraft)[]) {
+    if (!configuration || keys.some((key) => configDraft[key] !== configuration[key])) {
+      return null;
+    }
+    return (
+      <StateBadge tone={connected ? "success" : "danger"}>
+        {connected ? t("settings.connected") : t("settings.notConnected")}
+      </StateBadge>
+    );
   }
 
   function modelCandidatesLabel(loadingModels: boolean, options: string[]): string {
@@ -243,23 +373,41 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   }
 
   return (
-    <Dialog onClose={onClose}>
+    <Dialog onClose={() => void requestClose()}>
       <Stack>
         <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
           <DialogTitle>{t("settings.title")}</DialogTitle>
-          <Button type="button" variant="normal" onClick={onClose}>
+          <ActionButton
+            type="button"
+            variant="normal"
+            disabledReason={savingConfig ? t("settings.savingClose") : undefined}
+            onClick={() => void requestClose()}
+          >
             {t("common.close")}
-          </Button>
+          </ActionButton>
         </Row>
-
-        {error ? <ErrorText>{error}</ErrorText> : null}
 
         <Card>
           <Stack>
-            <Badge tone="accent">{t("settings.appearance")}</Badge>
+            <SubsectionTitle>{t("settings.appearance")}</SubsectionTitle>
+            {saveFailed ? <FailureNotice>{t("settings.themeSaveFailed")}</FailureNotice> : null}
+            {storedChoiceUnknown && !unknownChoiceDismissed ? (
+              <InfoNotice
+                onDismiss={() => {
+                  setUnknownChoiceDismissed(true);
+                  familySelectRef.current?.focus();
+                }}
+              >
+                {t("settings.storedChoiceUnknown")}
+              </InfoNotice>
+            ) : null}
             <Field>
               {t("settings.theme")}
-              <Select value={family} onChange={(event) => setFamily(event.target.value as ThemeFamily)}>
+              <Select
+                ref={familySelectRef}
+                value={family}
+                onChange={(event) => setFamily(event.target.value as ThemeFamily)}
+              >
                 {families.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.id === "standard" ? t("settings.themeStandard") : item.label}
@@ -280,9 +428,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
         <Card>
           <Stack>
-            <Badge tone="accent">{t("settings.language")}</Badge>
+            <SubsectionTitle>{t("settings.language")}</SubsectionTitle>
             <Field>
-              {t("settings.language")}
+              {t("settings.displayLanguage")}
               <Select value={lang} onChange={(event) => setLang(event.target.value as Language)}>
                 <option value="ja">日本語</option>
                 <option value="en">English</option>
@@ -293,12 +441,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
         <Card as="form" onSubmit={handleConfigurationSubmit}>
           <Stack>
-            <Badge tone="accent">{t("settings.connection")}</Badge>
+            <SubsectionTitle>{t("settings.connection")}</SubsectionTitle>
             {loading ? <Subtle>{t("settings.loadingConfig")}</Subtle> : null}
+            {loadError ? <FailureNotice>{loadError}</FailureNotice> : null}
             <Field>
               <FieldHeader>
                 <span>{t("settings.llmEndpoint")}</span>
-                <StatusDot $connected={Boolean(configuration?.llmConnected)} />
+                {connectionBadge(Boolean(configuration?.llmConnected), ["llmBaseUrl", "llmModel"])}
               </FieldHeader>
               <Input
                 value={configDraft.llmBaseUrl}
@@ -339,7 +488,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <Field>
               <FieldHeader>
                 <span>{t("settings.reviewEndpoint")}</span>
-                <StatusDot $connected={Boolean(configuration?.reviewConnected)} />
+                {connectionBadge(Boolean(configuration?.reviewConnected), ["reviewBaseUrl", "reviewModel"])}
               </FieldHeader>
               <Input
                 value={configDraft.reviewBaseUrl}
@@ -365,9 +514,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <Field>
               <FieldHeader>
                 <span>{t("settings.embeddingSource")}</span>
-                {configDraft.embeddingMode === "external" ? (
-                  <StatusDot $connected={Boolean(configuration?.embeddingConnected)} />
-                ) : null}
+                {configDraft.embeddingMode === "external"
+                  ? connectionBadge(Boolean(configuration?.embeddingConnected), [
+                      "embeddingMode",
+                      "embeddingBaseUrl",
+                      "embeddingModel"
+                    ])
+                  : null}
               </FieldHeader>
               <Select
                 value={configDraft.embeddingMode}
@@ -381,11 +534,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 <option value="internal">{t("settings.embeddingInternal")}</option>
                 <option value="external">{t("settings.embeddingExternal")}</option>
               </Select>
-              <Subtle>
-                {configDraft.embeddingMode === "internal"
-                  ? embeddingStatusLabel(t, embeddingStatus)
-                  : t("settings.embeddingExternalNote")}
-              </Subtle>
+              {configDraft.embeddingMode === "external" ? (
+                <Subtle>{t("settings.embeddingExternalNote")}</Subtle>
+              ) : embeddingStatus?.state === "downloading" ? (
+                <EmbeddingDownload t={t} status={embeddingStatus} />
+              ) : (
+                <Subtle>{embeddingStatusLabel(t, embeddingStatus)}</Subtle>
+              )}
             </Field>
             {configDraft.embeddingMode === "external" ? (
               <>
@@ -442,10 +597,17 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               <Subtle>{modelCandidatesLabel(loadingImageDescriptionModels, imageDescriptionModelOptions)}</Subtle>
               <Subtle>{t("settings.imageDescriptionModelNote")}</Subtle>
             </Field>
+            {saveError ? <FailureNotice>{saveError}</FailureNotice> : null}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <Button type="submit" disabled={savingConfig || loading}>
-                {savingConfig ? t("settings.saving") : t("settings.save")}
-              </Button>
+              <ActionButton
+                type="submit"
+                icon={<CheckIcon />}
+                busy={savingConfig}
+                title={savingConfig ? t("settings.saving") : undefined}
+                disabledReason={saveDisabledReason()}
+              >
+                {t("settings.save")}
+              </ActionButton>
             </div>
           </Stack>
         </Card>

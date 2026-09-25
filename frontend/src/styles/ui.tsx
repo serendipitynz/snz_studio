@@ -498,15 +498,6 @@ export const FieldHeader = styled.div`
   gap: 10px;
 `;
 
-export const StatusDot = styled.span<{ $connected: boolean }>`
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  flex-shrink: 0;
-  background: ${({ $connected, theme }) => ($connected ? theme.accent : theme.danger)};
-  box-shadow: 0 0 0 3px ${({ $connected, theme }) => ($connected ? theme.statusOkGlow : theme.dangerSoft)};
-`;
-
 // The variants are snz-design doc-8 §6.1's primary / normal / destructive.
 // The default stays primary because that is how the unmarked buttons looked
 // before; keeping one primary per screen is each screen's call.
@@ -588,6 +579,22 @@ export const Badge = styled.span<{ tone?: "accent" | "warm" | "muted" }>`
   background: ${({ tone, theme }) =>
     tone === "warm" ? theme.warmSoft : tone === "muted" ? theme.mutedBadgeBg : theme.accentSoft};
   color: ${({ tone, theme }) => (tone === "warm" ? theme.warm : tone === "muted" ? theme.muted : theme.accent)};
+`;
+
+// The state badge of snz-design doc-8 §6.5: a stage that moves over time, told
+// by its words on a soft face inside an outline. The words carry the state, so
+// it does not rest on the tone's colour alone (WCAG 1.4.1).
+export const StateBadge = styled.span<{ tone: "success" | "danger" }>`
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid ${({ tone, theme }) => (tone === "success" ? theme.success : theme.danger)};
+  background: ${({ tone, theme }) => (tone === "success" ? theme.successSoft : theme.dangerSoft)};
+  color: ${({ tone, theme }) => (tone === "success" ? theme.onSuccessSoft : theme.onDangerSoft)};
+  font-size: 12px;
+  line-height: 1.5;
 `;
 
 // Read out but not drawn: words that sit beside a figure which already says

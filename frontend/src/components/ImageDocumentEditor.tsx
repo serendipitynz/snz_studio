@@ -94,7 +94,10 @@ export function ImageDocumentEditor({ document, onSaved, onCancel, onSavingChang
     }
     if (
       derivedText.trim() &&
-      !(await confirm(t("imageDialog.replaceDraftPrompt"), { confirmLabel: t("imageDialog.replaceConfirm") }))
+      !(await confirm(t("imageDialog.replaceDraftPrompt"), {
+        heading: t("imageDialog.replaceDraftHeading"),
+        confirmLabel: t("imageDialog.replaceConfirm")
+      }))
     ) {
       return;
     }

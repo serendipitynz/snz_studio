@@ -1,42 +1,50 @@
+import { keyframes } from "@emotion/react";
 import styled from "@emotion/styled";
 import { snzTokens } from "../styles/themes/snz-tokens";
 
-// The known-amount progress of snz-design doc-8 §6.7.1: a band filled to done / total
-// and the words for what is being waited on. It announces nothing itself: the owner
-// announces the start, and the value stays readable through the progressbar role
-// without cutting into other speech. The unknown-amount variant is not built yet, as
-// nothing here needs it.
+// The progress of snz-design doc-8 §6.7.1: a band and the words for what is being
+// waited on. Given a total, the band fills to done / total and readout sits beside
+// the words; without one, a mark flows through the band. Zero is not used for "not
+// known yet": an empty band reads as stalled. Both variants keep the same size, so an
+// owner switches from one to the other in place. It announces nothing itself: the
+// owner announces the start, and the value stays readable through the progressbar
+// role without cutting into other speech.
 // wordLines reserves that many lines for the words, for an owner that keeps its size
-// while the label changes (snz-design doc-9 §5.6).
+// while the label changes (snz-design doc-9 §5.6). fullWidth lets the band span its
+// container, for a place wide enough to keep the words and the amount on one line.
 export function Progress({
   label,
-  done,
+  done = 0,
   total,
   readout,
-  wordLines
+  wordLines,
+  fullWidth
 }: {
   label: string;
-  done: number;
-  total: number;
-  readout: string;
+  done?: number;
+  total?: number;
+  readout?: string;
   wordLines?: number;
+  fullWidth?: boolean;
 }) {
-  const ratio = total > 0 ? Math.min(1, done / total) : 0;
+  const known = total !== undefined;
+  const ratio = known && total > 0 ? Math.min(1, done / total) : 0;
+  const amount = known ? (readout ?? `${Math.floor(ratio * 100)}%`) : undefined;
   return (
-    <ProgressBox>
+    <ProgressBox style={fullWidth ? { inlineSize: "100%" } : undefined}>
       <ProgressWords style={wordLines ? { minBlockSize: `${wordLines}lh`, alignContent: "flex-start" } : undefined}>
         <span>{label}</span>
-        <ProgressAmount>{readout}</ProgressAmount>
+        {known ? <ProgressAmount>{amount}</ProgressAmount> : null}
       </ProgressWords>
       <Track
         role="progressbar"
         aria-label={label}
-        aria-valuemin={0}
+        aria-valuemin={known ? 0 : undefined}
         aria-valuemax={total}
-        aria-valuenow={done}
-        aria-valuetext={readout}
+        aria-valuenow={known ? done : undefined}
+        aria-valuetext={amount}
       >
-        <Fill style={{ inlineSize: `${ratio * 100}%` }} />
+        {known ? <Fill style={{ inlineSize: `${ratio * 100}%` }} /> : <FlowingMark />}
       </Track>
     </ProgressBox>
   );
@@ -84,4 +92,23 @@ const Track = styled.div`
 const Fill = styled.div`
   block-size: 100%;
   background: ${({ theme }) => theme.accent};
+`;
+
+const flow = keyframes`
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+`;
+
+// Slowed rather than stopped under reduced motion: a still band cannot be told from a
+// stalled one (doc-8 §6.7.1).
+const FlowingMark = styled.div`
+  block-size: 100%;
+  inline-size: 30%;
+  border-radius: 999px;
+  background: ${({ theme }) => theme.accent};
+  animation: ${flow} ${snzTokens.motion.spin * 2}ms linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation-duration: ${snzTokens.motion.spinReduced * 2}ms;
+  }
 `;

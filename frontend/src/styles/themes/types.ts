@@ -142,7 +142,6 @@ export interface ThemeTokens {
   accentDragBorder: string;
   accentDragBg: string;
   floatBtnBorder: string;
-  statusOkGlow: string;
 
   // warm
   warm: string;
@@ -159,6 +158,11 @@ export interface ThemeTokens {
   // The words on a failure notice's danger-soft face (snz-design doc-9 §6.4).
   onDangerSoft: string;
   dangerBorder: string;
+  // The success tone of a state badge (snz-design doc-8 §6.5): outline, face and
+  // the words on that face.
+  success: string;
+  successSoft: string;
+  onSuccessSoft: string;
 
   // markdown surfaces
   codeBg: string;
@@ -272,7 +276,6 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     accentDragBorder: w(spec.accentRgb, 0.34),
     accentDragBg: w(spec.accentRgb, 0.08),
     floatBtnBorder: w(spec.accentRgb, 0.24),
-    statusOkGlow: w(spec.accentRgb, 0.16),
 
     warm: spec.warm,
     warmSoft: w(spec.warmRgb, 0.12),
@@ -288,6 +291,11 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     // the figure and the face already carry the failure, so the words take ink.
     onDangerSoft: spec.ink,
     dangerBorder: rgba(spec.dangerRgb, 0.33),
+    // These palettes have no success hue; the accent is what their connected
+    // status already showed.
+    success: spec.accent,
+    successSoft: w(spec.accentRgb, 0.12),
+    onSuccessSoft: spec.ink,
 
     codeBg: w(spec.lineRgb, 0.12),
     preBg: w(spec.lineRgb, 0.08),
