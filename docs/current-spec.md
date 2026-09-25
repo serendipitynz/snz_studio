@@ -385,13 +385,19 @@ Center:
 
 - new chat, with the chat kind and (for a multi-agent conversation) a preset selector grouped by
   situation, plus loading a preset JSON file
-- documents card
+- documents card: a drop zone with a file picker (it names the accepted kinds, refuses the others
+  by name, and shows a file-count progress while importing), overwrite confirm, modal preview,
+  markdown render, category edit
 
 Right pane:
 
 - system prompt
 - memories
 - chats
+
+Deleting a document, a chat or a memory asks in a dialog that names it. Closing the title or the
+system prompt editor, or the image add dialog, with unsaved input asks before discarding it. A
+failure is shown next to what failed, not at the top of the page.
 
 ### Multi-agent chat screen
 
