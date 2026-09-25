@@ -427,9 +427,10 @@ export function ProjectDetailPage() {
           currentDocuments = [response.document, ...currentDocuments];
         }
       } finally {
-        setUploadProgress(null);
         // Also after a failure: the files saved before it are in the project now.
+        // The zone stays busy through the reload, since a drop in that window is refused.
         await load();
+        setUploadProgress(null);
       }
     });
   }
@@ -530,6 +531,14 @@ export function ProjectDetailPage() {
           : current
       );
     });
+  }
+
+  // Failures in the memory dialog belong to that visit, like the other dialogs'.
+  function closeMemoryModal() {
+    setAreaError("memoryPlan", "");
+    setAreaError("newMemory", "");
+    setAreaError("memories", "");
+    setIsMemoryModalOpen(false);
   }
 
   async function handleDeleteChat(chat: ChatRecord, trigger: HTMLElement) {
@@ -1051,7 +1060,7 @@ export function ProjectDetailPage() {
       {/* The memory being written stays in the page state when this closes, so
           closing loses nothing and asks nothing (doc-9 §5.7). */}
       {isMemoryModalOpen ? (
-        <Dialog onClose={() => setIsMemoryModalOpen(false)}>
+        <Dialog onClose={closeMemoryModal}>
           <Stack>
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <DialogTitle>{t("project.projectMemories")}</DialogTitle>
@@ -1067,7 +1076,7 @@ export function ProjectDetailPage() {
                 >
                   {t("project.organize")}
                 </ActionButton>
-                <ActionButton type="button" variant="normal" onClick={() => setIsMemoryModalOpen(false)}>
+                <ActionButton type="button" variant="normal" onClick={closeMemoryModal}>
                   {t("common.close")}
                 </ActionButton>
               </Row>

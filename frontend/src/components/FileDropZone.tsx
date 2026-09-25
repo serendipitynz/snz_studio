@@ -3,6 +3,7 @@ import { DragEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { useLanguage } from "../i18n";
 import { snzTokens } from "../styles/themes/snz-tokens";
 import { ActionButton } from "./ActionButton";
+import { carriesFiles } from "./AppShell";
 import { announce } from "./announce";
 import { FileIcon, PlusIcon } from "./icons";
 import { Progress } from "./Progress";
@@ -70,7 +71,12 @@ export function FileDropZone(props: FileDropZoneProps) {
     }
   }
 
+  // A drag without files (selected text) is not the zone's: it neither shows the
+  // accept state nor becomes a drop target.
   function handleDragEnter(event: DragEvent<HTMLDivElement>) {
+    if (!carriesFiles(event)) {
+      return;
+    }
     event.preventDefault();
     if (busy || props.disabledReason) {
       return;
@@ -83,11 +89,13 @@ export function FileDropZone(props: FileDropZoneProps) {
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
+    if (carriesFiles(event)) {
+      event.preventDefault();
+    }
   }
 
-  function handleDragLeave() {
-    if (busy || props.disabledReason) {
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (!carriesFiles(event) || busy || props.disabledReason) {
       return;
     }
     overCount.current = Math.max(0, overCount.current - 1);
@@ -97,6 +105,9 @@ export function FileDropZone(props: FileDropZoneProps) {
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
+    if (!carriesFiles(event)) {
+      return;
+    }
     event.preventDefault();
     overCount.current = 0;
     setZoneState("idle");
@@ -124,11 +135,13 @@ export function FileDropZone(props: FileDropZoneProps) {
       onDrop={handleDrop}
     >
       <FileIcon size={20} />
-      <ZoneWords>{words}</ZoneWords>
+      <ZoneWords data-zone-words="">{words}</ZoneWords>
       {/* The hint and the progress share one cell, so the zone keeps its size
           while it is busy and nothing below it moves (doc-9 §5.6). */}
       <SharedCell>
-        <ZoneHint data-shown={!busy || undefined}>{props.acceptWords}</ZoneHint>
+        <ZoneHint data-shown={!busy || undefined} data-zone-words="">
+          {props.acceptWords}
+        </ZoneHint>
         {/* At rest a blank progress holds the space the real one will take. */}
         <div data-shown={busy || undefined}>
           {/* Two lines for the words, so a file name that wraps does not grow
@@ -212,9 +225,10 @@ const Zone = styled.div`
     background: ${({ theme }) => theme.accentSoft};
   }
 
+  /* Only the zone's own words: a refusal from an earlier drop keeps its colour. */
   &[data-state="over"],
-  &[data-state="over"] > p,
-  &[data-state="over"] > svg {
+  &[data-state="over"] > svg,
+  &[data-state="over"] [data-zone-words] {
     color: ${({ theme }) => theme.onAccentSoft};
   }
 
