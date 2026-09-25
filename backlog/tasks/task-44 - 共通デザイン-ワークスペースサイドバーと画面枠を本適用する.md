@@ -4,7 +4,7 @@ title: '共通デザイン: ワークスペースサイドバーと画面枠を�
 status: In Review
 assignee: []
 created_date: '2026-09-24 20:11'
-updated_date: '2026-09-25 06:21'
+updated_date: '2026-09-25 06:26'
 labels:
   - design
 dependencies:
@@ -100,4 +100,9 @@ snz-design の TASK-20 (snz_studio への共通デザインの本適用) が追�
   - 帯 対 非選択の同じ箇所: Catppuccin 3.74 / 11.79、Rosé Pine 3.42 / 8.44、Tokyo Night 4.18 / 10.80、GitHub 5.19 / 4.62、One 4.18 / 6.50。
   - どれも 3:1 を満たす。
 - 両エンジンのキーボードの確認項目を回し直し、すべて通った。`pnpm check:client`・`pnpm build:client` が通った。
+
+## レビュー 2 回目の対応 (#44)
+- [P2] 並びそのものに焦点があるとき (余白を押した後) の ↑ が、最後から2番目の項目へ移っていた: 並びに焦点があるときの ↑ は、最後の項目へ移すようにした。Chromium・WebKit で確かめた。余白の後の ↑ は、種類のメニューで「多人数会話」、入口で「設定」(どちらも最後)。↓ は最初の項目。
+- [P3] 現在地の行の `p` を継がせる指定が、プロジェクトの行のチャット数まで強調していた: 直下の `p` だけにした。現在地のプロジェクトのチャット数は muted (他の行と同じ) で、1 回目に記録した比のとおり。無題の現在地のチャットは inkStrong。
+- 両エンジンのキーボードの確認項目が、すべて通った。`pnpm check:client`・`pnpm build:client` が通った。
 <!-- SECTION:NOTES:END -->
