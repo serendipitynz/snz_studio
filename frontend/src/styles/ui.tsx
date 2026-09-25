@@ -679,11 +679,12 @@ export const IconButton = styled.button`
 `;
 
 // The overlay's own way out, at its top right corner: the trigger in the header
-// lies under the overlay while it is open.
+// lies under the overlay while it is open. Tucked into the corner so it clears the
+// first section below the heading, with room left for its focus ring.
 export const RegionCloseButton = styled(IconButton)`
   position: absolute;
-  inset-block-start: 14px;
-  inset-inline-end: 14px;
+  inset-block-start: ${snzTokens.space.xs};
+  inset-inline-end: ${snzTokens.space.xs};
 `;
 
 // The trigger that shows and hides a side region (snz-design doc-9 §6.3.1). Shown,
