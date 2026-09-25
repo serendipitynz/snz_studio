@@ -6,6 +6,7 @@ import { MessageKey, useLanguage } from "../i18n";
 import { SettingsModal } from "./SettingsModal";
 import {
   Divider,
+  FOCUS_RING_REACH,
   IconButton,
   RouterLink,
   Row,
@@ -126,7 +127,15 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 
       <Divider />
 
-      <Stack style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
+      <Stack
+        style={{
+          flex: "1 1 auto",
+          minHeight: 0,
+          overflow: "auto",
+          padding: FOCUS_RING_REACH,
+          margin: `calc(-1 * ${FOCUS_RING_REACH})`
+        }}
+      >
         <SidebarSection>
           <SidebarSectionLabel>{t("sidebar.projects")}</SidebarSectionLabel>
           {props.projects.map((project) => (
