@@ -133,7 +133,10 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
           minHeight: 0,
           overflow: "auto",
           padding: FOCUS_RING_REACH,
-          margin: `calc(-1 * ${FOCUS_RING_REACH})`
+          // Only sideways: a vertical negative margin would also push the
+          // scroll clip edge into the gap under the divider, leaving a sliver
+          // of the scrolled-away row painted there.
+          margin: `0 calc(-1 * ${FOCUS_RING_REACH})`
         }}
       >
         <SidebarSection>

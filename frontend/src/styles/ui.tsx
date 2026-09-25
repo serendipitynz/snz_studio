@@ -31,7 +31,7 @@ const ENABLED = ':not(:disabled):not([aria-disabled="true"])';
 
 // How far the focus ring reaches outside a control. A scrolling container
 // clips at its padding edge, so one holding focusable rows pads by this much
-// (and cancels it with a negative margin) to keep the ring whole.
+// (cancelling it sideways with a negative margin) to keep the ring whole.
 export const FOCUS_RING_REACH = `calc(${snzTokens.border.focus} + ${snzTokens.border.focusOffset})`;
 
 export const Page = styled.div`
@@ -417,7 +417,8 @@ export const List = styled.div`
 
 // $interactive marks a row the whole of which opens something; only those
 // rows take the list-item hover face (snz-design doc-9 §6.1), and like list
-// items they have no pressed step.
+// items they have no pressed step. The link that fills such a row carries
+// data-row-link, so the row-wide ring below stands in for that link only.
 export const Item = styled.article<{ $interactive?: boolean }>`
   border: 1px solid ${({ theme }) => theme.line};
   border-radius: ${({ theme }) => theme.radius};
@@ -435,11 +436,11 @@ export const Item = styled.article<{ $interactive?: boolean }>`
           /* The link filling the row takes the focus, but the row clips it,
              so the ring is drawn on the row instead (as the shared card's
              activating link does, snz-design doc-9 §6.2). */
-          & a:focus-visible {
+          & a[data-row-link]:focus-visible {
             outline: none;
           }
 
-          &:has(a:focus-visible) {
+          &:has(a[data-row-link]:focus-visible) {
             outline: ${snzTokens.border.focus} solid ${theme.focus};
             outline-offset: ${snzTokens.border.focusOffset};
           }
