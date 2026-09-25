@@ -56,14 +56,21 @@ export const Container = styled.div`
   padding: ${snzTokens.space.sm};
 `;
 
-export const WorkspaceShell = styled.div<{ $columns?: string }>`
+// Below this width the side region (the inspector, the participant column) is
+// no longer shown by default; a screen with a trigger for it can still show it.
+export const SIDE_REGION_MEDIA = "(max-width: 1180px)";
+
+// $side: whether the side region's column is there. Left out, the column is
+// there on wide screens and drops out below SIDE_REGION_MEDIA, for a screen
+// whose side region has no trigger.
+export const WorkspaceShell = styled.div<{ $side?: boolean }>`
   height: calc(100vh - 2 * ${snzTokens.space.sm});
   display: grid;
-  grid-template-columns: ${({ $columns }) => $columns ?? "280px minmax(0, 1fr) 340px"};
+  grid-template-columns: ${({ $side }) => ($side === false ? "280px minmax(0, 1fr)" : "280px minmax(0, 1fr) 340px")};
   gap: ${snzTokens.space.sm};
 
-  @media (max-width: 1180px) {
-    grid-template-columns: 250px minmax(0, 1fr);
+  @media ${SIDE_REGION_MEDIA} {
+    grid-template-columns: ${({ $side }) => ($side ? "250px minmax(0, 1fr) 300px" : "250px minmax(0, 1fr)")};
   }
 
   @media ${NARROW_MEDIA} {
@@ -100,7 +107,9 @@ export const MainPane = styled.main`
   flex-direction: column;
 `;
 
-export const InspectorPane = styled.aside`
+// A screen that shows and hides the pane itself puts the hidden attribute on it;
+// one without a trigger leaves the pane to drop out below SIDE_REGION_MEDIA.
+export const InspectorPane = styled.aside<{ $toggled?: boolean }>`
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
@@ -112,9 +121,18 @@ export const InspectorPane = styled.aside`
   min-height: 0;
   overflow: auto;
 
-  @media (max-width: 1180px) {
+  &[hidden] {
     display: none;
   }
+
+  ${({ $toggled }) =>
+    $toggled
+      ? ""
+      : css`
+          @media ${SIDE_REGION_MEDIA} {
+            display: none;
+          }
+        `}
 `;
 
 export const Brand = styled.div`
@@ -164,6 +182,16 @@ export const TitleButton = styled.button`
   text-align: start;
   cursor: pointer;
   overflow-wrap: anywhere;
+
+  ${focusRing}
+`;
+
+// The disclosure line of a <details> in the conversation. The native element keeps
+// its keyboard and its expanded state; this gives it the shared focus ring.
+export const Summary = styled.summary`
+  inline-size: fit-content;
+  border-radius: ${({ theme }) => theme.radiusSm};
+  cursor: pointer;
 
   ${focusRing}
 `;
@@ -533,7 +561,11 @@ export const MessageScroller = styled.div`
   }
 `;
 
+// The assistant's face is the accent's soft surface, where the muted words fall
+// below 4.5:1 (Solarized Dark 4.42), so the meta words there take the words role
+// of that surface (snz-design doc-5 §3.2).
 export const MessageBubble = styled.article<{ $role: "user" | "assistant" | "system" }>`
+  ${({ $role, theme }) => ($role === "assistant" ? `--meta-ink: ${theme.onAccentSoft};` : "")}
   max-width: min(860px, 100%);
   margin-left: ${({ $role }) => ($role === "user" ? "auto" : "0")};
   padding: 16px 18px;
@@ -565,7 +597,7 @@ export const ComposerBox = styled.div`
 
 export const MetaText = styled.div`
   font-size: 12px;
-  color: ${({ theme }) => theme.muted};
+  color: var(--meta-ink, ${({ theme }) => theme.muted});
 `;
 
 export const FloatingScrollButton = styled.button`
@@ -631,11 +663,14 @@ export const IconButton = styled.button`
   ${disabledLook}
 `;
 
-export const DropZone = styled.div<{ $active?: boolean }>`
-  border: 1px dashed ${({ $active, theme }) => ($active ? theme.accentDropActive : theme.dropzoneBorder)};
-  background: ${({ $active, theme }) => ($active ? theme.accentDragBg : theme.surfaceDropzone)};
-  border-radius: ${({ theme }) => theme.radius};
-  padding: 18px;
+// The trigger that shows and hides a side region (snz-design doc-9 §6.3.1). Shown,
+// it takes the selected face and outline as well as aria-expanded and its figure,
+// so the state is not told by colour alone.
+export const RegionToggleButton = styled(IconButton)`
+  &[aria-expanded="true"] {
+    background: ${({ theme }) => theme.surfaceSelected};
+    border-color: ${({ theme }) => theme.selected};
+  }
 `;
 
 export const ModalOverlay = styled.div`
