@@ -130,6 +130,9 @@ export interface ThemeTokens {
   accentPressed: string;
   onAccent: string;
   accentSoft: string;
+  // The words on an accent-soft face, such as a drop zone with a file over it
+  // (snz-design doc-9 §6.13).
+  onAccentSoft: string;
   accentBorder: string;
   accentBubbleFrom: string;
   accentBubbleTo: string;
@@ -257,6 +260,9 @@ export function buildTokens(spec: ThemeSpec): ThemeTokens {
     accentPressed: `color-mix(in srgb, ${spec.accent} 72%, ${spec.ink})`,
     onAccent: pickOnAccent(spec.accent, [spec.bg, spec.ink, "#ffffff", "#000000"]),
     accentSoft: w(spec.accentRgb, 0.12),
+    // Same reasoning as onDangerSoft: the solid accent outline already carries the
+    // state, and ink is what stays readable on every family's wash.
+    onAccentSoft: spec.ink,
     accentBorder: w(spec.accentRgb, 0.22),
     accentBubbleFrom: w(spec.accentRgb, 0.09),
     accentBubbleTo: w(spec.accentRgb, 0.03),

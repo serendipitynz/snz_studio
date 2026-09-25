@@ -71,6 +71,7 @@ function fromColors(c: SnzColors, mode: SnzColorMode): ThemeTokens {
     accentPressed: c.accentPressed,
     onAccent: c.onAccent,
     accentSoft: c.accentSoft,
+    onAccentSoft: c.onAccentSoft,
     accentBorder: c.accent,
     accentBubbleFrom: c.accentSoft,
     accentBubbleTo: c.accentSoft,
