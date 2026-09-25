@@ -1,6 +1,7 @@
 import styled from "@emotion/styled";
 import {
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
   useEffect,
@@ -10,7 +11,7 @@ import {
 } from "react";
 import { useLanguage } from "../i18n";
 import { snzTokens } from "../styles/themes/snz-tokens";
-import { IconButton, Item } from "../styles/ui";
+import { IconButton, Item, VisuallyHidden } from "../styles/ui";
 
 // Movement under this many pixels is a press, not a drag: a hand resting on a
 // mouse jitters, and a press is what leaves the item grabbed for the
@@ -238,20 +239,33 @@ export function ReorderList<T extends { id: string }>(props: ReorderListProps<T>
     stopDragRef.current = stop;
   }
 
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, id: string) {
-    if (event.nativeEvent.isComposing) {
+  // A click the pointer did not make (detail 0) is the button's own
+  // activation: Space, Enter, or a screen reader's press, which sends no
+  // pointer events. It grabs and places like Space in doc-9 §6.9, so every
+  // way of pressing the handle reaches the keyboard path. A pointer's click
+  // already acted on pointerdown and only settles the focus: WebKit does not
+  // focus a button it is pressed on, and focusing after the press keeps it a
+  // pointer focus without a ring (doc-8 §5.1), where focusing on pointerdown
+  // would draw one in Chromium.
+  function handleClick(event: ReactMouseEvent<HTMLButtonElement>, id: string) {
+    if (event.detail !== 0) {
+      if (document.activeElement !== event.currentTarget) {
+        event.currentTarget.focus();
+      }
       return;
     }
-    if (event.key === " ") {
-      event.preventDefault();
-      if (event.repeat || props.busy) {
-        return;
-      }
-      if (grabRef.current?.id === id) {
-        place();
-      } else {
-        startGrab(id);
-      }
+    if (props.busy) {
+      return;
+    }
+    if (grabRef.current?.id === id) {
+      place();
+    } else {
+      startGrab(id);
+    }
+  }
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, id: string) {
+    if (event.nativeEvent.isComposing) {
       return;
     }
     const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
@@ -328,16 +342,7 @@ export function ReorderList<T extends { id: string }>(props: ReorderListProps<T>
                 aria-busy={props.busy || undefined}
                 title={props.busy ? t("reorder.saving") : undefined}
                 onPointerDown={(event) => handlePointerDown(event, item.id)}
-                // WebKit does not focus a button it is pressed on, and moves
-                // the focus to the page instead. Focusing once the press is
-                // over keeps it a pointer focus, which draws no ring
-                // (doc-8 §5.1); focusing on pointerdown would draw one in
-                // Chromium, before the press has counted as a pointer's.
-                onClick={(event) => {
-                  if (document.activeElement !== event.currentTarget) {
-                    event.currentTarget.focus();
-                  }
-                }}
+                onClick={(event) => handleClick(event, item.id)}
                 onKeyDown={(event) => handleKeyDown(event, item.id)}
               >
                 <GripIcon />
@@ -349,7 +354,7 @@ export function ReorderList<T extends { id: string }>(props: ReorderListProps<T>
           );
         })}
       </OrderedList>
-      <LiveRegion aria-live="polite">{announcement}</LiveRegion>
+      <VisuallyHidden aria-live="polite">{announcement}</VisuallyHidden>
     </>
   );
 }
@@ -458,13 +463,4 @@ const DropPosition = styled.button`
     outline: ${snzTokens.border.focus} solid ${({ theme }) => theme.focus};
     outline-offset: calc(-1 * ${snzTokens.border.focus});
   }
-`;
-
-const LiveRegion = styled.div`
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 `;

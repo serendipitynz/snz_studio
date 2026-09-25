@@ -20,6 +20,7 @@ import {
   SectionTitle,
   Stack,
   Textarea,
+  VisuallyHidden,
   WorkspaceShell
 } from "../styles/ui";
 
@@ -110,7 +111,20 @@ export function ProjectListPage() {
               <Stack>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <SectionTitle>{t("dashboard.projects")}</SectionTitle>
-                  <Badge tone="accent">{t("dashboard.projectsCount", { count: projects.length })}</Badge>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {/* The one busy display for a save of the order (doc-9 §5.6):
+                        a figure beside the count, so the list keeps its size
+                        and nothing under the pointer moves. */}
+                    <span role="status" style={{ display: "inline-flex" }}>
+                      {savingOrder ? (
+                        <>
+                          <SpinnerIcon />
+                          <VisuallyHidden>{t("reorder.saving")}</VisuallyHidden>
+                        </>
+                      ) : null}
+                    </span>
+                    <Badge tone="accent">{t("dashboard.projectsCount", { count: projects.length })}</Badge>
+                  </div>
                 </div>
                 {listError ? <FailureNotice>{listError}</FailureNotice> : null}
                 {!loading && !loadFailed && projects.length === 0 ? <Item>{t("dashboard.noProjects")}</Item> : null}

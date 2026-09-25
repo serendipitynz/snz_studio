@@ -486,6 +486,17 @@ export const Badge = styled.span<{ tone?: "accent" | "warm" | "muted" }>`
   color: ${({ tone, theme }) => (tone === "warm" ? theme.warm : tone === "muted" ? theme.muted : theme.accent)};
 `;
 
+// Read out but not drawn: words that sit beside a figure which already says
+// the same thing on screen.
+export const VisuallyHidden = styled.span`
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+`;
+
 export const RouterLink = styled(Link)`
   color: inherit;
   text-decoration: none;
