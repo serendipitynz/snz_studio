@@ -434,7 +434,8 @@ Right pane:
 
 - context inspector, shown and hidden from the header. On wide windows it is a column and the
   choice is kept in localStorage. At 1180px and below it starts hidden without changing that choice;
-  the header button lays it over the conversation's right edge, with its own close button. The
+  the header button slides it in over the conversation's right edge (a fade alone under reduced
+  motion), with its own close button. The
   overlay does not confine focus: Escape or the close button closes it, and focus moving onto a
   control it covers closes it too
 
