@@ -1,10 +1,10 @@
 ---
 id: TASK-43
 title: '共通デザイン: 配色の基盤と基本部品の状態を本適用する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-24 20:11'
-updated_date: '2026-09-25 02:45'
+updated_date: '2026-09-25 03:03'
 labels:
   - design
 dependencies: []
@@ -103,4 +103,6 @@ Catppuccin Latte では主操作が黒の語 対 teal の面で 5.61、焦点の
 - 行の hover は、行が押せる部品になる画面のタスク (TASK-45・TASK-46) で当てる。
 
 - オーナーの実窓の確認 (2026-09-25、画面の記録はオーナーの手元): ダッシュボードのプロジェクトの行が hover で変わらなかった。行に hover の規則が無かったうえ、ドラッグの状態のために背景をインラインで置いていて、CSS の hover を上書きしていた。行 (`Item`) に `$interactive` を足して一覧の項目の hover (`surface-hover`、押下の段は無い。snz-design doc-9 §6.1) を持たせ、インラインの背景はドラッグ中だけに限った。上の「行の hover は TASK-45・TASK-46 で当てる」は、ダッシュボードの行についてはここで済んだ。Chromium で、Solarized Light の hover した行が #ece6d2 (他の行と 1.16、区画と 1.09、語 10.41) になることを確かめた。
+
+- オーナーの実窓 (WKWebView) の確認 (2026-09-25、マージ後): 押下の面・選択欄の輪郭と角丸・無効のボタンの見え方は OK。焦点の枠は NG — サイドバーの先頭の行で上と左右が切れ、ダッシュボードのプロジェクトの行では全く見えない。どちらも部品の枠ではなく、包む箱 (スクロールする並び、`overflow: hidden` の行) による切れで、このタスクでは TASK-44・TASK-45 の担当として残していた。続けて直す (TASK-50)。
 <!-- SECTION:NOTES:END -->
