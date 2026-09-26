@@ -216,7 +216,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   );
 
   const settingsFooter = (
-    <Row style={{ alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "nowrap" }}>
+    <SettingsFooter>
       <IconButton
         type="button"
         aria-label={t("sidebar.settings")}
@@ -226,7 +226,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
         <SettingsIcon size={18} />
       </IconButton>
       <Subtle style={{ fontSize: snzTokens.font.sizeSmall }}>{`snz studio v${__APP_VERSION__}`}</Subtle>
-    </Row>
+    </SettingsFooter>
   );
 
   const settingsModal = isSettingsOpen ? <SettingsModal onClose={() => setIsSettingsOpen(false)} /> : null;
@@ -330,6 +330,18 @@ const BackLink = IconButton.withComponent(Link);
 // real-window feedback), so it cancels the pane's own padding.
 const FullBleedDivider = styled(Divider)`
   margin: 0 calc(-1 * ${SIDEBAR_PANE_PADDING});
+`;
+
+// The pane's 16px flex gap and 12px bottom padding leave the footer taller than
+// the owner asked for (8px above, 6px below — real-window feedback), so the
+// footer pulls both back by the difference.
+const SettingsFooter = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-top: -8px;
+  margin-bottom: -6px;
 `;
 
 const MenuAnchor = styled.div`
