@@ -1,10 +1,10 @@
 ---
 id: TASK-51
 title: 左サイドバーを、プロジェクト一覧と選択中のプロジェクトのチャット一覧の2つの表示に分ける
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-25 07:11'
-updated_date: '2026-09-26 02:10'
+updated_date: '2026-09-26 03:31'
 labels:
   - design
 dependencies: []
@@ -61,7 +61,7 @@ TASK-44 で当てた現在地の印 (`aria-current` と、面・枠・帯) と�
 - [x] #2 プロジェクト詳細と、そのプロジェクトのチャットの画面では、選んだプロジェクトの行1つと戻るボタン、その下にチャット一覧 (作成の + を含む) が並び、他のプロジェクトの行は出ない
 - [x] #3 戻るボタンが、着手時にオーナーと合意した振る舞いを持ち、キーボードで届き、語 (読み上げの名札) を持つ
 - [x] #4 現在地の印 (aria-current と、面・枠・帯) と、900px 以下の畳まれた入口が、両方の表示で TASK-44 の形のまま働く
-- [ ] #5 `pnpm check:client`・`pnpm build:client` が通る。実窓 (WKWebView) の目視はオーナーの確認を記録する
+- [x] #5 `pnpm check:client`・`pnpm build:client` が通る。実窓 (WKWebView) の目視はオーナーの確認を記録する
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -109,4 +109,6 @@ TASK-44 で当てた現在地の印 (`aria-current` と、面・枠・帯) と�
 
 ## レビュー第3ラウンドの [P3] への対応 (2026-09-26)
 - 負の margin (上 8px・下 6px) を広いサイドバーだけに限定した (`PaneFooterFit`)。畳まれた入口のパネルは自前の 18px padding のまま (指摘の対象外)。広いサイドバーの実測は変わらず 上 8px / 下 6px。check/build と 17 項目通過。P1/P2 なしの 3 ラウンド目で回数上限のため、この修正の再レビューは掛けていない。
+
+AC#5 の実窓 (WKWebView) の目視をオーナーが確認 (2026-09-26、問題なし)。PR #49 マージ済み。
 <!-- SECTION:NOTES:END -->
