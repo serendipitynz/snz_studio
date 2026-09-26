@@ -446,8 +446,8 @@ Center:
     effect at the turn boundary and that each speaker reads only the latest 30 messages, the user's
     included. Between a stop and the end of the turn in flight the button keeps "Stop" and shows
     it is busy
-  - at the far end, a "Turn n" badge (the participants' utterances) and "Intervene". Past 30
-    messages the badge adds "(last 30)"
+  - at the far end, a "Turn n" badge (the participants' utterances) and "Intervene". That messages
+    before the latest 30 go unread is the `(?)` hint's to say; the badge does not repeat it
   - the row holds one line down to about the width the chat screen's does (the speaker select
     shrinks first)
   - above the field, lines shown only when there is something to say: a failed turn, conclusion or

@@ -665,8 +665,6 @@ export function MultiAgentChatPage() {
       : turnRunning
         ? t("multiAgent.runningTurnUnknown")
         : t("multiAgent.speakerPrompt");
-  const historyOverflow =
-    historyLimit !== null && state.messages.filter((message) => message.content.trim()).length > historyLimit;
 
   return (
     <WorkspaceShell $side={rosterRegion.shown}>
@@ -931,9 +929,7 @@ export function MultiAgentChatPage() {
               <Row style={{ alignItems: "center", gap: 4, flexWrap: "nowrap", marginInlineStart: "auto" }}>
                 {turnNumber > 0 ? (
                   <StateBadge tone="neutral" style={{ whiteSpace: "nowrap" }}>
-                    {historyOverflow
-                      ? t("multiAgent.turnCountOver", { count: turnNumber, limit: historyLimit ?? "…" })
-                      : t("multiAgent.turnCount", { count: turnNumber })}
+                    {t("multiAgent.turnCount", { count: turnNumber })}
                   </StateBadge>
                 ) : null}
                 <ActionButton
