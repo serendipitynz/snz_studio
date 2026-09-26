@@ -640,10 +640,15 @@ export function MultiAgentChatPage() {
       : turnRunning
         ? t("multiAgent.lockedTurn")
         : t("multiAgent.speakerByRule");
+  // The picks arrive as participant rows captured when they were read, so the
+  // name is taken from the current roster by id: a rename saved in the panel
+  // since then must show without waiting for the next read.
+  const current = (participant: Participant | null | undefined) =>
+    participant ? speakerById.get(participant.id) ?? participant : null;
   const speakingNow = turnRunning
-    ? runningSpeaker?.participant ?? (manualRule ? speakerById.get(nomineeId) : nextSpeaker) ?? null
+    ? current(runningSpeaker?.participant ?? (manualRule ? speakerById.get(nomineeId) : nextSpeaker))
     : null;
-  const shownNext = turnRunning ? runningSpeaker?.next ?? null : manualRule ? null : nextSpeaker;
+  const shownNext = current(turnRunning ? runningSpeaker?.next : manualRule ? null : nextSpeaker);
   const speakerIsCurrent = turnRunning && !shownNext;
   const speakerText = shownNext
     ? t("multiAgent.speakerNext", { name: shownNext.displayName })
