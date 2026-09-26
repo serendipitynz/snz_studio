@@ -600,6 +600,51 @@ func TestChatsCRUD(t *testing.T) {
 		http.StatusNotFound, "chat not found")
 }
 
+func TestRecentChats(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Recent Project")
+	first := createChat(t, h, projectID)
+	second := createChat(t, h, projectID)
+
+	rec := doJSON(t, h, "GET", "/api/chats/recent", nil)
+	wantStatus(t, rec, http.StatusOK)
+	var body struct {
+		Chats []struct {
+			ID           string `json:"id"`
+			ProjectID    string `json:"projectId"`
+			ProjectTitle string `json:"projectTitle"`
+		} `json:"chats"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Chats) != 2 {
+		t.Fatalf("recent chats len = %d, want 2", len(body.Chats))
+	}
+	for _, c := range body.Chats {
+		if c.ProjectID != projectID || c.ProjectTitle != "Recent Project" {
+			t.Fatalf("recent chat = %+v", c)
+		}
+	}
+	if ids := map[string]bool{body.Chats[0].ID: true, body.Chats[1].ID: true}; !ids[first] || !ids[second] {
+		t.Fatalf("recent chats = %+v, want %s and %s", body.Chats, first, second)
+	}
+
+	rec = doJSON(t, h, "GET", "/api/chats/recent?limit=1", nil)
+	wantStatus(t, rec, http.StatusOK)
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Chats) != 1 {
+		t.Fatalf("limit=1 returned %d chats", len(body.Chats))
+	}
+
+	for _, bad := range []string{"0", "51", "x"} {
+		wantError(t, doJSON(t, h, "GET", "/api/chats/recent?limit="+bad, nil),
+			http.StatusBadRequest, "limit must be an integer from 1 to 50")
+	}
+}
+
 // TestSendMessageFallback exercises the non-stream send path with a dead LLM:
 // the chat service persists a reference/excerpt fallback (no error), so the route
 // returns 201 with the user+assistant message pair.

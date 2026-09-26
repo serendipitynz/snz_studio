@@ -120,6 +120,36 @@ func TestProjectRepository(t *testing.T) {
 		t.Errorf("chatCount=%d, want 2", got.ChatCount)
 	}
 
+	// last_activity_at follows the newest chat, since a message bumps only the chat.
+	tick()
+	active, err := chatRepo.CreateChat(CreateChatInput{ProjectID: p1.ID, Title: "c3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	if _, err := chatRepo.AddMessage(AddMessageInput{ChatID: active.ID, Role: "user", Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	bumped, err := chatRepo.GetChat(active.ID)
+	if err != nil || bumped == nil {
+		t.Fatalf("GetChat: %v, %v", bumped, err)
+	}
+	got, err = repo.GetProject(p1.ID)
+	if err != nil || got == nil {
+		t.Fatalf("GetProject: %v, %v", got, err)
+	}
+	if got.LastActivityAt != bumped.UpdatedAt || got.UpdatedAt == got.LastActivityAt {
+		t.Errorf("lastActivityAt=%q updatedAt=%q, want the chat's %q", got.LastActivityAt, got.UpdatedAt, bumped.UpdatedAt)
+	}
+	// A project without chats falls back to its own updated_at.
+	lone, err := repo.GetProject(p2.ID)
+	if err != nil || lone == nil {
+		t.Fatalf("GetProject: %v, %v", lone, err)
+	}
+	if lone.LastActivityAt != lone.UpdatedAt {
+		t.Errorf("chatless lastActivityAt=%q, want updatedAt %q", lone.LastActivityAt, lone.UpdatedAt)
+	}
+
 	if missing, err := repo.GetProject("nope"); err != nil || missing != nil {
 		t.Errorf("GetProject(missing) = %v, %v; want nil, nil", missing, err)
 	}
@@ -617,6 +647,67 @@ func TestChatRepository(t *testing.T) {
 	}
 	if nilc, err := chats.DeleteChat(chat.ID); err != nil || nilc != nil {
 		t.Errorf("DeleteChat(again) = %v, %v", nilc, err)
+	}
+}
+
+func TestChatRepositoryListRecent(t *testing.T) {
+	d := newTestDB(t)
+	projects := NewProjectRepository(d)
+	chats := NewChatRepository(d)
+	alpha, err := projects.CreateProject(CreateProjectInput{Title: "Alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beta, err := projects.CreateProject(CreateProjectInput{Title: "Beta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	empty, err := chats.ListRecent(8)
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("ListRecent on no chats = %v, %v; want an empty slice", empty, err)
+	}
+
+	older, err := chats.CreateChat(CreateChatInput{ProjectID: alpha.ID, Title: "older"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	middle, err := chats.CreateChat(CreateChatInput{ProjectID: beta.ID, Title: "middle", IsTemporary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	if _, err := chats.CreateChat(CreateChatInput{ProjectID: beta.ID, Title: "newer"}); err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	// A message moves the oldest chat to the front.
+	if _, err := chats.AddMessage(AddMessageInput{ChatID: older.ID, Role: "user", Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+
+	recent, err := chats.ListRecent(8)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	var titles []string
+	for _, c := range recent {
+		titles = append(titles, c.Title)
+	}
+	if strings.Join(titles, ",") != "older,newer,middle" {
+		t.Fatalf("order = %v, want older,newer,middle", titles)
+	}
+	if recent[0].ProjectTitle != "Alpha" || recent[1].ProjectTitle != "Beta" {
+		t.Errorf("project titles = %q, %q", recent[0].ProjectTitle, recent[1].ProjectTitle)
+	}
+	if recent[2].ID != middle.ID || !recent[2].IsTemporary {
+		t.Errorf("temporary chat = %+v", recent[2])
+	}
+
+	limited, err := chats.ListRecent(2)
+	if err != nil || len(limited) != 2 {
+		t.Fatalf("ListRecent(2) = %d rows, %v", len(limited), err)
 	}
 }
 

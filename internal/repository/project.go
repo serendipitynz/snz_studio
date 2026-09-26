@@ -24,15 +24,18 @@ func NewProjectRepository(db *sql.DB) *ProjectRepository {
 	return &ProjectRepository{db: db}
 }
 
-// projectSelect joins chats to derive chat_count, matching mapProject's columns.
+// projectSelect joins chats to derive chat_count and last_activity_at, matching
+// mapProject's columns. The timestamps are fixed-width UTC ISO strings, so the
+// scalar MAX compares them in time order.
 const projectSelect = `
-	SELECT p.id, p.title, p.description, p.system_prompt, p.sort_order, p.created_at, p.updated_at, COUNT(c.id) AS chat_count
+	SELECT p.id, p.title, p.description, p.system_prompt, p.sort_order, p.created_at, p.updated_at, COUNT(c.id) AS chat_count,
+		MAX(p.updated_at, COALESCE(MAX(c.updated_at), '')) AS last_activity_at
 	FROM projects p
 	LEFT JOIN chats c ON c.project_id = p.id`
 
 func scanProject(s scanner) (model.Project, error) {
 	var p model.Project
-	err := s.Scan(&p.ID, &p.Title, &p.Description, &p.SystemPrompt, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt, &p.ChatCount)
+	err := s.Scan(&p.ID, &p.Title, &p.Description, &p.SystemPrompt, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt, &p.ChatCount, &p.LastActivityAt)
 	return p, err
 }
 
@@ -93,14 +96,15 @@ func (r *ProjectRepository) CreateProject(input CreateProjectInput) (model.Proje
 
 	now := util.NowISO()
 	p := model.Project{
-		ID:           util.NewID("project"),
-		Title:        strings.TrimSpace(input.Title),
-		Description:  strings.TrimSpace(input.Description),
-		SystemPrompt: strings.TrimSpace(input.SystemPrompt),
-		SortOrder:    next,
-		ChatCount:    0,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:             util.NewID("project"),
+		Title:          strings.TrimSpace(input.Title),
+		Description:    strings.TrimSpace(input.Description),
+		SystemPrompt:   strings.TrimSpace(input.SystemPrompt),
+		SortOrder:      next,
+		ChatCount:      0,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		LastActivityAt: now,
 	}
 
 	_, err := r.db.Exec(`

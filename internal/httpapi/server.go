@@ -229,6 +229,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/image-description", s.handleDescribeImage)
 
 	// Chats
+	mux.HandleFunc("GET /api/chats/recent", s.handleListRecentChats)
 	mux.HandleFunc("GET /api/chats/{chatId}", s.handleGetChat)
 	mux.HandleFunc("PATCH /api/chats/{chatId}", s.handleUpdateChat)
 	mux.HandleFunc("PATCH /api/chats/{chatId}/temporary", s.handleSetChatTemporary)

@@ -94,6 +94,34 @@ func (r *ChatRepository) ListByProject(projectID string) ([]model.Chat, error) {
 	return chats, rows.Err()
 }
 
+// ListRecent returns up to limit chats across every project, most recently
+// updated first, each with its project's title.
+func (r *ChatRepository) ListRecent(limit int) ([]model.RecentChat, error) {
+	rows, err := r.db.Query(`
+		SELECT c.id, c.project_id, c.title, c.is_temporary, c.kind, c.turn_rule, c.scene_prompt, c.facilitator_participant_id, c.state_sheet, c.created_at, c.updated_at, p.title
+		FROM chats c
+		JOIN projects p ON p.id = c.project_id
+		ORDER BY c.updated_at DESC, c.created_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	chats := []model.RecentChat{}
+	for rows.Next() {
+		var (
+			c           model.RecentChat
+			isTemporary int64
+		)
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &c.CreatedAt, &c.UpdatedAt, &c.ProjectTitle); err != nil {
+			return nil, err
+		}
+		c.IsTemporary = isTemporary != 0
+		chats = append(chats, c)
+	}
+	return chats, rows.Err()
+}
+
 // GetChat returns the chat, or (nil, nil) if it does not exist.
 func (r *ChatRepository) GetChat(chatID string) (*model.Chat, error) {
 	c, err := scanChat(r.db.QueryRow("SELECT "+chatColumns+" FROM chats WHERE id = ?", chatID))
