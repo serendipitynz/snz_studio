@@ -412,6 +412,9 @@ Right pane:
 - memories
 - chats
 
+The project-assets pane is shown and hidden from the header exactly like the chat screen's context
+inspector (below), with its own stored key.
+
 Deleting a document, a chat or a memory asks in a dialog that names it. Closing the title or the
 system prompt editor, or the image add dialog, with unsaved input asks before discarding it. A
 failure is shown next to what failed, not at the top of the page.
