@@ -860,76 +860,74 @@ export function MultiAgentChatPage() {
               placeholder={t("multiAgent.intervenePlaceholder")}
               aria-label={t("multiAgent.interveneLabel")}
             />
-            {/* Positioned so the hint's note spans the whole row (Hint). The row keeps to
-                one line about as far as the single chat's does: short labels, 4px gaps
-                inside each group, and a speaker select that shrinks before anything
-                wraps. */}
-            <Row style={{ justifyContent: "space-between", alignItems: "center", gap: 8, position: "relative" }}>
-              {/* A zero basis, and the automatic minimum left in place, so the row
-                  breaks only once this group's narrowest form no longer fits — not
-                  as soon as the select's preferred width does not. */}
-              <Row style={{ alignItems: "center", gap: 4, flexWrap: "nowrap", flex: "1 1 0", minWidth: "auto" }}>
-                {/* The busy figure sits inside the select, left of its chevron: beside
-                    the select it would take a slot that stands empty whenever no turn
-                    runs. */}
-                <span style={{ position: "relative", display: "inline-flex", flex: "0 1 220px", minWidth: 130 }}>
-                  <GuardedSelect
-                    value={speakerSelectEnabled ? nomineeId : ""}
-                    aria-label={t("multiAgent.speaker")}
-                    disabledReason={speakerReason}
-                    onChange={(event) => setNomineeId(event.target.value)}
-                    style={{
-                      width: "100%",
-                      minWidth: 0,
-                      ...(speakerIsCurrent ? { paddingInlineEnd: SPEAKER_SELECT_BUSY_END_PADDING } : {})
-                    }}
-                  >
-                    {speakerSelectEnabled ? (
-                      <>
-                        <option value="">{t("multiAgent.speakerPrompt")}</option>
-                        {roster.map((participant) => (
-                          <option key={participant.id} value={participant.id}>
-                            {participant.displayName}
-                          </option>
-                        ))}
-                      </>
-                    ) : (
-                      <option value="">{speakerText}</option>
-                    )}
-                  </GuardedSelect>
-                  {speakerIsCurrent ? (
-                    <span style={SPEAKER_SPINNER_STYLE}>
-                      <SpinnerIcon size={14} />
-                    </span>
-                  ) : null}
-                </span>
-                <ActionButton
-                  type="button"
-                  icon={<StepForwardIcon />}
-                  busy={turnRunning && !autoRunning && !stopPending}
-                  disabledReason={advanceReason}
-                  onClick={() => void handleAdvanceTurn()}
-                  style={ROW_BUTTON_STYLE}
+            {/* One flat row, positioned so the hint's note spans it (Hint). It keeps to
+                one line about as far as the single chat's does: short labels, 4px gaps,
+                and a speaker select that line-breaks at its 130px minimum and grows to
+                220px. Below that the controls wrap one by one, since a group that could
+                not break would be clipped by the pane (overflow: hidden). */}
+            <Row style={{ alignItems: "center", gap: 4, rowGap: 8, position: "relative" }}>
+              {/* The busy figure sits inside the select, left of its chevron: beside
+                  the select it would take a slot that stands empty whenever no turn
+                  runs. */}
+              <span style={{ position: "relative", display: "inline-flex", flex: "1 1 130px", minWidth: 130, maxWidth: 220 }}>
+                <GuardedSelect
+                  value={speakerSelectEnabled ? nomineeId : ""}
+                  aria-label={t("multiAgent.speaker")}
+                  disabledReason={speakerReason}
+                  onChange={(event) => setNomineeId(event.target.value)}
+                  style={{
+                    width: "100%",
+                    minWidth: 0,
+                    ...(speakerIsCurrent ? { paddingInlineEnd: SPEAKER_SELECT_BUSY_END_PADDING } : {})
+                  }}
                 >
-                  {t("multiAgent.advanceTurn")}
-                </ActionButton>
-                <ActionButton
-                  type="button"
-                  variant="normal"
-                  icon={autoShowsStop ? <SquareIcon /> : <PlayIcon />}
-                  busy={stopPending}
-                  disabledReason={autoReason}
-                  onClick={() => void handleToggleAutoRun()}
-                  style={ROW_BUTTON_STYLE}
-                >
-                  {autoShowsStop ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
-                </ActionButton>
-                <Hint
-                  name={t("multiAgent.progressHintName")}
-                  body={t("multiAgent.progressHint", { limit: historyLimit ?? "…" })}
-                />
-              </Row>
-              {/* Pushed to the end, so it stays right-aligned when the row wraps. */}
+                  {speakerSelectEnabled ? (
+                    <>
+                      <option value="">{t("multiAgent.speakerPrompt")}</option>
+                      {roster.map((participant) => (
+                        <option key={participant.id} value={participant.id}>
+                          {participant.displayName}
+                        </option>
+                      ))}
+                    </>
+                  ) : (
+                    <option value="">{speakerText}</option>
+                  )}
+                </GuardedSelect>
+                {speakerIsCurrent ? (
+                  <span style={SPEAKER_SPINNER_STYLE}>
+                    <SpinnerIcon size={14} />
+                  </span>
+                ) : null}
+              </span>
+              <ActionButton
+                type="button"
+                icon={<StepForwardIcon />}
+                busy={turnRunning && !autoRunning && !stopPending}
+                disabledReason={advanceReason}
+                onClick={() => void handleAdvanceTurn()}
+                style={ROW_BUTTON_STYLE}
+              >
+                {t("multiAgent.advanceTurn")}
+              </ActionButton>
+              <ActionButton
+                type="button"
+                variant="normal"
+                icon={autoShowsStop ? <SquareIcon /> : <PlayIcon />}
+                busy={stopPending}
+                disabledReason={autoReason}
+                onClick={() => void handleToggleAutoRun()}
+                style={ROW_BUTTON_STYLE}
+              >
+                {autoShowsStop ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
+              </ActionButton>
+              <Hint
+                name={t("multiAgent.progressHintName")}
+                body={t("multiAgent.progressHint", { limit: historyLimit ?? "…" })}
+              />
+              {/* The auto margin takes the free space, so the badge and the send stay
+                  together at the end of whichever line they land on. The pair is small
+                  enough to fit the narrowest pane, so it need not break. */}
               <Row style={{ alignItems: "center", gap: 4, flexWrap: "nowrap", marginInlineStart: "auto" }}>
                 {turnNumber > 0 ? (
                   <StateBadge tone="neutral" style={{ whiteSpace: "nowrap" }}>
