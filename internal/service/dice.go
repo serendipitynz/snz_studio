@@ -113,8 +113,15 @@ func parseRollCommand(line string) (*rollCommand, error) {
 		return nil, err
 	}
 
+	// A field starting with 目標 is the target, and one that does not read as a
+	// whole number is refused rather than taken for the action: "目標12.5" would
+	// otherwise roll against the default target, which is not what was written.
 	field, afterField := nextField(rest)
-	if m := rollTarget.FindStringSubmatch(asciiDigits(field)); m != nil {
+	if strings.HasPrefix(field, "目標") {
+		m := rollTarget.FindStringSubmatch(asciiDigits(field))
+		if m == nil {
+			return nil, fmt.Errorf("%w: 目標 takes a whole number from 1 to %d", ErrInvalidRollCommand, model.DiceTargetMax)
+		}
 		digits := m[1]
 		if digits == "" {
 			// 目標 12, with the number as the next field.

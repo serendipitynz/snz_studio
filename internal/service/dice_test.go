@@ -77,6 +77,9 @@ func TestParseRollCommand(t *testing.T) {
 		"/roll 1d20 目標10000",
 		"/roll 1d20 目標",
 		"/roll 1d20 目標 高い",
+		"/roll 1d20 目標12.5 跳ぶ",
+		"/roll 1d20 目標-1 跳ぶ",
+		"/roll 1d20 目標abc 跳ぶ",
 		"/roll 岩棚を渡る",
 	}
 	for _, line := range invalid {

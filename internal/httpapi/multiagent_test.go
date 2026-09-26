@@ -1177,6 +1177,12 @@ func TestMultiAgentInterventionRolls(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), "NdM") {
 			t.Fatalf("%s refusal = %s, want the expected form named", route, rec.Body.String())
 		}
+		// A malformed target is refused too, not rolled against the default.
+		rec = doJSON(t, h, "POST", "/api/chats/"+chatID+route, map[string]any{"content": "/roll 1d20 目標12.5 跳ぶ"})
+		wantStatus(t, rec, http.StatusBadRequest)
+		if !strings.Contains(rec.Body.String(), "目標") {
+			t.Fatalf("%s refusal = %s, want the target named", route, rec.Body.String())
+		}
 	}
 	var listed []storedRoll
 	unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil)), "messages", &listed)
