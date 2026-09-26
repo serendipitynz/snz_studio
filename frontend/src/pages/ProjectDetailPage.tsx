@@ -27,6 +27,8 @@ import {
   LockIcon,
   LockOpenIcon,
   MessageSquarePlusIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
   PencilIcon,
   PlusIcon,
   RotateCwFadingClockIcon,
@@ -39,6 +41,7 @@ import { ImageDocumentDialog } from "../components/ImageDocumentDialog";
 import { ImageDocumentEditor } from "../components/ImageDocumentEditor";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { PresetChoice, PresetPicker } from "../components/PresetPicker";
+import { useSideRegion } from "../components/useSideRegion";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { MessageKey, useLanguage } from "../i18n";
 import {
@@ -55,6 +58,8 @@ import {
   MainPane,
   PaneBody,
   PaneHeader,
+  RegionCloseButton,
+  RegionToggleButton,
   Row,
   RouterLink,
   SectionTitle,
@@ -91,11 +96,14 @@ type ErrorArea =
   | "systemPrompt"
   | "document";
 
+const INSPECTOR_STORAGE_KEY = "snz.project.inspectorCollapsed";
+
 export function ProjectDetailPage() {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
   const { t } = useLanguage();
   const confirm = useConfirm();
+  const inspector = useSideRegion(INSPECTOR_STORAGE_KEY, t("project.assets"));
   const imageButtonRef = useRef<HTMLButtonElement | null>(null);
   const editMemoriesRef = useRef<HTMLButtonElement | null>(null);
   const organizeRef = useRef<HTMLButtonElement | null>(null);
@@ -566,7 +574,7 @@ export function ProjectDetailPage() {
 
   return (
     <>
-      <WorkspaceShell>
+      <WorkspaceShell $side={inspector.shown}>
         <WorkspaceSidebar projects={projects} currentProjectId={state.project.id} chats={state.chats} />
 
         <MainPane>
@@ -575,14 +583,24 @@ export function ProjectDetailPage() {
               <FolderIcon size={18} />
               <SectionTitle>{state.project.title}</SectionTitle>
             </Row>
-            <IconButton
-              type="button"
-              aria-label={t("project.editTitle")}
-              title={t("project.editTitle")}
-              onClick={() => setIsTitleModalOpen(true)}
-            >
-              <PencilIcon />
-            </IconButton>
+            <Row style={{ alignItems: "center", flexWrap: "nowrap", gap: 8 }}>
+              <IconButton
+                type="button"
+                aria-label={t("project.editTitle")}
+                title={t("project.editTitle")}
+                onClick={() => setIsTitleModalOpen(true)}
+              >
+                <PencilIcon />
+              </IconButton>
+              <RegionToggleButton
+                type="button"
+                aria-label={t("project.assets")}
+                title={inspector.shown ? t("project.hideInspector") : t("project.showInspector")}
+                {...inspector.triggerProps}
+              >
+                {inspector.shown ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
+              </RegionToggleButton>
+            </Row>
           </PaneHeader>
 
           <PaneBody>
@@ -742,8 +760,13 @@ export function ProjectDetailPage() {
           </PaneBody>
         </MainPane>
 
-        <InspectorPane>
-          <SectionTitle>{t("project.assets")}</SectionTitle>
+        <InspectorPane $toggled {...inspector.regionProps} aria-labelledby={`${inspector.regionProps.id}-heading`}>
+          {inspector.overlay ? (
+            <RegionCloseButton type="button" {...inspector.closeProps}>
+              <PanelRightCloseIcon />
+            </RegionCloseButton>
+          ) : null}
+          <SectionTitle id={`${inspector.regionProps.id}-heading`}>{t("project.assets")}</SectionTitle>
 
           <Card>
             <Stack>
