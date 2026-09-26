@@ -85,7 +85,12 @@ export const WorkspaceShell = styled.div<{ $side?: boolean }>`
 // Shared with the sidebar's full-bleed divider, which cancels it.
 export const SIDEBAR_PANE_PADDING = "12px";
 
+// The panes that clip or scroll their contents are positioned so an absolute
+// descendant (VisuallyHidden above all) takes the pane as its containing block.
+// Otherwise it falls through to the page, escapes the pane's clip, and one
+// placed below the fold makes the whole body scroll.
 export const SidebarPane = styled.aside`
+  position: relative;
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
@@ -141,6 +146,9 @@ const regionFadeOut = keyframes`
 // and $overlay while it lies over the conversation below SIDE_REGION_MEDIA; one
 // without a trigger leaves the pane to drop out below that width.
 export const InspectorPane = styled.aside<{ $toggled?: boolean; $overlay?: boolean }>`
+  /* Anchors absolute descendants, as SidebarPane does; the overlay's fixed
+     position below comes later and replaces it. */
+  position: relative;
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
@@ -325,7 +333,9 @@ export const PaneHeader = styled.div`
   flex-shrink: 0;
 `;
 
+// Positioned for the same reason as SidebarPane.
 export const PaneBody = styled.div`
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
