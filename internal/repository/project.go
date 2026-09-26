@@ -175,14 +175,15 @@ func (r *ProjectRepository) ReorderProjects(projectIDs []string) ([]model.Projec
 		}
 	}
 
-	now := util.NowISO()
+	// updated_at stays put: the order is presentation, and bumping it would give
+	// every reordered project the same last activity (last_activity_at).
 	tx, err := r.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	for i, id := range projectIDs {
-		if _, err := tx.Exec("UPDATE projects SET sort_order = ?, updated_at = ? WHERE id = ?", i, now, id); err != nil {
+		if _, err := tx.Exec("UPDATE projects SET sort_order = ? WHERE id = ?", i, id); err != nil {
 			return nil, err
 		}
 	}

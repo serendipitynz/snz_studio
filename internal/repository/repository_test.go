@@ -163,12 +163,23 @@ func TestProjectRepository(t *testing.T) {
 	}
 
 	// Reorder: reverse, then verify sort order, and that a bad set is rejected.
+	tick()
 	reordered, err := repo.ReorderProjects([]string{p2.ID, p1.ID})
 	if err != nil {
 		t.Fatalf("ReorderProjects: %v", err)
 	}
 	if reordered[0].ID != p2.ID || reordered[0].SortOrder != 0 || reordered[1].ID != p1.ID || reordered[1].SortOrder != 1 {
 		t.Errorf("reorder result wrong: %+v", reordered)
+	}
+	// The order is presentation: a reorder leaves every project's updated_at and
+	// last activity as they were.
+	for _, p := range reordered {
+		if p.ID == p1.ID && p.LastActivityAt != got.LastActivityAt {
+			t.Errorf("reorder moved p1's lastActivityAt to %q, want %q", p.LastActivityAt, got.LastActivityAt)
+		}
+		if p.ID == p2.ID && p.UpdatedAt != updated.UpdatedAt {
+			t.Errorf("reorder moved p2's updatedAt to %q, want %q", p.UpdatedAt, updated.UpdatedAt)
+		}
 	}
 	if _, err := repo.ReorderProjects([]string{p1.ID, "ghost"}); err != ErrProjectReorderMismatch {
 		t.Errorf("ReorderProjects(bad) err = %v, want ErrProjectReorderMismatch", err)
