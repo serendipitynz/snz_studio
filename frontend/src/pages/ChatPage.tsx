@@ -93,6 +93,7 @@ function createOptimisticMessage(chatId: string, role: "user" | "assistant", con
     modelName: null,
     participantId: null,
     addressedParticipantIds: [],
+    diceRolls: [],
     references: []
   };
 }

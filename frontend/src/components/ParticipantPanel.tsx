@@ -4,6 +4,7 @@ import {
   api,
   CHAT_STATE_SHEET_MAX_CHARS,
   ChatRecord,
+  DICE_TARGET_MAX,
   Participant,
   PARTICIPANT_STATE_SHEET_MAX_CHARS,
   stateSheetLength,
@@ -472,6 +473,14 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
               </Subtle>
             </Field>
           ) : null}
+          {/* Keyed on the stored value so a preset applied from outside resets
+              the draft. */}
+          <DiceTargetField
+            key={props.chat.diceTarget}
+            value={props.chat.diceTarget}
+            lockedReason={props.lockedReason}
+            onSave={(diceTarget) => saveSettings({ diceTarget }, true)}
+          />
           <ScenePromptField
             value={props.chat.scenePrompt}
             lockedReason={props.lockedReason}
@@ -588,6 +597,68 @@ function ScenePromptField(props: { value: string; lockedReason?: string; onSave:
           style={{ minHeight: 90 }}
         />
       </Field>
+      <Row style={{ justifyContent: "flex-end" }}>
+        <ActionButton
+          type="button"
+          variant="normal"
+          icon={<CheckIcon />}
+          busy={saving}
+          disabledReason={saving ? undefined : reason}
+          onClick={() => void handleSave()}
+        >
+          {t("participants.save")}
+        </ActionButton>
+      </Row>
+    </Stack>
+  );
+}
+
+// DiceTargetField edits the chat's default dice target: what a /roll without
+// 目標 is compared with, 0 for none (design §4.8.3 item 4). The draft is text so
+// an emptied field reads as unfinished rather than as 0.
+function DiceTargetField(props: { value: number; lockedReason?: string; onSave: (value: number) => Promise<void> }) {
+  const { t } = useLanguage();
+  const [draft, setDraft] = useState(String(props.value));
+  const [saving, setSaving] = useState(false);
+  const parsed = /^\d+$/.test(draft.trim()) ? Number(draft.trim()) : NaN;
+  const valid = Number.isInteger(parsed) && parsed <= DICE_TARGET_MAX;
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await props.onSave(parsed);
+    } catch {
+      // The panel already surfaced the failure; the draft is kept.
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const reason =
+    props.lockedReason ??
+    (!valid
+      ? t("participants.diceTargetInvalid", { max: DICE_TARGET_MAX })
+      : parsed === props.value
+        ? t("participants.unchanged")
+        : undefined);
+
+  return (
+    <Stack>
+      <HintedField label={t("participants.diceTarget")} hint={t("participants.diceTargetHint")}>
+        {(id) => (
+          <Input
+            id={id}
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={DICE_TARGET_MAX}
+            step={1}
+            value={draft}
+            readOnly={saving}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        )}
+      </HintedField>
       <Row style={{ justifyContent: "flex-end" }}>
         <ActionButton
           type="button"
