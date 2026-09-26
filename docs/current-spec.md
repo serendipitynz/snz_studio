@@ -112,8 +112,8 @@ delete: the row stays, so past messages keep their speaker name, and the round-r
 starting point.
 
 Presets fill participants, turn rule, scene and — where the preset marks one — the facilitator, in
- one step. Eight presets ship with the app; further
-presets are applied by loading a JSON file of the same shape. A preset can be applied when the
+ one step. Twenty-five presets ship with the app; others
+are applied by loading a JSON file of the same shape (format: `docs/multi-agent-presets.md`). A preset can be applied when the
 conversation is created, and afterwards from the inspector for as long as the conversation
 has no messages — which replaces the roster, the turn rule and the scene. Once something has been
 said the preset is refused, since the transcript would be left naming speakers the conversation no
