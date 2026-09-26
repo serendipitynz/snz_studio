@@ -1,9 +1,9 @@
 import { useEffect, useId, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import styled from "@emotion/styled";
 import { api, ChatKind, ChatRecord, Project } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
-import { HouseIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
+import { ArrowLeftIcon, HouseIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
 import { SettingsModal } from "./SettingsModal";
 import { useMediaQuery } from "./useMediaQuery";
 import { usePopupMenu } from "./usePopupMenu";
@@ -97,6 +97,26 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   // claiming to be the page itself.
   const projectCurrent = props.activeChatId ? "true" : "page";
 
+  const selectedProject = props.currentProjectId
+    ? props.projects.find((project) => project.id === props.currentProjectId)
+    : undefined;
+
+  function renderProjectRow(project: Project) {
+    return (
+      <SidebarLink
+        key={project.id}
+        to={`/projects/${project.id}`}
+        aria-current={project.id === props.currentProjectId ? projectCurrent : undefined}
+        onClick={leaveEntry}
+      >
+        <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+          <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{project.title}</strong>
+          <Subtle style={{ flexShrink: 0 }}>({project.chatCount})</Subtle>
+        </Row>
+      </SidebarLink>
+    );
+  }
+
   const destinations = (
     <Stack
       as="nav"
@@ -114,19 +134,21 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
     >
       <SidebarSection>
         <SidebarSectionLabel>{t("sidebar.projects")}</SidebarSectionLabel>
-        {props.projects.map((project) => (
-          <SidebarLink
-            key={project.id}
-            to={`/projects/${project.id}`}
-            aria-current={project.id === props.currentProjectId ? projectCurrent : undefined}
-            onClick={leaveEntry}
-          >
-            <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
-              <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{project.title}</strong>
-              <Subtle style={{ flexShrink: 0 }}>({project.chatCount})</Subtle>
-            </Row>
-          </SidebarLink>
-        ))}
+        {props.currentProjectId ? (
+          // Inside a project only its own row stays; the back link beside it
+          // returns to the dashboard, where the full list shows again, so the
+          // sidebar's view follows the route and keeps no state of its own.
+          <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+            <BackLink to="/" aria-label={t("sidebar.backToProjects")} title={t("sidebar.backToProjects")} onClick={leaveEntry}>
+              <ArrowLeftIcon />
+            </BackLink>
+            {selectedProject ? (
+              <div style={{ flex: "1 1 auto", minWidth: 0 }}>{renderProjectRow(selectedProject)}</div>
+            ) : null}
+          </Row>
+        ) : (
+          props.projects.map(renderProjectRow)
+        )}
       </SidebarSection>
 
       {props.currentProjectId ? (
@@ -300,6 +322,10 @@ const CollapsedPanel = styled.div`
   border-radius: ${({ theme }) => theme.radius};
   box-shadow: ${({ theme }) => theme.shadowPopover};
 `;
+
+// A destination, not an action, so it reaches assistive technology as a link
+// (snz-design doc-9 §6.8) while keeping the icon button's drawn form.
+const BackLink = IconButton.withComponent(Link);
 
 const MenuAnchor = styled.div`
   position: relative;
