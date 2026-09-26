@@ -6,38 +6,66 @@ import { ChevronRightIcon } from "./icons";
 
 // A section folded by a trigger in its own heading (snz-design doc-9 §6.3). The
 // heading stays when folded, so the trigger never leaves the screen and focus
-// stays on it. The owner decides whether the state is kept; this keeps none.
+// stays on it. The owner decides whether the state is kept; this keeps none —
+// unless the owner passes `collapsed`, which makes the fold controlled and the
+// owner the keeper. `actions` sit in the heading beside the trigger (the §6.3
+// heading area holds operations), so they stay usable while the body is folded.
+// The body is hidden, not unmounted, so edits in progress survive the fold.
 export function CollapsibleSection({
   heading,
   defaultCollapsed = true,
+  collapsed: controlledCollapsed,
+  onToggle,
+  actions,
   children
 }: {
   heading: string;
   defaultCollapsed?: boolean;
+  collapsed?: boolean;
+  onToggle?: (collapsed: boolean) => void;
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const bodyId = useId();
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [ownCollapsed, setOwnCollapsed] = useState(defaultCollapsed);
+  const collapsed = controlledCollapsed ?? ownCollapsed;
+
+  function handleToggle() {
+    if (controlledCollapsed === undefined) {
+      setOwnCollapsed(!collapsed);
+    }
+    onToggle?.(!collapsed);
+  }
 
   return (
     <div>
-      <Heading>
-        <Trigger
-          type="button"
-          aria-expanded={!collapsed}
-          aria-controls={bodyId}
-          onClick={() => setCollapsed((current) => !current)}
-        >
-          <ChevronRightIcon />
-          <span>{heading}</span>
-        </Trigger>
-      </Heading>
+      <HeadingRow>
+        <Heading>
+          <Trigger type="button" aria-expanded={!collapsed} aria-controls={bodyId} onClick={handleToggle}>
+            <ChevronRightIcon />
+            <span>{heading}</span>
+          </Trigger>
+        </Heading>
+        {actions}
+      </HeadingRow>
       <Body id={bodyId} hidden={collapsed}>
         {children}
       </Body>
     </div>
   );
 }
+
+const HeadingRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${snzTokens.space.sm};
+
+  & > h3 {
+    flex: 1;
+    min-width: 0;
+  }
+`;
 
 const Heading = styled.h3`
   margin: 0;
@@ -66,7 +94,13 @@ const Trigger = styled.button`
   cursor: pointer;
 
   & > svg {
+    flex-shrink: 0;
     color: ${({ theme }) => theme.figure};
+  }
+
+  & > span {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
   }
 
   &[aria-expanded="true"] > svg {

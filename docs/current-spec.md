@@ -114,11 +114,11 @@ starting point.
 Presets fill participants, turn rule, scene and — where the preset marks one — the facilitator, in
  one step. Eight presets ship with the app; further
 presets are applied by loading a JSON file of the same shape. A preset can be applied when the
-conversation is created, and afterwards from the organisation panel for as long as the conversation
+conversation is created, and afterwards from the inspector for as long as the conversation
 has no messages — which replaces the roster, the turn rule and the scene. Once something has been
 said the preset is refused, since the transcript would be left naming speakers the conversation no
-longer has. An applied preset leaves no link behind — everything is edited from the organisation
-panel afterwards.
+longer has. An applied preset leaves no link behind — everything is edited from the
+inspector afterwards.
 
 The user is not a participant. Human messages are stored as `user` messages with no participant, so
 the user can speak into the conversation at any point (adding a topic, heckling) without taking a turn.
@@ -428,13 +428,24 @@ Center:
 
 Right pane:
 
-- organisation panel: participant CRUD with endpoint + model selection and a connection check,
-  the per-participant project-material switch, roster order, turn rule, the facilitator (shown for
-  the facilitator-alternating and weighted rules only), scene, and — while the conversation has no messages —
-  applying a preset (collapsed by default)
+- inspector: a run of collapsible sections. Their default folds flip when the first message lands
+  (the state section opens; the conversation settings and the participant cards fold). The choices
+  are not stored.
+  - preset: shown only while the conversation has no messages; collapsed by default
+  - state: the shared state sheet and one per roster participant (labelled "state of <display
+    name>" with the name in bold, in roster order; the character counter sits at the label row's
+    end and the save is right-aligned). Folded before the conversation starts, open after.
+    Editable and savable while a turn or the auto-advance runs
+  - conversation settings: turn rule, the facilitator (shown for the facilitator-alternating and
+    weighted rules only), scene. Open before the conversation starts, folded after
+  - roster: one collapsible card per participant (open before the conversation starts, folded
+    after; a just-added card opens). Move and remove sit in the card's heading, so the roster can
+    be reordered and left while the cards stay folded. Inside: display name, role prompt, the
+    project-material switch and their save, then — past a divider — endpoint, connection check,
+    model and their save
 
 Removed participants are listed separately from the roster, since their past utterances remain.
-The organisation panel is shown and hidden from the header exactly like the chat screen's context inspector (below).
+The inspector is shown and hidden from the header exactly like the chat screen's context inspector (below).
 
 ### Chat screen
 

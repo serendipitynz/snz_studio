@@ -17,19 +17,34 @@ export const HintRow = styled.div`
 
 const FieldBox = styled(Field.withComponent("div"))``;
 
-export function HintedField(props: { label: string; hint: string; children: (id: string) => ReactNode }) {
+// labelContent renders in place of the label's plain text (a name set in bold);
+// label stays the words, read out as the field's and the hint's name. labelEnd
+// sits at the row's far end (a character counter).
+export function HintedField(props: {
+  label: string;
+  labelContent?: ReactNode;
+  labelEnd?: ReactNode;
+  hint: string;
+  children: (id: string) => ReactNode;
+}) {
   const { t } = useLanguage();
   const id = useId();
   return (
     <FieldBox>
       <HintRow>
-        <label htmlFor={id}>{props.label}</label>
+        <label htmlFor={id}>{props.labelContent ?? props.label}</label>
         <Hint name={t("hint.about", { label: props.label })} body={props.hint} />
+        {props.labelEnd !== undefined ? <LabelEnd>{props.labelEnd}</LabelEnd> : null}
       </HintRow>
       {props.children(id)}
     </FieldBox>
   );
 }
+
+// A div, not a span: the counter it carries is a block element (MetaText).
+const LabelEnd = styled.div`
+  margin-inline-start: auto;
+`;
 
 // How long a hover-opened hint waits after the pointer leaves, so the pointer can
 // cross between the trigger and the body. The spec fixes no length.

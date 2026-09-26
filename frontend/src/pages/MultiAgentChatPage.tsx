@@ -160,7 +160,7 @@ export function MultiAgentChatPage() {
   // The button that opened the save dialog. The dialog opens only after the
   // server's draft arrives, so by then focus is no longer reliably on it.
   const memoryOpenerRef = useRef<HTMLButtonElement | null>(null);
-  const rosterRegion = useSideRegion(ROSTER_STORAGE_KEY, t("participants.title"));
+  const rosterRegion = useSideRegion(ROSTER_STORAGE_KEY, t("multiAgent.inspector"));
 
   // The loop reads its stop flag from a ref rather than from state: the flag is
   // set while an awaited turn is in flight, and the loop's closure would keep
@@ -590,8 +590,8 @@ export function MultiAgentChatPage() {
             </ActionButton>
             <RegionToggleButton
               type="button"
-              aria-label={t("participants.title")}
-              title={rosterRegion.shown ? t("multiAgent.hideRoster") : t("multiAgent.showRoster")}
+              aria-label={t("multiAgent.inspector")}
+              title={rosterRegion.shown ? t("multiAgent.hideInspector") : t("multiAgent.showInspector")}
               {...rosterRegion.triggerProps}
             >
               {rosterRegion.shown ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
@@ -820,7 +820,7 @@ export function MultiAgentChatPage() {
           an edit in progress. Hidden also takes it out of the grid, so the
           transcript gets the full width; on a narrow screen it lies over the
           transcript instead. */}
-      <InspectorPane $toggled {...rosterRegion.regionProps} aria-label={t("participants.title")}>
+      <InspectorPane $toggled {...rosterRegion.regionProps} aria-label={t("multiAgent.inspector")}>
         {rosterRegion.overlay ? (
           <RegionCloseButton type="button" {...rosterRegion.closeProps}>
             <PanelRightCloseIcon />
@@ -829,7 +829,7 @@ export function MultiAgentChatPage() {
         <ParticipantPanel
           chat={state.chat}
           participants={participants}
-          canApplyPreset={state.messages.length === 0}
+          conversationStarted={state.messages.length > 0}
           onChatChange={(chat) => setState((current) => (current ? { ...current, chat } : current))}
           onParticipantsChange={setParticipants}
           lockedReason={lockedReason}
