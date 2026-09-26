@@ -909,11 +909,11 @@ export function ProjectDetailPage() {
                 ) : null}
                 {selectedDocument.note ? <Subtle>{selectedDocument.note}</Subtle> : null}
                 {selectedDocument.type === "image" ? (
-                  <div>
+                  <Row style={{ justifyContent: "flex-end" }}>
                     <ActionButton type="button" variant="normal" icon={<PencilIcon />} onClick={() => setIsEditingDocument(true)}>
                       {t("documentEditor.edit")}
                     </ActionButton>
-                  </div>
+                  </Row>
                 ) : null}
               </>
             )}
