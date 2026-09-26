@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   authHeaders,
@@ -12,6 +12,7 @@ import {
 import type { ReviewReference } from "../api/client";
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
+import { ComposerTextarea } from "../components/ComposerTextarea";
 import { useConfirm } from "../components/ConfirmDialog";
 import { CopyMessageButton } from "../components/CopyMessageButton";
 import { Dialog, DialogTitle } from "../components/Dialog";
@@ -63,7 +64,6 @@ import {
   Stack,
   Subtle,
   SubsectionTitle,
-  Textarea,
   VisuallyHidden,
   WorkspaceShell
 } from "../styles/ui";
@@ -151,7 +151,6 @@ export function ChatPage() {
   const inspector = useSideRegion(INSPECTOR_STORAGE_KEY, t("chat.contextInspector"));
   const [titleDraft, setTitleDraft] = useState("");
   const [isTemporaryDraft, setIsTemporaryDraft] = useState(false);
-  const [isComposing, setIsComposing] = useState(false);
   const [documentPickerValue, setDocumentPickerValue] = useState("");
   const [reviewingMessageId, setReviewingMessageId] = useState<string | null>(null);
   const [reviewTargetMessageId, setReviewTargetMessageId] = useState<string | null>(null);
@@ -204,27 +203,6 @@ export function ChatPage() {
     setTitleDraft(state?.chat.title ?? "");
     setIsTemporaryDraft(state?.chat.isTemporary ?? false);
   }, [state?.chat.title, state?.chat.isTemporary]);
-
-  useEffect(() => {
-    const node = textareaRef.current;
-    if (!node) {
-      return;
-    }
-
-    const computedStyle = window.getComputedStyle(node);
-    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 22;
-    const padding =
-      Number.parseFloat(computedStyle.paddingTop || "0") + Number.parseFloat(computedStyle.paddingBottom || "0");
-    const border =
-      Number.parseFloat(computedStyle.borderTopWidth || "0") + Number.parseFloat(computedStyle.borderBottomWidth || "0");
-    const minHeight = 110;
-    const maxHeight = Math.round(lineHeight * 20 + padding + border);
-
-    node.style.height = "auto";
-    const nextHeight = draft.trim() ? Math.min(Math.max(node.scrollHeight, minHeight), maxHeight) : minHeight;
-    node.style.height = `${nextHeight}px`;
-    node.style.overflowY = node.scrollHeight > maxHeight ? "auto" : "hidden";
-  }, [draft]);
 
   useEffect(() => {
     const node = messageScrollerRef.current;
@@ -530,23 +508,6 @@ export function ChatPage() {
     setError("upload", "");
   }
 
-  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (isComposing || event.nativeEvent.isComposing || event.keyCode === 229) {
-      return;
-    }
-
-    if (event.key !== "Enter" || event.shiftKey) {
-      return;
-    }
-
-    event.preventDefault();
-    if (!draft.trim() || sending) {
-      return;
-    }
-
-    void handleSubmit(event);
-  }
-
   const latestAssistantMessage = useMemo(() => {
     return [...(state?.messages ?? [])].reverse().find((message) => message.role === "assistant") ?? null;
   }, [state]);
@@ -828,16 +789,12 @@ export function ChatPage() {
         <Composer onSubmit={handleSubmit}>
           <ComposerBox>
             {errors.composer ? <FailureNotice>{errors.composer}</FailureNotice> : null}
-            <Textarea
+            <ComposerTextarea
               ref={textareaRef}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={handleComposerKeyDown}
-              onCompositionStart={() => setIsComposing(true)}
-              onCompositionEnd={() => setIsComposing(false)}
+              onChange={setDraft}
               placeholder={t("chat.composerPlaceholder")}
               aria-label={t("chat.composerLabel")}
-              style={{ minHeight: 110, maxHeight: 460, resize: "none" }}
             />
             <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
               <Row style={{ alignItems: "center", flex: 1, minWidth: 0 }}>
