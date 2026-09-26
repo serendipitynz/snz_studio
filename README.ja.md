@@ -21,6 +21,7 @@ ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS �
     進行役が 1 人おきに挟まる交互進行（`facilitator_alternating`、TRPG の GM 向け）・
     呼ばれた人や長く黙っていた人が次に話す進行（`weighted`）
   - 全参加者に共通する場面設定（論題・シーン・世界観）
+  - TRPG 向けに、全参加者が読む状態シート（場所・HP・所持品など）と、参加者や人間が書いた `/roll` をアプリが振って目標値と比べるダイス判定
   - 同梱プリセット 25 件（ディベート・即興劇・TRPG の卓など）で選ぶだけで開始、自作のプリセットも JSON ファイルの読み込みで適用（形式は `docs/multi-agent-presets.md`）
   - 観戦ビューで 1 ターンずつ進める / 自動進行、任意の時点で人間として会話に発言
 - OpenAI 互換 API への接続
@@ -283,7 +284,7 @@ verbose トレースは出力しません。
 - document 編集 / 削除 UI
 - rerank 層の追加
 - image document の manual annotation UX 改善
-- 多人数会話の TRPG 対応（chat 単位の状態保持・ダイス・構造化出力での判定）、進行役モデルによる発言者指名、
+- 多人数会話の TRPG 対応の残り（状態シートを更新する効果コマンド）、進行役モデルによる発言者指名、
   生成中断（[設計書](docs/multi-agent-chat-design.md) §7）
 
 ## ライセンス

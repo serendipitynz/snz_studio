@@ -105,6 +105,14 @@ A multi-agent conversation has:
   `[次: name]` line a participant writes under `weighted` (removed from the stored text), or else the
   roster names found in the message's last sentence. Your own interventions are matched the same
   way, so "Alice, go on" reaches Alice under `weighted`
+- dice: a `/roll <dice> [目標<n>] [action]` on the last line of a message — a participant's or
+  yours — is rolled by the app when the message is stored (`NdM`, `NdM+K`, `NdM-K`; N 1–20, M 2–100).
+  The command line leaves the stored text and the roll is recorded with the message: the dice, the
+  total, and success when the total reaches the target (the command's `目標n`, else the
+  conversation's default target; with neither, the total alone). A roll is part of the message that
+  wrote it, not a message of its own, so no turn rule picks differently for it. A `/roll` that cannot
+  be read stays in a participant's text and is refused (400) in yours. Where there is also a trailing
+  `[次: name]`, the directive is removed first, then the command, and only then are names matched
 - scene: text prefixed to every participant's system prompt (topic, setting, world)
 
 The roster is the set of participants still on the conversation. Removing a participant is a soft
@@ -189,7 +197,8 @@ A turn:
 4. builds the prompt from the participant's point of view: system = project material (project
    description, matched document passages, matched memories; see below) + scene + role prompt + role
    reminder; history mapped to `assistant` for the participant's own past messages and `user` for
-   everyone else's, prefixed with the speaker's display name; the prompt ends on the message this
+   everyone else's, prefixed with the speaker's display name, and a message's rolls follow its body
+   as `【ダイス】action — 1d20+3 → 4+3 = 7（目標 12、失敗）` lines; the prompt ends on the message this
    participant has to answer
 5. streams the utterance and stores it as an `assistant` message carrying `participant_id`, together
    with the references the project material was built from (one transaction)
@@ -452,6 +461,10 @@ Center:
     shrinks first)
   - above the field, lines shown only when there is something to say: a failed turn, conclusion or
     intervention, (facilitator-alternating rule) no facilitator on the roster, a memory saved
+- a message's rolls as chips under its body (the die figure, the action, the dice and total, and the
+  target with success or failure; neutral with no target), told apart from what the speaker wrote
+- typing `/` on the composer's last line offers the `/roll` forms, and the format stays shown while
+  the arguments are typed. There is no dice button
 - save to memory on each utterance; disabled in a temporary chat, with the reason on the button
 
 Right pane:
@@ -465,7 +478,8 @@ Right pane:
     end and the save is right-aligned). Folded before the conversation starts, open after.
     Editable and savable while a turn or the auto-advance runs
   - conversation settings: turn rule, the facilitator (shown for the facilitator-alternating and
-    weighted rules only), scene. Open before the conversation starts, folded after
+    weighted rules only), the default dice target (0–9999, 0 for none), scene. Open before the
+    conversation starts, folded after
   - roster: one collapsible card per participant (open before the conversation starts, folded
     after; a just-added card opens). Move and remove sit in the card's heading, so the roster can
     be reordered and left while the cards stay folded. Inside: display name, role prompt, the
