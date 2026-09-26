@@ -1,10 +1,10 @@
 ---
 id: TASK-49
 title: ダッシュボードに置く要素を見直す
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-24 22:15'
-updated_date: '2026-09-26 08:57'
+updated_date: '2026-09-26 09:06'
 labels:
   - design
 dependencies: []
