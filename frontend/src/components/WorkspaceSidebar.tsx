@@ -3,7 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import styled from "@emotion/styled";
 import { api, ChatKind, ChatRecord, Project } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
-import { ArrowLeftIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
+import {
+  ArrowLeftIcon,
+  FolderIcon,
+  MessageSquarePlusIcon,
+  RotateCwFadingClockIcon,
+  SettingsIcon,
+  SpinnerIcon,
+  UserGroupIcon
+} from "./icons";
 import { SettingsModal } from "./SettingsModal";
 import { useMediaQuery } from "./useMediaQuery";
 import { usePopupMenu } from "./usePopupMenu";
@@ -22,7 +30,8 @@ import {
   SidebarSection,
   SidebarSectionLabel,
   Stack,
-  Subtle
+  Subtle,
+  VisuallyHidden
 } from "../styles/ui";
 import { snzTokens } from "../styles/themes/snz-tokens";
 
@@ -110,6 +119,8 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
         onClick={leaveEntry}
       >
         <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+          {/* The same figure as the project detail's heading band. */}
+          <FolderIcon />
           <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{project.title}</strong>
           <Subtle style={{ flexShrink: 0 }}>({project.chatCount})</Subtle>
         </Row>
@@ -392,15 +403,32 @@ const KindMenuItem = styled.button`
 `;
 
 function renderChatTitle(t: (key: MessageKey) => string, chat: ChatRecord) {
+  const title = chat.title.trim() ? (
+    <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{chat.title}</strong>
+  ) : (
+    <Subtle style={{ minWidth: 0, overflowWrap: "anywhere" }}>{t("sidebar.untitled")}</Subtle>
+  );
+
   // The two markers are independent facts about the chat, so both can show.
-  const marker = `${chat.kind === "multi_agent" ? "👥" : ""}${chat.isTemporary ? "⏱️" : ""}`;
-  const prefix = marker ? `${marker} ` : "";
-
-  if (chat.title.trim()) {
-    return <strong>{`${prefix}${chat.title}`}</strong>;
-  }
-
-  return <Subtle>{`${prefix}${t("sidebar.untitled")}`}</Subtle>;
+  // The same figures as the heading bands, with their words for the reader
+  // the figures are hidden from.
+  return (
+    <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap", minWidth: 0 }}>
+      {chat.kind === "multi_agent" ? (
+        <>
+          <UserGroupIcon />
+          <VisuallyHidden>{t("multiAgent.badge")}</VisuallyHidden>
+        </>
+      ) : null}
+      {chat.isTemporary ? (
+        <>
+          <RotateCwFadingClockIcon />
+          <VisuallyHidden>{t("chat.temporaryChat")}</VisuallyHidden>
+        </>
+      ) : null}
+      {title}
+    </Row>
+  );
 }
 
 function MenuIcon() {

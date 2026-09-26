@@ -14,12 +14,14 @@ import {
   PanelRightCloseIcon,
   PanelRightOpenIcon,
   PlayIcon,
+  RotateCwFadingClockIcon,
   RotateCwIcon,
   SendIcon,
   SpinnerIcon,
   SquareIcon,
   StepForwardIcon,
-  SummaryIcon
+  SummaryIcon,
+  UserGroupIcon
 } from "../components/icons";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { MessageReferences } from "../components/MessageReferences";
@@ -50,6 +52,7 @@ import {
   Subtle,
   Summary,
   Textarea,
+  VisuallyHidden,
   WorkspaceShell
 } from "../styles/ui";
 
@@ -548,11 +551,18 @@ export function MultiAgentChatPage() {
       <MainPane>
         <PaneHeader>
           <Row style={{ alignItems: "center" }}>
-            <SectionTitle>{state.chat.isTemporary ? `⏱️ ${chatTitle}` : chatTitle}</SectionTitle>
+            <UserGroupIcon size={18} />
+            {state.chat.isTemporary ? (
+              <>
+                <RotateCwFadingClockIcon size={18} />
+                <VisuallyHidden>{t("chat.temporaryChat")}</VisuallyHidden>
+              </>
+            ) : null}
+            <SectionTitle>{chatTitle}</SectionTitle>
             <Badge tone="warm">{t("multiAgent.badge")}</Badge>
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
-          <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+          <Row style={{ alignItems: "center", flexWrap: "nowrap", gap: 8 }}>
             <ActionButton
               type="button"
               iconOnly

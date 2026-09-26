@@ -144,7 +144,10 @@ export const InspectorPane = styled.aside<{ $toggled?: boolean; $overlay?: boole
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
-  padding: 18px;
+  /* 12px, down from 18px: the cards nest two deep in the organisation panel,
+     and the owner found the stacked margins cramping the fields inside
+     (real-window feedback, 2026-09-26). */
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -307,12 +310,16 @@ export const Card = styled.section`
   min-width: 0;
 `;
 
+// The title line sits at the band's vertical centre, and the band keeps one
+// height on every screen (min-height covers a header without icon buttons).
+// The 4px block padding is the owner's real-window pick (2026-09-26).
 export const PaneHeader = styled.div`
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 20px;
+  min-height: calc(${snzTokens.size.control} + 8px + ${snzTokens.border.line});
+  padding: 4px 20px;
   border-bottom: 1px solid ${({ theme }) => theme.line};
   background: linear-gradient(180deg, ${({ theme }) => theme.paneHeaderFrom}, ${({ theme }) => theme.paneHeaderTo});
   flex-shrink: 0;
@@ -347,10 +354,15 @@ export const SidebarSection = styled.div`
   gap: 8px;
 `;
 
-export const SidebarSectionLabel = styled.div`
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+// A real heading rather than the tracked mini-label it started as: the sections
+// are named by these words (doc-9 §6.3). 16px / 500 is the owner's pick
+// (2026-09-26) — one step under the inspector's h2 (18px / 700), after 11, 12
+// and 14px all read too small in the real window.
+export const SidebarSectionLabel = styled.h2`
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.3;
   color: ${({ theme }) => theme.muted};
 `;
 
