@@ -493,33 +493,17 @@ func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*
 	return chat, nil
 }
 
-// storeHumanMessage records the human's intervention in a multi-agent chat: the
-// message and whom it calls on, with none of the memory extraction, retrieval or
-// summary work a single-assistant turn does (design §4.4). The call is detected
-// here, at store time, for the same reason a turn's is (§4.6.5): without it "A,
-// tell us more" never reaches A under the weighted rule. It takes the chat's
-// message-write lock, which is what keeps it from landing inside an apply that
-// has already found the conversation empty; a turn in flight does not hold that
-// lock, so speaking mid-turn still goes straight through.
-func (s *Server) storeHumanMessage(chatID, content string) (*model.Message, error) {
-	var message model.Message
-	err := s.turnEngine.WithMessageWrite(chatID, func() error {
-		roster, err := s.participants.ListRoster(chatID)
-		if err != nil {
-			return err
-		}
-		stored, err := s.chats.AddMessage(repository.AddMessageInput{
-			ChatID:  chatID,
-			Role:    "user",
-			Content: content,
-
-			AddressedParticipantIDs: service.DetectHumanAddressees(content, roster),
-		})
-		message = stored
-		return err
-	})
-	if err != nil {
-		return nil, err
+// interventionErrorResponse maps a refused intervention to its status. A /roll
+// that cannot be read and a message left empty once its directive is removed
+// are both the request's own fault, and answering 400 keeps the text in the
+// composer where it can be corrected (design §4.8.3 item 2).
+func interventionErrorResponse(err error) (int, string) {
+	switch {
+	case errors.Is(err, service.ErrInvalidRollCommand), errors.Is(err, service.ErrUtteranceOnlyDirective):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, service.ErrChatNotFound):
+		return http.StatusNotFound, err.Error()
+	default:
+		return http.StatusInternalServerError, err.Error()
 	}
-	return &message, nil
 }

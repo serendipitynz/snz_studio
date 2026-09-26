@@ -1028,3 +1028,169 @@ func TestTurnEngineSpeakerAfter(t *testing.T) {
 		t.Fatalf("NextSpeaker (weighted) = %v, %v, want the pick over the stored transcript", next, err)
 	}
 }
+
+// setDiceTarget sets the chat's default target and fixes the dice the engine
+// throws, so a turn's outcome is known in advance.
+func (g *turnGraph) setDiceTarget(t *testing.T, chatID string, target int, dice ...int) {
+	t.Helper()
+	if chat, err := g.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{DiceTarget: &target}); err != nil || chat == nil {
+		t.Fatalf("UpdateMultiAgentSettings(diceTarget) = %v, %v", chat, err)
+	}
+	g.engine.rollDie = func(int) int {
+		v := dice[0]
+		dice = dice[1:]
+		return v
+	}
+}
+
+// TestTurnEngineRollsDice covers TASK-37 AC #1 and #3 on a participant's
+// utterance: the /roll on its last line is thrown by the app against the chat's
+// default target, stored with the message, taken out of the body, and handed
+// to every later speaker as a 【ダイス】 line after the body — the roller's own
+// assistant turn included.
+func TestTurnEngineRollsDice(t *testing.T) {
+	srv := newTurnLLMServer(t, "岩棚を横歩きで渡る。/roll 1d20+3 岩棚を渡る", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL, "Ren", "Mira")
+	g.setDiceTarget(t, chat.ID, 12, 4, 15, 15)
+
+	first, err := g.engine.RunTurn(chat.ID, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Content != "岩棚を横歩きで渡る。" || len(first.DiceRolls) != 1 {
+		t.Fatalf("stored = (%q, %+v), want the body without the command and one roll", first.Content, first.DiceRolls)
+	}
+	roll := first.DiceRolls[0]
+	if roll.Total != 7 || roll.Target != 12 || roll.Success == nil || *roll.Success || roll.Action != "岩棚を渡る" {
+		t.Fatalf("roll = %+v, want 4+3 = 7 against the default 12, failed", roll)
+	}
+	stored, err := g.chats.ListMessages(chat.ID)
+	if err != nil || len(stored) != 1 || !reflect.DeepEqual(stored[0].DiceRolls, first.DiceRolls) {
+		t.Fatalf("read back %+v (%v), want the roll stored with the message", stored, err)
+	}
+
+	g.runTurns(t, chat.ID, []model.Participant{roster[1], roster[0]})
+	wantLine := "【ダイス】岩棚を渡る — 1d20+3 → 4+3 = 7（目標 12、失敗）"
+	requests := srv.captured()
+	if last := requests[1].Messages[len(requests[1].Messages)-1]; last.Content != "Ren: 岩棚を横歩きで渡る。\n"+wantLine {
+		t.Fatalf("Mira read %q, want the body then the 【ダイス】 line", last.Content)
+	}
+	var ownTurn string
+	for _, m := range requests[2].Messages {
+		if m.Role == "assistant" {
+			ownTurn = m.Content
+			break
+		}
+	}
+	if ownTurn != "岩棚を横歩きで渡る。\n"+wantLine {
+		t.Fatalf("Ren's own turn read back as %q, want the 【ダイス】 line on it too", ownTurn)
+	}
+}
+
+// TestTurnEngineRollOnlyAndUnreadableRoll: an utterance that is nothing but a
+// /roll is stored with an empty body, since it has a roll to show (design
+// §4.8.3 item 2); a /roll that cannot be read stays in the body with no roll
+// rather than failing the turn.
+func TestTurnEngineRollOnlyAndUnreadableRoll(t *testing.T) {
+	srv := newTurnLLMServer(t, "/roll 2d6", nil)
+	g := newTurnGraph(t)
+	chat, _ := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL, "Ren", "Mira")
+	g.setDiceTarget(t, chat.ID, 0, 3, 5)
+	message, err := g.engine.RunTurn(chat.ID, "", nil, nil)
+	if err != nil {
+		t.Fatalf("RunTurn = %v, want a roll-only utterance stored", err)
+	}
+	if message.Content != "" || len(message.DiceRolls) != 1 || message.DiceRolls[0].Total != 8 || message.DiceRolls[0].Success != nil {
+		t.Fatalf("stored = (%q, %+v), want an empty body and the total alone", message.Content, message.DiceRolls)
+	}
+
+	unreadable := newTurnLLMServer(t, "跳ぶ。\n/roll d20 跳ぶ", nil)
+	chat, _ = g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", unreadable.URL, "Ren", "Mira")
+	message, err = g.engine.RunTurn(chat.ID, "", nil, nil)
+	if err != nil {
+		t.Fatalf("RunTurn = %v, want the unreadable /roll kept as text", err)
+	}
+	if message.Content != "跳ぶ。\n/roll d20 跳ぶ" || len(message.DiceRolls) != 0 {
+		t.Fatalf("stored = (%q, %+v), want the line kept and no roll", message.Content, message.DiceRolls)
+	}
+}
+
+// TestTurnEngineRollsKeepSpeakers covers the other half of TASK-37 AC #3: a
+// roll is recorded on the utterance that wrote it rather than as a message of
+// its own, so each of the four rules picks the same speaker from a transcript
+// with rolls — a roll-only utterance among them — as from the same transcript
+// without.
+func TestTurnEngineRollsKeepSpeakers(t *testing.T) {
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", "http://unused.invalid/v1", "GM", "Ren", "Mira")
+	gm, ren, mira := roster[0], roster[1], roster[2]
+	chat.FacilitatorID = gm.ID
+
+	failed := false
+	roll := []model.DiceRoll{{Expression: "1d20", Dice: []int{4}, Total: 4, Target: 12, Success: &failed}}
+	withRolls := []model.Message{
+		{Role: "assistant", Content: "坑道の入口に立つ。", ParticipantID: &gm.ID},
+		{Role: "assistant", Content: "", ParticipantID: &ren.ID, DiceRolls: roll},
+		{Role: "user", Content: "ミラ、どうする？", AddressedParticipantIDs: []string{mira.ID}, DiceRolls: roll},
+		{Role: "assistant", Content: "足場が崩れた。", ParticipantID: &gm.ID, AddressedParticipantIDs: []string{ren.ID}},
+	}
+	withoutRolls := make([]model.Message, len(withRolls))
+	for i, m := range withRolls {
+		m.DiceRolls = nil
+		if m.Content == "" {
+			m.Content = "渡る。"
+		}
+		withoutRolls[i] = m
+	}
+
+	for _, rule := range []string{model.TurnRuleRoundRobin, model.TurnRuleManual, model.TurnRuleFacilitatorAlternating, model.TurnRuleWeighted} {
+		chat.TurnRule = rule
+		nominee := ""
+		if rule == model.TurnRuleManual {
+			nominee = mira.ID
+		}
+		got, _, err := g.engine.selectSpeaker(&chat, nominee, withRolls)
+		if err != nil {
+			t.Fatalf("%s: selectSpeaker = %v", rule, err)
+		}
+		want, _, err := g.engine.selectSpeaker(&chat, nominee, withoutRolls)
+		if err != nil {
+			t.Fatalf("%s: selectSpeaker = %v", rule, err)
+		}
+		if got.ID != want.ID {
+			t.Errorf("%s: picked %s with rolls, %s without", rule, got.DisplayName, want.DisplayName)
+		}
+	}
+}
+
+// TestStoreHumanMessageRolls covers TASK-37 AC #1, #2 and #6 on the human's
+// intervention: the /roll is thrown against its own target, the call written
+// before the command line survives, a /roll that cannot be read is refused with
+// nothing stored, and so is a message that is nothing but a directive.
+func TestStoreHumanMessageRolls(t *testing.T) {
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleWeighted, "", "http://unused.invalid/v1", "レン (斥候)", "ミラ (神官戦士)")
+	g.setDiceTarget(t, chat.ID, 12, 13)
+
+	message, err := g.engine.StoreHumanMessage(chat.ID, "レン、登ってみて。\n/roll 1d20 目標15 崖を登る")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Content != "レン、登ってみて。" || !reflect.DeepEqual(message.AddressedParticipantIDs, []string{roster[0].ID}) {
+		t.Fatalf("stored = (%q, %v), want the body without the command and the call on レン", message.Content, message.AddressedParticipantIDs)
+	}
+	if len(message.DiceRolls) != 1 || message.DiceRolls[0].Target != 15 || message.DiceRolls[0].Success == nil || *message.DiceRolls[0].Success {
+		t.Fatalf("rolls = %+v, want 13 against the command's 15, failed", message.DiceRolls)
+	}
+
+	if _, err := g.engine.StoreHumanMessage(chat.ID, "/roll d20 崖を登る"); !errors.Is(err, ErrInvalidRollCommand) {
+		t.Fatalf("StoreHumanMessage = %v, want ErrInvalidRollCommand", err)
+	}
+	if _, err := g.engine.StoreHumanMessage(chat.ID, "[次: レン]"); !errors.Is(err, ErrUtteranceOnlyDirective) {
+		t.Fatalf("StoreHumanMessage = %v, want ErrUtteranceOnlyDirective", err)
+	}
+	if stored, _ := g.chats.ListMessages(chat.ID); len(stored) != 1 {
+		t.Fatalf("stored %d messages, want the refusals to store nothing", len(stored))
+	}
+}

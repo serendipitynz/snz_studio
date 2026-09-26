@@ -1074,9 +1074,10 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	// the turn engine's decision (design §4.4).
 	var assistantMessage *model.Message
 	if chat.Kind == model.ChatKindMultiAgent {
-		stored, storeErr := s.storeHumanMessage(chatID, content)
+		stored, storeErr := s.turnEngine.StoreHumanMessage(chatID, content)
 		if storeErr != nil {
-			fail(w, storeErr)
+			status, message := interventionErrorResponse(storeErr)
+			writeError(w, status, message)
 			return
 		}
 		assistantMessage = stored
@@ -1139,21 +1140,27 @@ func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request)
 	}
 	isMultiAgent := chat.Kind == model.ChatKindMultiAgent
 
+	// Same store-only intervention as the non-streaming route (§4.4), stored
+	// before the stream opens: it generates nothing, so nothing is lost by
+	// waiting, and a refusal (a /roll that cannot be read) keeps its 400 instead
+	// of arriving as an error frame on a 200. The response still ends in a done
+	// frame — with no delta before it — so the frontend consumes both chat kinds
+	// through one parser.
+	if isMultiAgent {
+		if _, storeErr := s.turnEngine.StoreHumanMessage(chatID, content); storeErr != nil {
+			status, message := interventionErrorResponse(storeErr)
+			writeError(w, status, message)
+			return
+		}
+	}
+
 	sse, err := NewSSEWriter(w)
 	if err != nil {
 		fail(w, err)
 		return
 	}
 
-	if isMultiAgent {
-		// Same store-only intervention as the non-streaming route (§4.4). The
-		// response still ends in a done frame — with no delta before it — so the
-		// frontend consumes both chat kinds through one parser.
-		if _, storeErr := s.storeHumanMessage(chatID, content); storeErr != nil {
-			_ = sse.Event("error", map[string]string{"message": storeErr.Error()})
-			return
-		}
-	} else {
+	if !isMultiAgent {
 		_, streamErr := s.chatService.SendMessageStream(chatID, content, func(chunk string) {
 			_ = sse.Event("delta", map[string]string{"content": chunk})
 		})
