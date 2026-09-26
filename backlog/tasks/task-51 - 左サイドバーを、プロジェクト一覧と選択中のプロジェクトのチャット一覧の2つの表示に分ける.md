@@ -4,7 +4,7 @@ title: 左サイドバーを、プロジェクト一覧と選択中のプロジ�
 status: In Review
 assignee: []
 created_date: '2026-09-25 07:11'
-updated_date: '2026-09-26 01:56'
+updated_date: '2026-09-26 02:07'
 labels:
   - design
 dependencies: []
@@ -103,4 +103,7 @@ TASK-44 で当てた現在地の印 (`aria-current` と、面・枠・帯) と�
 - 設定の上の仕切り線を端から端まで (`FullBleedDivider`、pane の padding を負の margin で打ち消す)。
 - 設定を歯車だけの `IconButton` (名札・title「設定」) にし、横に小さく `snz studio v0.0.0`。バージョンは package.json の `version` (0.0.0 を追加) を Vite の `define` (`__APP_VERSION__`) で焼き込む。
 - 検証: Chromium + WebKit で既存 17 項目全て通過。幾何も計測: 戻る/選択行/チャット行の高さ 38.39px で一致、チャット行の左右 inset 13px、仕切り線の inset 1px (枠のみ)、ヘッダー無し、歯車はアイコンのみ、バージョン表記あり。`pnpm check:client`・`build:client` 通過。
+
+## 実窓確認の指摘への対応 その2 (2026-09-26)
+- フッターの上下余白を詰めた: pane の flex gap (16px) と下 padding (12px) が効いていたのを、`SettingsFooter` の負の margin で上 8px・下 6px に (指示どおり)。Chromium で実測 上 8px / 下 6px、フッター域 66px → 52.4px。既存 17 項目も通過。check/build 通過。
 <!-- SECTION:NOTES:END -->
