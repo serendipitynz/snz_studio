@@ -4,7 +4,7 @@ title: 左サイドバーを、プロジェクト一覧と選択中のプロジ�
 status: In Review
 assignee: []
 created_date: '2026-09-25 07:11'
-updated_date: '2026-09-26 02:07'
+updated_date: '2026-09-26 02:10'
 labels:
   - design
 dependencies: []
@@ -106,4 +106,7 @@ TASK-44 で当てた現在地の印 (`aria-current` と、面・枠・帯) と�
 
 ## 実窓確認の指摘への対応 その2 (2026-09-26)
 - フッターの上下余白を詰めた: pane の flex gap (16px) と下 padding (12px) が効いていたのを、`SettingsFooter` の負の margin で上 8px・下 6px に (指示どおり)。Chromium で実測 上 8px / 下 6px、フッター域 66px → 52.4px。既存 17 項目も通過。check/build 通過。
+
+## レビュー第3ラウンドの [P3] への対応 (2026-09-26)
+- 負の margin (上 8px・下 6px) を広いサイドバーだけに限定した (`PaneFooterFit`)。畳まれた入口のパネルは自前の 18px padding のまま (指摘の対象外)。広いサイドバーの実測は変わらず 上 8px / 下 6px。check/build と 17 項目通過。P1/P2 なしの 3 ラウンド目で回数上限のため、この修正の再レビューは掛けていない。
 <!-- SECTION:NOTES:END -->
