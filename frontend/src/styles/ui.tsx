@@ -351,8 +351,10 @@ export const SidebarSection = styled.div`
   gap: 8px;
 `;
 
+// 12px: the 11px it started at read too small in the owner's real window
+// (2026-09-26).
 export const SidebarSectionLabel = styled.div`
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: ${({ theme }) => theme.muted};

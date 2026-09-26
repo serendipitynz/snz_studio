@@ -29,6 +29,7 @@ import {
   MessageSquarePlusIcon,
   PencilIcon,
   PlusIcon,
+  RotateCwFadingClockIcon,
   SlidersIcon,
   TrashIcon,
   UserShieldIcon,
@@ -63,6 +64,7 @@ import {
   Subtle,
   Textarea,
   TitleButton,
+  VisuallyHidden,
   WorkspaceShell
 } from "../styles/ui";
 
@@ -805,13 +807,17 @@ export function ProjectDetailPage() {
                   <Item key={chat.id} data-row="">
                     <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <RouterLink to={`/chats/${chat.id}`}>
+                        <RouterLink to={`/chats/${chat.id}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          {chat.isTemporary ? (
+                            <>
+                              <RotateCwFadingClockIcon size={14} />
+                              <VisuallyHidden>{t("chat.temporaryChat")}</VisuallyHidden>
+                            </>
+                          ) : null}
                           {chat.title.trim() ? (
-                            <strong>{chat.isTemporary ? `⏱️ ${chat.title}` : chat.title}</strong>
+                            <strong>{chat.title}</strong>
                           ) : (
-                            <Subtle style={{ opacity: 0.78 }}>
-                              {chat.isTemporary ? `⏱️ ${t("sidebar.untitled")}` : t("sidebar.untitled")}
-                            </Subtle>
+                            <Subtle style={{ opacity: 0.78 }}>{t("sidebar.untitled")}</Subtle>
                           )}
                         </RouterLink>
                         <Subtle>{new Date(chat.updatedAt).toLocaleString()}</Subtle>
