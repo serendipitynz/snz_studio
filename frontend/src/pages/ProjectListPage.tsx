@@ -175,5 +175,5 @@ function moveProject(projects: Project[], projectId: string, toIndex: number) {
 }
 
 function firstLine(text: string) {
-  return text.trim().split("\n", 1)[0];
+  return text.trim().split(/\r?\n/, 1)[0];
 }

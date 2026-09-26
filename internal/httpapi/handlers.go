@@ -827,7 +827,7 @@ func (s *Server) handleUpdateDocumentContent(w http.ResponseWriter, r *http.Requ
 // --- Chats -------------------------------------------------------------------
 
 const (
-	recentChatsDefaultLimit = 8
+	recentChatsDefaultLimit = 10
 	recentChatsMaxLimit     = 50
 )
 
