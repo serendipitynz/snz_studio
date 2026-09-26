@@ -118,9 +118,17 @@ interface MemoryDraft {
 const ROSTER_STORAGE_KEY = "snz.multiAgent.rosterCollapsed";
 const MEMORY_SAVED_NOTICE_MS = 5000;
 
-// The select's end padding makes room for the chevron (the Select's own padding)
-// and, left of it, the busy figure shown while the speaker is the current one.
-const SPEAKER_SELECT_END_PADDING = `calc(${snzTokens.icon.sizeMd} + 2 * ${snzTokens.space.sm} + 14px + ${snzTokens.space.xs})`;
+// The row's buttons keep their size and take a narrower inline padding than the
+// shared button, so the row holds one line about as far as the single chat's.
+// nowrap because CJK words break between any two characters: the group's
+// automatic minimum would otherwise count "進める" as one character wide and let
+// the row lay the group out narrower than its buttons draw.
+const ROW_BUTTON_STYLE = { flexShrink: 0, paddingInline: 12, whiteSpace: "nowrap" } as const;
+
+// While the busy figure shows, the select's end padding makes room for it left of
+// the chevron (the Select's own padding covers the chevron alone). The select's
+// width comes from the row, so the padding changing does not move anything.
+const SPEAKER_SELECT_BUSY_END_PADDING = `calc(${snzTokens.icon.sizeMd} + 2 * ${snzTokens.space.sm} + 14px + ${snzTokens.space.xs})`;
 const SPEAKER_SPINNER_STYLE = {
   position: "absolute",
   insetInlineEnd: `calc(${snzTokens.icon.sizeMd} + 2 * ${snzTokens.space.sm})`,
@@ -852,19 +860,29 @@ export function MultiAgentChatPage() {
               placeholder={t("multiAgent.intervenePlaceholder")}
               aria-label={t("multiAgent.interveneLabel")}
             />
-            {/* Positioned so the hint's note spans the whole row (Hint). */}
-            <Row style={{ justifyContent: "space-between", alignItems: "center", rowGap: 8, position: "relative" }}>
-              <Row style={{ alignItems: "center", rowGap: 8 }}>
-                {/* The busy figure sits inside the select, left of its chevron, in
-                    padding kept for it at all times: beside the select it would take a
-                    slot that stands empty whenever no turn runs. */}
-                <span style={{ position: "relative", display: "inline-flex", flex: "0 1 auto", minWidth: 0 }}>
+            {/* Positioned so the hint's note spans the whole row (Hint). The row keeps to
+                one line about as far as the single chat's does: short labels, 4px gaps
+                inside each group, and a speaker select that shrinks before anything
+                wraps. */}
+            <Row style={{ justifyContent: "space-between", alignItems: "center", gap: 8, position: "relative" }}>
+              {/* A zero basis, and the automatic minimum left in place, so the row
+                  breaks only once this group's narrowest form no longer fits — not
+                  as soon as the select's preferred width does not. */}
+              <Row style={{ alignItems: "center", gap: 4, flexWrap: "nowrap", flex: "1 1 0", minWidth: "auto" }}>
+                {/* The busy figure sits inside the select, left of its chevron: beside
+                    the select it would take a slot that stands empty whenever no turn
+                    runs. */}
+                <span style={{ position: "relative", display: "inline-flex", flex: "0 1 220px", minWidth: 130 }}>
                   <GuardedSelect
                     value={speakerSelectEnabled ? nomineeId : ""}
                     aria-label={t("multiAgent.speaker")}
                     disabledReason={speakerReason}
                     onChange={(event) => setNomineeId(event.target.value)}
-                    style={{ minWidth: 150, maxWidth: 260, width: "auto", paddingInlineEnd: SPEAKER_SELECT_END_PADDING }}
+                    style={{
+                      width: "100%",
+                      minWidth: 0,
+                      ...(speakerIsCurrent ? { paddingInlineEnd: SPEAKER_SELECT_BUSY_END_PADDING } : {})
+                    }}
                   >
                     {speakerSelectEnabled ? (
                       <>
@@ -885,40 +903,38 @@ export function MultiAgentChatPage() {
                     </span>
                   ) : null}
                 </span>
-                <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                  <ActionButton
-                    type="button"
-                    icon={<StepForwardIcon />}
-                    busy={turnRunning && !autoRunning && !stopPending}
-                    disabledReason={advanceReason}
-                    onClick={() => void handleAdvanceTurn()}
-                  >
-                    {t("multiAgent.advanceTurn")}
-                  </ActionButton>
-                  <Row style={{ alignItems: "center", gap: 2 }}>
-                    <ActionButton
-                      type="button"
-                      variant="normal"
-                      icon={autoShowsStop ? <SquareIcon /> : <PlayIcon />}
-                      busy={stopPending}
-                      disabledReason={autoReason}
-                      onClick={() => void handleToggleAutoRun()}
-                    >
-                      {autoShowsStop ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
-                    </ActionButton>
-                    <Hint
-                      name={t("multiAgent.progressHintName")}
-                      body={t("multiAgent.progressHint", { limit: historyLimit ?? "…" })}
-                    />
-                  </Row>
-                </Row>
+                <ActionButton
+                  type="button"
+                  icon={<StepForwardIcon />}
+                  busy={turnRunning && !autoRunning && !stopPending}
+                  disabledReason={advanceReason}
+                  onClick={() => void handleAdvanceTurn()}
+                  style={ROW_BUTTON_STYLE}
+                >
+                  {t("multiAgent.advanceTurn")}
+                </ActionButton>
+                <ActionButton
+                  type="button"
+                  variant="normal"
+                  icon={autoShowsStop ? <SquareIcon /> : <PlayIcon />}
+                  busy={stopPending}
+                  disabledReason={autoReason}
+                  onClick={() => void handleToggleAutoRun()}
+                  style={ROW_BUTTON_STYLE}
+                >
+                  {autoShowsStop ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
+                </ActionButton>
+                <Hint
+                  name={t("multiAgent.progressHintName")}
+                  body={t("multiAgent.progressHint", { limit: historyLimit ?? "…" })}
+                />
               </Row>
               {/* Pushed to the end, so it stays right-aligned when the row wraps. */}
-              <Row style={{ alignItems: "center", marginInlineStart: "auto" }}>
+              <Row style={{ alignItems: "center", gap: 4, flexWrap: "nowrap", marginInlineStart: "auto" }}>
                 {turnNumber > 0 ? (
-                  <StateBadge tone="neutral">
+                  <StateBadge tone="neutral" style={{ whiteSpace: "nowrap" }}>
                     {historyOverflow
-                      ? t("multiAgent.turnCountOver", { count: turnNumber })
+                      ? t("multiAgent.turnCountOver", { count: turnNumber, limit: historyLimit ?? "…" })
                       : t("multiAgent.turnCount", { count: turnNumber })}
                   </StateBadge>
                 ) : null}
@@ -928,6 +944,7 @@ export function MultiAgentChatPage() {
                   icon={<SendIcon />}
                   busy={posting}
                   disabledReason={posting || draft.trim() ? undefined : t("chat.messageRequired")}
+                  style={ROW_BUTTON_STYLE}
                 >
                   {t("multiAgent.intervene")}
                 </ActionButton>
