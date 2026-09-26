@@ -1,9 +1,9 @@
 import { useEffect, useId, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import styled from "@emotion/styled";
 import { api, ChatKind, ChatRecord, Project } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
-import { HouseIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
+import { ArrowLeftIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
 import { SettingsModal } from "./SettingsModal";
 import { useMediaQuery } from "./useMediaQuery";
 import { usePopupMenu } from "./usePopupMenu";
@@ -16,7 +16,7 @@ import {
   NARROW_MEDIA,
   RouterLink,
   Row,
-  SidebarButton,
+  SIDEBAR_PANE_PADDING,
   SidebarLink,
   SidebarPane,
   SidebarSection,
@@ -97,6 +97,26 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
   // claiming to be the page itself.
   const projectCurrent = props.activeChatId ? "true" : "page";
 
+  const selectedProject = props.currentProjectId
+    ? props.projects.find((project) => project.id === props.currentProjectId)
+    : undefined;
+
+  function renderProjectRow(project: Project) {
+    return (
+      <SidebarLink
+        key={project.id}
+        to={`/projects/${project.id}`}
+        aria-current={project.id === props.currentProjectId ? projectCurrent : undefined}
+        onClick={leaveEntry}
+      >
+        <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+          <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{project.title}</strong>
+          <Subtle style={{ flexShrink: 0 }}>({project.chatCount})</Subtle>
+        </Row>
+      </SidebarLink>
+    );
+  }
+
   const destinations = (
     <Stack
       as="nav"
@@ -114,19 +134,21 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
     >
       <SidebarSection>
         <SidebarSectionLabel>{t("sidebar.projects")}</SidebarSectionLabel>
-        {props.projects.map((project) => (
-          <SidebarLink
-            key={project.id}
-            to={`/projects/${project.id}`}
-            aria-current={project.id === props.currentProjectId ? projectCurrent : undefined}
-            onClick={leaveEntry}
-          >
-            <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
-              <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{project.title}</strong>
-              <Subtle style={{ flexShrink: 0 }}>({project.chatCount})</Subtle>
-            </Row>
-          </SidebarLink>
-        ))}
+        {props.currentProjectId ? (
+          // Inside a project only its own row stays; the back link beside it
+          // returns to the dashboard, where the full list shows again, so the
+          // sidebar's view follows the route and keeps no state of its own.
+          <Row style={{ alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+            <BackLink to="/" aria-label={t("sidebar.backToProjects")} title={t("sidebar.backToProjects")} onClick={leaveEntry}>
+              <ArrowLeftIcon />
+            </BackLink>
+            {selectedProject ? (
+              <div style={{ flex: "1 1 auto", minWidth: 0 }}>{renderProjectRow(selectedProject)}</div>
+            ) : null}
+          </Row>
+        ) : (
+          props.projects.map(renderProjectRow)
+        )}
       </SidebarSection>
 
       {props.currentProjectId ? (
@@ -193,11 +215,18 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
     </Stack>
   );
 
-  const settingsButton = (
-    <SidebarButton type="button" onClick={openSettings} style={{ flexShrink: 0 }}>
-      <SettingsIcon size={18} />
-      <span>{t("sidebar.settings")}</span>
-    </SidebarButton>
+  const settingsFooter = (
+    <SettingsFooter>
+      <IconButton
+        type="button"
+        aria-label={t("sidebar.settings")}
+        title={t("sidebar.settings")}
+        onClick={openSettings}
+      >
+        <SettingsIcon size={18} />
+      </IconButton>
+      <Subtle style={{ fontSize: snzTokens.font.sizeSmall }}>{`snz studio v${__APP_VERSION__}`}</Subtle>
+    </SettingsFooter>
   );
 
   const settingsModal = isSettingsOpen ? <SettingsModal onClose={() => setIsSettingsOpen(false)} /> : null;
@@ -222,7 +251,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
           <CollapsedPanel id={entryPanelId} ref={entry.popupRef} tabIndex={-1} {...entry.popupProps}>
             {destinations}
             <Divider />
-            {settingsButton}
+            {settingsFooter}
           </CollapsedPanel>
         ) : null}
         {settingsModal}
@@ -232,17 +261,9 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 
   return (
     <SidebarPane>
-      <Row style={{ justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-        <Brand />
-        <RouterLink to="/" aria-label={t("sidebar.home")}>
-          <HouseIcon size={18} />
-        </RouterLink>
-      </Row>
-
-      <Divider />
       {destinations}
-      <Divider />
-      {settingsButton}
+      <FullBleedDivider />
+      <PaneFooterFit>{settingsFooter}</PaneFooterFit>
       {settingsModal}
     </SidebarPane>
   );
@@ -299,6 +320,32 @@ const CollapsedPanel = styled.div`
   border: 1px solid ${({ theme }) => theme.fieldBorder};
   border-radius: ${({ theme }) => theme.radius};
   box-shadow: ${({ theme }) => theme.shadowPopover};
+`;
+
+// A destination, not an action, so it reaches assistive technology as a link
+// (snz-design doc-9 §6.8) while keeping the icon button's drawn form.
+const BackLink = IconButton.withComponent(Link);
+
+// The rule above the settings footer runs edge to edge of the pane (owner's
+// real-window feedback), so it cancels the pane's own padding.
+const FullBleedDivider = styled(Divider)`
+  margin: 0 calc(-1 * ${SIDEBAR_PANE_PADDING});
+`;
+
+const SettingsFooter = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+`;
+
+// The wide pane's 16px flex gap and 12px bottom padding leave the footer taller
+// than the owner asked for (8px above, 6px below — real-window feedback), so
+// this pulls both back by the difference. Wide pane only: the collapsed entry's
+// panel keeps its own 18px padding, whose spacing the feedback did not target.
+const PaneFooterFit = styled.div`
+  margin-top: -8px;
+  margin-bottom: -6px;
 `;
 
 const MenuAnchor = styled.div`

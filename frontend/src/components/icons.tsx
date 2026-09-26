@@ -37,6 +37,15 @@ export function HouseIcon({ size }: { size?: number }) {
   );
 }
 
+export function ArrowLeftIcon() {
+  return (
+    <Lucide>
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </Lucide>
+  );
+}
+
 export function SettingsIcon({ size }: { size?: number }) {
   return (
     <Lucide size={size}>

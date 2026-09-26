@@ -22,7 +22,7 @@ const en = {
   "discard.confirm": "Discard",
   "discard.keepEditing": "Keep editing",
 
-  "sidebar.home": "Home",
+  "sidebar.backToProjects": "Back to the project list",
   "sidebar.projects": "Projects",
   "sidebar.chats": "Chats",
   "sidebar.createChat": "Create chat",
@@ -500,7 +500,7 @@ const ja: Record<MessageKey, string> = {
   "discard.confirm": "破棄する",
   "discard.keepEditing": "編集を続ける",
 
-  "sidebar.home": "ホーム",
+  "sidebar.backToProjects": "プロジェクト一覧へ戻る",
   "sidebar.projects": "プロジェクト",
   "sidebar.chats": "チャット",
   "sidebar.createChat": "チャットを作成",
