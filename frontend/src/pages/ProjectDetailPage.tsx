@@ -742,7 +742,7 @@ export function ProjectDetailPage() {
                   <SectionTitle>{t("project.dangerZone")}</SectionTitle>
                   <Subtle>{t("project.dangerDesc")}</Subtle>
                   {errors.danger ? <FailureNotice>{errors.danger}</FailureNotice> : null}
-                  <div>
+                  <Row style={{ justifyContent: "flex-end" }}>
                     <ActionButton
                       type="button"
                       variant="danger"
@@ -753,7 +753,7 @@ export function ProjectDetailPage() {
                     >
                       {t("project.deleteProject")}
                     </ActionButton>
-                  </div>
+                  </Row>
                 </Stack>
               </Card>
             </Stack>
@@ -933,7 +933,7 @@ export function ProjectDetailPage() {
                     ))}
                   </Select>
                 </Field>
-                <div>
+                <Row style={{ justifyContent: "flex-end" }}>
                   {/* Normal rather than primary: the editor's save is this dialog's
                       primary action while it is open (doc-8 §6.1). */}
                   <ActionButton
@@ -949,7 +949,7 @@ export function ProjectDetailPage() {
                   >
                     {t("project.saveCategory")}
                   </ActionButton>
-                </div>
+                </Row>
 
                 <Stack style={{ gap: 6 }}>
                   <Checkbox
@@ -1016,7 +1016,7 @@ export function ProjectDetailPage() {
                   />
                 </Field>
                 {errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}
-                <div>
+                <Row style={{ justifyContent: "flex-end" }}>
                   <ActionButton
                     type="submit"
                     icon={<CheckIcon />}
@@ -1026,7 +1026,7 @@ export function ProjectDetailPage() {
                   >
                     {t("project.saveTitle")}
                   </ActionButton>
-                </div>
+                </Row>
               </Stack>
             </Card>
           </Stack>
@@ -1058,7 +1058,7 @@ export function ProjectDetailPage() {
                   />
                 </Field>
                 {errors.systemPrompt ? <FailureNotice>{errors.systemPrompt}</FailureNotice> : null}
-                <div>
+                <Row style={{ justifyContent: "flex-end" }}>
                   <ActionButton
                     type="submit"
                     icon={<CheckIcon />}
@@ -1067,7 +1067,7 @@ export function ProjectDetailPage() {
                   >
                     {t("project.saveSystemPrompt")}
                   </ActionButton>
-                </div>
+                </Row>
               </Stack>
             </Card>
           </Stack>
@@ -1178,7 +1178,7 @@ export function ProjectDetailPage() {
                     {t("project.lockHint")}
                   </Checkbox>
                   {errors.newMemory ? <FailureNotice>{errors.newMemory}</FailureNotice> : null}
-                  <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <Row style={{ justifyContent: "flex-end" }}>
                     {/* The dialog's one primary action; applying a plan is normal. */}
                     <ActionButton
                       type="submit"

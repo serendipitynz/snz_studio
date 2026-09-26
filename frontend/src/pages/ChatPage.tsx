@@ -952,12 +952,12 @@ export function ChatPage() {
                   {t("chat.temporaryChat")}
                 </Checkbox>
                 <Subtle>{t("chat.temporaryNote")}</Subtle>
-                <div>
+                {errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}
+                <Row style={{ justifyContent: "flex-end" }}>
                   <ActionButton type="submit" icon={<CheckIcon />} busy={savingTitle}>
                     {t("chat.saveSettings")}
                   </ActionButton>
-                </div>
-                {errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}
+                </Row>
               </Stack>
             </Card>
           </Stack>
