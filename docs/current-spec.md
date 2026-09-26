@@ -182,8 +182,9 @@ A turn:
    spoke within the last n participant utterances except the facilitator, and ×1.2 for an unanswered
    call — ties going to the longest silent, then to roster order)
 3. checks the participant's endpoint and loads the model, then announces the speaker to the client
-   (a `speaker` event carrying the participant, the resolved model and, for a rule that weighs the
-   roster, the weight breakdown); a refusal up to this point is an HTTP status (409 / 404 / 400 /
+   (a `speaker` event carrying the participant, the resolved model, for a rule that weighs the
+   roster the weight breakdown, and for round-robin and facilitator-alternating the participant who
+   follows this turn); a refusal up to this point is an HTTP status (409 / 404 / 400 /
    502), and a failure after it is an `error` event inside the stream
 4. builds the prompt from the participant's point of view: system = project material (project
    description, matched document passages, matched memories; see below) + scene + role prompt + role
@@ -436,9 +437,20 @@ Center:
 
 - transcript, each utterance labelled with the speaker's display name and model
 - streaming output for the turn in progress, labelled from the server's `speaker` event
-- advance one turn / start and stop auto-advance / (manual rule) nominate the next speaker /
-  (facilitator-alternating rule) a note when no facilitator is on the roster
-- a composer for speaking into the conversation as the user
+- the composer box, shaped like the chat screen's: a field for speaking into the conversation as the
+  user (Enter sends, Shift+Enter breaks the line), and below it one row of
+  - a speaker select: a choice only while the manual rule waits for a nomination; otherwise disabled
+    and showing the server's pick as "Next: <name>", or, while a turn runs and the next one is not
+    known yet (weighted, manual), "Speaking: <name>" with the busy figure
+  - advance one turn, and auto-advance ("Stop" while it runs) with a `(?)` hint saying that stopping takes
+    effect at the turn boundary and that each speaker reads only the latest 30 messages, the user's
+    included. Between a stop and the end of the turn in flight the button keeps "Stop" and shows
+    it is busy
+  - at the far end, a "Turn n" badge (the participants' utterances) and "Intervene". Past 30
+    messages the badge adds "older messages out of view"
+  - above the field, lines shown only when there is something to say: a failed turn, conclusion or
+    intervention, (facilitator-alternating rule) no facilitator on the roster, a memory saved
+- save to memory on each utterance; disabled in a temporary chat, with the reason on the button
 
 Right pane:
 
