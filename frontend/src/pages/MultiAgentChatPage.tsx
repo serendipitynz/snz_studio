@@ -7,7 +7,10 @@ import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
 import { Dialog, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
+import { ComposerTextarea } from "../components/ComposerTextarea";
 import { FailureNotice } from "../components/FailureNotice";
+import { GuardedSelect } from "../components/GuardedSelect";
+import { Hint } from "../components/Hint";
 import {
   CheckIcon,
   MemoryStickIcon,
@@ -29,6 +32,7 @@ import { ParticipantPanel } from "../components/ParticipantPanel";
 import { useSideRegion } from "../components/useSideRegion";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { MessageKey, useLanguage } from "../i18n";
+import { snzTokens } from "../styles/themes/snz-tokens";
 import {
   Badge,
   Card,
@@ -49,6 +53,7 @@ import {
   SectionTitle,
   Select,
   Stack,
+  StateBadge,
   Subtle,
   Summary,
   Textarea,
@@ -81,6 +86,8 @@ interface TurnSpeaker {
   participant: Participant;
   modelName: string;
   weights: SpeakerWeight[];
+  // Who follows this turn, for the rules that go by position; null otherwise.
+  next: Participant | null;
 }
 
 interface SpeakerWeight {
@@ -110,6 +117,18 @@ interface MemoryDraft {
 
 const ROSTER_STORAGE_KEY = "snz.multiAgent.rosterCollapsed";
 const MEMORY_SAVED_NOTICE_MS = 5000;
+
+// The select's end padding makes room for the chevron (the Select's own padding)
+// and, left of it, the busy figure shown while the speaker is the current one.
+const SPEAKER_SELECT_END_PADDING = `calc(${snzTokens.icon.sizeMd} + 2 * ${snzTokens.space.sm} + 14px + ${snzTokens.space.xs})`;
+const SPEAKER_SPINNER_STYLE = {
+  position: "absolute",
+  insetInlineEnd: `calc(${snzTokens.icon.sizeMd} + 2 * ${snzTokens.space.sm})`,
+  top: "50%",
+  transform: "translateY(-50%)",
+  display: "inline-flex",
+  pointerEvents: "none"
+} as const;
 
 // The 24px bare icon buttons of a message's action row, shared with the copy button.
 const MESSAGE_ACTION_STYLE = { width: 24, height: 24, border: "none", background: "transparent", padding: 0 } as const;
@@ -143,6 +162,20 @@ export function MultiAgentChatPage() {
   const [runningSpeaker, setRunningSpeaker] = useState<TurnSpeaker | null>(null);
   const [streamedContent, setStreamedContent] = useState("");
   const [autoRunning, setAutoRunning] = useState(false);
+  const [stopRequested, setStopRequested] = useState(false);
+  // The engine's pick for the next turn and the number of past messages a turn
+  // reads, both from the server so the view keeps no copy of the rule.
+  const [nextSpeaker, setNextSpeaker] = useState<Participant | null>(null);
+  const [historyLimit, setHistoryLimit] = useState<number | null>(null);
+  const nextRequestRef = useRef(0);
+  // The running turn's announced pick, kept in a ref because the intervention
+  // that voids it happens outside the turn's own closure.
+  const announcedNextRef = useRef<Participant | null>(null);
+  // The number the running turn will have once stored. Fixed when the turn
+  // starts: counting stored turns plus one while running would briefly show one
+  // too many between the done frame's transcript and the turn's end.
+  const [runningTurnNumber, setRunningTurnNumber] = useState(0);
+  const completedTurnsRef = useRef(0);
   const [nomineeId, setNomineeId] = useState("");
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
@@ -230,6 +263,38 @@ export function MultiAgentChatPage() {
     return new Map(participants.map((participant) => [participant.id, participant]));
   }, [participants]);
 
+  const completedTurns = state?.messages.filter((message) => message.participantId).length ?? 0;
+  completedTurnsRef.current = completedTurns;
+  const turnNumber = turnRunning ? runningTurnNumber : completedTurns;
+
+  // Re-read whenever something the pick depends on has changed, and not while a
+  // turn runs: the speaker frame reports the pick then. A failed read leaves the
+  // select on its prompt; the turn itself still picks and reports its speaker.
+  const loaded = state !== null;
+  const turnRule = state?.chat.turnRule;
+  const facilitatorId = state?.chat.facilitatorId;
+  const messageCount = state?.messages.length ?? 0;
+  const rosterKey = roster.map((participant) => participant.id).join(",");
+  useEffect(() => {
+    if (!loaded || turnRunning) {
+      return;
+    }
+    const request = ++nextRequestRef.current;
+    api
+      .getNextSpeaker(chatId)
+      .then((response) => {
+        if (request === nextRequestRef.current) {
+          setNextSpeaker(response.participant);
+          setHistoryLimit(response.historyLimit);
+        }
+      })
+      .catch(() => {
+        if (request === nextRequestRef.current) {
+          setNextSpeaker(null);
+        }
+      });
+  }, [chatId, loaded, turnRunning, turnRule, facilitatorId, messageCount, rosterKey]);
+
   const manualRule = state?.chat.turnRule === "manual";
   // The rule is the chat's standing setting, so a removed facilitator leaves it
   // selected with nobody to interleave. The engine falls back to roster order
@@ -262,6 +327,8 @@ export function MultiAgentChatPage() {
     }
 
     turnInFlightRef.current = true;
+    setRunningTurnNumber(completedTurnsRef.current + 1);
+    announcedNextRef.current = null;
     setTurnError("");
     setStreamedContent("");
     setRunningSpeaker(null);
@@ -279,9 +346,11 @@ export function MultiAgentChatPage() {
         (event, payload) => {
           if (event === "speaker") {
             const speaker = payload as unknown as TurnSpeaker;
+            announcedNextRef.current = speaker.next ?? null;
             // A frame missing weights or factors must drop them, not break the render.
             setRunningSpeaker({
               ...speaker,
+              next: speaker.next ?? null,
               weights: (speaker.weights ?? []).map((entry) => ({ ...entry, factors: entry.factors ?? [] }))
             });
             return;
@@ -309,6 +378,11 @@ export function MultiAgentChatPage() {
             if (done.participants) {
               setParticipants(done.participants);
             }
+            // Until the re-read lands, the pick the turn announced stands in for
+            // it. An auto-advance loop starts the next turn before then, and the
+            // pick from before this turn would name the wrong speaker meanwhile.
+            nextRequestRef.current += 1;
+            setNextSpeaker(announcedNextRef.current);
           }
         }
       );
@@ -338,6 +412,7 @@ export function MultiAgentChatPage() {
       // stops at the next turn boundary (§4.1).
       autoRunningRef.current = false;
       setAutoRunning(false);
+      setStopRequested(true);
       return;
     }
 
@@ -355,13 +430,14 @@ export function MultiAgentChatPage() {
     } finally {
       autoRunningRef.current = false;
       setAutoRunning(false);
+      setStopRequested(false);
     }
   }
 
   async function handleIntervene(event: FormEvent) {
     event.preventDefault();
     const content = draft.trim();
-    if (!content) {
+    if (!content || posting) {
       return;
     }
 
@@ -371,6 +447,10 @@ export function MultiAgentChatPage() {
       const response = await api.sendMessage(chatId, content);
       setState((current) => (current ? { ...current, chat: response.chat, messages: response.messages } : current));
       setDraft("");
+      // An intervention can change who follows the running turn (the facilitator
+      // answers it), so the pick that turn announced no longer holds.
+      announcedNextRef.current = null;
+      setRunningSpeaker((current) => (current ? { ...current, next: null } : current));
     } catch (nextError) {
       setInterveneError(nextError instanceof Error ? nextError.message : t("multiAgent.interveneError"));
     } finally {
@@ -511,7 +591,10 @@ export function MultiAgentChatPage() {
     return <Card>{error ? <FailureNotice>{error}</FailureNotice> : t("multiAgent.notFound")}</Card>;
   }
 
-  const stopPending = !autoRunning && turnRunning;
+  // Stopping clears the loop's flag at once, but the turn in flight runs on, so
+  // the button keeps saying "stop" and shows it is busy until that turn ends.
+  const stopPending = stopRequested && turnRunning;
+  const autoShowsStop = autoRunning || stopPending;
   const chatTitle = state.chat.title.trim() || t("sidebar.untitled");
   // A temporary multi-agent chat reads project material but never writes it
   // back, so the one write path is closed while the flag is on (design §4.4).
@@ -525,8 +608,14 @@ export function MultiAgentChatPage() {
     : roster.length < 2
       ? t("multiAgent.needTwoParticipants", { count: roster.length })
       : t("multiAgent.nomineeRequired");
-  const advanceReason = autoRunning ? t("multiAgent.autoRunning") : turnRunning ? undefined : turnBlockedReason;
-  const autoReason = autoRunning
+  const advanceReason = autoRunning
+    ? t("multiAgent.autoRunning")
+    : stopPending
+      ? t("multiAgent.turnRunningReason")
+      : turnRunning
+        ? undefined
+        : turnBlockedReason;
+  const autoReason = autoShowsStop
     ? undefined
     : manualRule
       ? t("multiAgent.autoManualNote")
@@ -538,6 +627,33 @@ export function MultiAgentChatPage() {
     : turnRunning
       ? t("multiAgent.lockedTurn")
       : undefined;
+
+  // The speaker select is a choice only while manual waits for a nomination.
+  // Otherwise it reports the engine's own pick (design §6): who speaks next, or,
+  // while a turn runs and the next one cannot be known yet (weighted reads the
+  // utterance, manual waits for the user), who is speaking now.
+  const speakerSelectEnabled = manualRule && !turnRunning && !autoRunning;
+  const speakerReason = speakerSelectEnabled
+    ? undefined
+    : autoRunning
+      ? t("multiAgent.lockedAuto")
+      : turnRunning
+        ? t("multiAgent.lockedTurn")
+        : t("multiAgent.speakerByRule");
+  const speakingNow = turnRunning
+    ? runningSpeaker?.participant ?? (manualRule ? speakerById.get(nomineeId) : nextSpeaker) ?? null
+    : null;
+  const shownNext = turnRunning ? runningSpeaker?.next ?? null : manualRule ? null : nextSpeaker;
+  const speakerIsCurrent = turnRunning && !shownNext;
+  const speakerText = shownNext
+    ? t("multiAgent.speakerNext", { name: shownNext.displayName })
+    : speakingNow
+      ? t("multiAgent.speakerNow", { name: speakingNow.displayName })
+      : turnRunning
+        ? t("multiAgent.runningTurnUnknown")
+        : t("multiAgent.speakerPrompt");
+  const historyOverflow =
+    historyLimit !== null && state.messages.filter((message) => message.content.trim()).length > historyLimit;
 
   return (
     <WorkspaceShell $side={rosterRegion.shown}>
@@ -720,86 +836,87 @@ export function MultiAgentChatPage() {
 
         <Composer onSubmit={handleIntervene}>
           <ComposerBox>
-            <Stack>
-              <Row style={{ alignItems: "center" }}>
-                <ActionButton
-                  type="button"
-                  icon={<StepForwardIcon />}
-                  busy={turnRunning && !autoRunning}
-                  disabledReason={advanceReason}
-                  onClick={() => void handleAdvanceTurn()}
-                >
-                  {t("multiAgent.advanceTurn")}
-                </ActionButton>
-                <ActionButton
-                  type="button"
-                  variant="normal"
-                  icon={autoRunning ? <SquareIcon /> : <PlayIcon />}
-                  disabledReason={autoReason}
-                  onClick={() => void handleToggleAutoRun()}
-                >
-                  {autoRunning ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
-                </ActionButton>
-                {manualRule ? (
-                  <Select
-                    value={nomineeId}
-                    aria-label={t("multiAgent.nominee")}
+            {turnError ? <FailureNotice>{turnError}</FailureNotice> : null}
+            {conclusionError ? <FailureNotice>{conclusionError}</FailureNotice> : null}
+            {interveneError ? <FailureNotice>{interveneError}</FailureNotice> : null}
+            {facilitatorMissing ? <MetaText>{t("multiAgent.facilitatorMissing")}</MetaText> : null}
+            {memorySavedTitle ? <MetaText>{t("multiAgent.saveMemorySaved", { title: memorySavedTitle })}</MetaText> : null}
+            <ComposerTextarea
+              value={draft}
+              onChange={setDraft}
+              placeholder={t("multiAgent.intervenePlaceholder")}
+              aria-label={t("multiAgent.interveneLabel")}
+            />
+            {/* Positioned so the hint's note spans the whole row (Hint). */}
+            <Row style={{ justifyContent: "space-between", alignItems: "center", rowGap: 8, position: "relative" }}>
+              <Row style={{ alignItems: "center", rowGap: 8 }}>
+                {/* The busy figure sits inside the select, left of its chevron, in
+                    padding kept for it at all times: beside the select it would take a
+                    slot that stands empty whenever no turn runs. */}
+                <span style={{ position: "relative", display: "inline-flex", flex: "0 1 auto", minWidth: 0 }}>
+                  <GuardedSelect
+                    value={speakerSelectEnabled ? nomineeId : ""}
+                    aria-label={t("multiAgent.speaker")}
+                    disabledReason={speakerReason}
                     onChange={(event) => setNomineeId(event.target.value)}
-                    style={{ minWidth: 200, width: "auto" }}
+                    style={{ minWidth: 150, maxWidth: 260, width: "auto", paddingInlineEnd: SPEAKER_SELECT_END_PADDING }}
                   >
-                    <option value="">{t("multiAgent.nominee")}</option>
-                    {roster.map((participant) => (
-                      <option key={participant.id} value={participant.id}>
-                        {participant.displayName}
-                      </option>
-                    ))}
-                  </Select>
-                ) : null}
+                    {speakerSelectEnabled ? (
+                      <>
+                        <option value="">{t("multiAgent.speakerPrompt")}</option>
+                        {roster.map((participant) => (
+                          <option key={participant.id} value={participant.id}>
+                            {participant.displayName}
+                          </option>
+                        ))}
+                      </>
+                    ) : (
+                      <option value="">{speakerText}</option>
+                    )}
+                  </GuardedSelect>
+                  {speakerIsCurrent ? (
+                    <span style={SPEAKER_SPINNER_STYLE}>
+                      <SpinnerIcon size={14} />
+                    </span>
+                  ) : null}
+                </span>
+                <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+                  <ActionButton
+                    type="button"
+                    icon={<StepForwardIcon />}
+                    busy={turnRunning && !autoRunning && !stopPending}
+                    disabledReason={advanceReason}
+                    onClick={() => void handleAdvanceTurn()}
+                  >
+                    {t("multiAgent.advanceTurn")}
+                  </ActionButton>
+                  <Row style={{ alignItems: "center", gap: 2 }}>
+                    <ActionButton
+                      type="button"
+                      variant="normal"
+                      icon={autoShowsStop ? <SquareIcon /> : <PlayIcon />}
+                      busy={stopPending}
+                      disabledReason={autoReason}
+                      onClick={() => void handleToggleAutoRun()}
+                    >
+                      {autoShowsStop ? t("multiAgent.autoStop") : t("multiAgent.autoStart")}
+                    </ActionButton>
+                    <Hint
+                      name={t("multiAgent.progressHintName")}
+                      body={t("multiAgent.progressHint", { limit: historyLimit ?? "…" })}
+                    />
+                  </Row>
+                </Row>
               </Row>
-
-              {turnError ? <FailureNotice>{turnError}</FailureNotice> : null}
-
-              <Stack style={{ gap: 4 }}>
-                {turnRunning ? (
-                  <Row style={{ alignItems: "center", gap: 8 }}>
-                    <SpinnerIcon size={14} />
-                    <MetaText>
-                      {runningSpeaker
-                        ? t("multiAgent.runningTurn", { name: runningSpeaker.participant.displayName })
-                        : t("multiAgent.runningTurnUnknown")}
-                    </MetaText>
-                  </Row>
+              {/* Pushed to the end, so it stays right-aligned when the row wraps. */}
+              <Row style={{ alignItems: "center", marginInlineStart: "auto" }}>
+                {turnNumber > 0 ? (
+                  <StateBadge tone="neutral">
+                    {historyOverflow
+                      ? t("multiAgent.turnCountOver", { count: turnNumber })
+                      : t("multiAgent.turnCount", { count: turnNumber })}
+                  </StateBadge>
                 ) : null}
-                {autoRunning ? <MetaText>{t("multiAgent.autoRunning")}</MetaText> : null}
-                {stopPending ? <MetaText>{t("multiAgent.stopPending")}</MetaText> : null}
-                {concludingFrom ? (
-                  <Row style={{ alignItems: "center", gap: 8 }}>
-                    <SpinnerIcon size={14} />
-                    <MetaText>{t("multiAgent.concluding")}</MetaText>
-                  </Row>
-                ) : null}
-                {conclusionError ? <FailureNotice>{conclusionError}</FailureNotice> : null}
-                {memorySavedTitle ? <MetaText>{t("multiAgent.saveMemorySaved", { title: memorySavedTitle })}</MetaText> : null}
-                {memorySaveBlocked ? <MetaText>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
-                <MetaText>{t("multiAgent.autoBoundaryNote")}</MetaText>
-                {manualRule ? <MetaText>{t("multiAgent.autoManualNote")}</MetaText> : null}
-                {roster.length < 2 ? (
-                  <MetaText>{t("multiAgent.needTwoParticipants", { count: roster.length })}</MetaText>
-                ) : null}
-                {manualRule && !nomineeId ? <MetaText>{t("multiAgent.nomineeRequired")}</MetaText> : null}
-                {facilitatorMissing ? <MetaText>{t("multiAgent.facilitatorMissing")}</MetaText> : null}
-                <MetaText>{t("multiAgent.reloadHint")}</MetaText>
-              </Stack>
-
-              <Textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder={t("multiAgent.intervenePlaceholder")}
-                aria-label={t("multiAgent.intervene")}
-                style={{ minHeight: 72, resize: "none" }}
-              />
-              {interveneError ? <FailureNotice>{interveneError}</FailureNotice> : null}
-              <Row style={{ justifyContent: "flex-end" }}>
                 <ActionButton
                   type="submit"
                   variant="normal"
@@ -810,7 +927,7 @@ export function MultiAgentChatPage() {
                   {t("multiAgent.intervene")}
                 </ActionButton>
               </Row>
-            </Stack>
+            </Row>
           </ComposerBox>
         </Composer>
       </MainPane>
