@@ -134,6 +134,38 @@ export function LockOpenIcon() {
   );
 }
 
+// A multi-agent conversation: the owner's pick for the chat kind's figure.
+export function UserGroupIcon({ size }: { size?: number }) {
+  return (
+    <Lucide size={size}>
+      <path d="M17 21v-1a2 2 0 00-2-2H9a2 2 0 00-2 2v1" />
+      <path d="M19 10h1a2 2 0 012 2v1" />
+      <path d="M5 10H4a2 2 0 00-2 2v1" />
+      <circle cx="12" cy="11" r="3" />
+      <circle cx="18" cy="4" r="2" />
+      <circle cx="6" cy="4" r="2" />
+    </Lucide>
+  );
+}
+
+// A temporary chat, in the heading band and the sidebar rows alike.
+export function RotateCwFadingClockIcon({ size }: { size?: number }) {
+  return (
+    <Lucide size={size}>
+      <path d="M12 3a9.75 9.75 0 0 1 6.74 2.74" />
+      <path d="M18.74 5.74 21 8" />
+      <path d="M21 8V3" />
+      <path d="M7.5 19.794c-6-3.464-6-12.124 0-15.588" />
+      <path d="M7.5 4.206A9 9 0 0 1 12 3" />
+      <path d="M12 7v5l4 2" />
+      <path d="M14 20.775A9 9 0 0 1 12 21" />
+      <path d="M19 17.656a9 9 0 0 1-1.5 1.456" />
+      <path d="M21 12a9 9 0 0 1-.228 2" />
+      <path d="M21 8h-5" />
+    </Lucide>
+  );
+}
+
 // Shared with every participant: several figures.
 export function UsersIcon() {
   return (
