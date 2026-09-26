@@ -263,7 +263,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
     <SidebarPane>
       {destinations}
       <FullBleedDivider />
-      {settingsFooter}
+      <PaneFooterFit>{settingsFooter}</PaneFooterFit>
       {settingsModal}
     </SidebarPane>
   );
@@ -332,14 +332,18 @@ const FullBleedDivider = styled(Divider)`
   margin: 0 calc(-1 * ${SIDEBAR_PANE_PADDING});
 `;
 
-// The pane's 16px flex gap and 12px bottom padding leave the footer taller than
-// the owner asked for (8px above, 6px below — real-window feedback), so the
-// footer pulls both back by the difference.
 const SettingsFooter = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+`;
+
+// The wide pane's 16px flex gap and 12px bottom padding leave the footer taller
+// than the owner asked for (8px above, 6px below — real-window feedback), so
+// this pulls both back by the difference. Wide pane only: the collapsed entry's
+// panel keeps its own 18px padding, whose spacing the feedback did not target.
+const PaneFooterFit = styled.div`
   margin-top: -8px;
   margin-bottom: -6px;
 `;
