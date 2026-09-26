@@ -1,38 +1,19 @@
-# 多人数会話のプリセット (追加分)
+# 多人数会話のプリセット
 
-多人数会話 ([設計書](../../docs/multi-agent-chat-design.md) §6) のプリセットのうち、
-アプリに同梱していないものを置く場所です。同梱分 (ディベート・即興劇・TRPG の卓など 8 件) は
-[internal/preset/bundled/](../../internal/preset/bundled/) にあり、アプリの新規作成フォームの
-プリセット一覧に最初から出ます。ここにある 17 件と、同じ形式で自作した JSON は、
-新規作成フォームと編成パネル（発言が 1 件も無いあいだ）の「プリセットの JSON を読み込む」から
-ファイルを選ぶと同じように適用できます。
+多人数会話 ([設計書](multi-agent-chat-design.md) §6) のプリセットの形式と、自作するときの要点をまとめます。
+アプリに同梱しているプリセット (ディベート・即興劇・TRPG の卓など) は
+[internal/preset/bundled/](../internal/preset/bundled/) にあり、新規作成フォームと編成パネル
+（発言が 1 件も無いあいだ）のプリセット一覧に最初から出ます。同じ形式で自作した JSON は、
+同じ場所の「プリセットの JSON を読み込む」からファイルを選ぶと同じように適用できます。
+
+同梱分はファイル名を文字列として並べた順に一覧に並びます (群ごとの `optgroup` の中でもこの順)。
+今のファイル名は 2 桁にゼロ埋めした番号で始まるので、番号の順になります。
+同梱に足すときは、同じく 2 桁にゼロ埋めした番号で始まるファイル名 (`26-…json` など) で `internal/preset/bundled/` に置き、他と重ならない `id` と、
+下の形式表にある 4 つのうちの `group` を付けます (それ以外の `group` は一覧の「その他」に並びます)。
+起動時に全件を検証し、通らないファイルや `id` の欠け・重複があるとアプリは起動しません
+(`go test ./internal/preset/` で先に分かります)。
 
 用語は設計書 §2 のものをそのまま使います (プリセット・場面設定・参加者・表示名・役割プロンプト・ターン進行ルール)。
-
-## 一覧
-
-| ファイル | 場面 | 参加者数 | 群 |
-| --- | --- | --- | --- |
-| [04-brainstorming.json](04-brainstorming.json) | ブレインストーミング (図書館の来館者倍増) | 4 | 議論・検討 |
-| [05-theme-dialogue.json](05-theme-dialogue.json) | テーマ対話 (AI の小説は作品か) | 3 | 議論・検討 |
-| [06-presentation-qa.json](06-presentation-qa.json) | プレゼンと質疑 (検索機能の導入報告) | 3 | 議論・検討 |
-| [07-fantasy-tavern.json](07-fantasy-tavern.json) | ファンタジー酒場 (廃坑の依頼) | 4 | 演技・雑談 |
-| [08-royal-gossip.json](08-royal-gossip.json) | 王室噂話 (王女の婚約相手) | 3 | 演技・雑談 |
-| [09-office-kitchenette.json](09-office-kitchenette.json) | 日本企業の給湯室 (勤怠システム刷新) | 3 | 演技・雑談 |
-| [10-mock-trial.json](10-mock-trial.json) | 模擬裁判 (万引きの故意) | 3 | 議論・検討 |
-| [11-design-review.json](11-design-review.json) | 設計レビュー会議 (通知の非同期化) | 3 | 議論・検討 |
-| [12-negotiation.json](12-negotiation.json) | 商談・交渉 (業務ソフトの価格) | 3 | 議論・検討 |
-| [15-book-club.json](15-book-club.json) | 読書会 (『こころ』) | 3 | 聞き手つきの対話 |
-| [16-sengoku-war-council.json](16-sengoku-war-council.json) | 戦国の軍議 (籠城か出撃か) | 4 | 演技・雑談 |
-| [17-cross-era-dialogue.json](17-cross-era-dialogue.json) | 時代を超えた対談 (棟梁とエンジニア) | 3 | 聞き手つきの対話 |
-| [19-complaint-call.json](19-complaint-call.json) | クレーム対応の電話 (客と担当) | 2 | 1 対 1 |
-| [20-one-on-one.json](20-one-on-one.json) | 1on1 (上司と部下) | 2 | 1 対 1 |
-| [21-socratic-dialogue.json](21-socratic-dialogue.json) | 問答 (先生と生徒、質問だけで掘る) | 2 | 1 対 1 |
-| [22-relay-novel.json](22-relay-novel.json) | リレー小説 (作家 2 名の綱引き) | 2 | 1 対 1 |
-| [23-parent-teacher-meeting.json](23-parent-teacher-meeting.json) | 保護者面談 (担任と保護者) | 2 | 1 対 1 |
-
-番号は同梱分と通しで、同梱されている 01・02・03・13・14・18・24・25 が抜けています。
-参加者数は AI 参加者 (`participants` の要素) だけを数え、人間の介入発言は含めません。
 
 ## 形式
 
@@ -97,7 +78,7 @@ GM だけがシナリオを知っている編成に使います。省略した�
 
 ## 自作するときの要点 (同調収束と役割崩れの対策)
 
-小型モデルは履歴が伸びると役割を忘れ、同意で収束します (設計書 §4.3)。同梱分と追加分は次を守って書いてあります。
+小型モデルは履歴が伸びると役割を忘れ、同意で収束します (設計書 §4.3)。同梱分は次を守って書いてあります。
 
 - 参加者ごとに「立場・目的」「口調」「他の参加者との食い違い」の 3 つを持たせる。食い違いが無い参加者は 2〜3 ターンで同意役になる。
 - 参加者だけが知る情報 (隠し事・裁量の上限・持っている材料) は役割プロンプトに置き、場面設定には置かない。場面設定は全参加者に渡る。

@@ -24,8 +24,8 @@ filesystem** — a standalone desktop app you install and launch.
     chosen facilitator speaking every other turn (`facilitator_alternating`, for a game master), or
     letting whoever was called on — or has been quiet longest — speak next (`weighted`)
   - A scene prompt (topic, setting, world) shared by every participant
-  - 8 bundled presets (debate, improv theatre, a TRPG table and others) to start from, plus
-    additional presets loaded from JSON files
+  - 25 bundled presets (debate, improv theatre, a TRPG table and others) to start from, plus
+    your own presets loaded from JSON files (format: `docs/multi-agent-presets.md`)
   - A spectator view that advances one turn at a time or runs automatically, and lets you speak
     into the conversation as a human at any point
 - Connects to OpenAI-compatible APIs
@@ -52,7 +52,6 @@ internal/
   service/             retrieval / context / llm / embedding / summary / memory / review / turnengine
   preset/              bundled multi-agent presets (bundled/*.json via go:embed) + validation
   httpapi/             35 route handlers + SSE
-presets/multi-agent/   additional, non-bundled presets (JSON; format described in that directory's README)
 frontend/
   src/
     api/               HTTP client
