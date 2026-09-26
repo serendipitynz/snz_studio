@@ -4,7 +4,7 @@ title: 左サイドバーを、プロジェクト一覧と選択中のプロジ�
 status: In Review
 assignee: []
 created_date: '2026-09-25 07:11'
-updated_date: '2026-09-26 01:40'
+updated_date: '2026-09-26 01:56'
 labels:
   - design
 dependencies: []
@@ -95,4 +95,12 @@ TASK-44 で当てた現在地の印 (`aria-current` と、面・枠・帯) と�
 
 ## 残したこと
 - AC#5 の実窓 (WKWebView) の目視はオーナーの確認待ち。見てほしい箇所: 戻るリンクの見た目 (アイコンボタンの形) と行との並び、2表示の切り替わり、畳まれた入口の中の戻る。
+
+## 実窓確認の指摘への対応 (2026-09-26、オーナーの注釈画像)
+- ヘッダー (SNZ STUDIO + ホーム) を広いサイドバーから削除。畳まれた入口の帯のロゴは残す。`sidebar.home` の語も外した。ダッシュボードへは戻るリンクで届く。
+- 行の高さをアイコンボタンに合わせた: `SidebarLink` を flex + `min-height: size.control` (2.4rem) にし、選択行・チャット行・戻る/作成ボタンが同じ 38.4px (1行のとき。折り返す題は伸びる)。
+- 左右の余白を狭めた: `SidebarPane` の padding 18px → 12px (`SIDEBAR_PANE_PADDING` として共有)。
+- 設定の上の仕切り線を端から端まで (`FullBleedDivider`、pane の padding を負の margin で打ち消す)。
+- 設定を歯車だけの `IconButton` (名札・title「設定」) にし、横に小さく `snz studio v0.0.0`。バージョンは package.json の `version` (0.0.0 を追加) を Vite の `define` (`__APP_VERSION__`) で焼き込む。
+- 検証: Chromium + WebKit で既存 17 項目全て通過。幾何も計測: 戻る/選択行/チャット行の高さ 38.39px で一致、チャット行の左右 inset 13px、仕切り線の inset 1px (枠のみ)、ヘッダー無し、歯車はアイコンのみ、バージョン表記あり。`pnpm check:client`・`build:client` 通過。
 <!-- SECTION:NOTES:END -->
