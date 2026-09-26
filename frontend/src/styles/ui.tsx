@@ -82,11 +82,14 @@ export const WorkspaceShell = styled.div<{ $side?: boolean }>`
   }
 `;
 
+// Shared with the sidebar's full-bleed divider, which cancels it.
+export const SIDEBAR_PANE_PADDING = "12px";
+
 export const SidebarPane = styled.aside`
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
-  padding: 18px;
+  padding: ${SIDEBAR_PANE_PADDING};
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -356,10 +359,14 @@ export const SidebarSectionLabel = styled.div`
 // the unselected row to read, so the frame and the left band carry it as well
 // (snz-design doc-8 §5.2, doc-9 §6.8).
 export const SidebarLink = styled(Link)`
-  display: block;
+  /* One line sits at the icon buttons' height (min-height, so a wrapped
+     title can still grow the row). */
+  display: flex;
+  align-items: center;
+  min-height: ${snzTokens.size.control};
   text-decoration: none;
   color: inherit;
-  padding: 11px 12px;
+  padding: 4px 12px;
   border-radius: ${({ theme }) => theme.radiusSm};
   background: transparent;
   border: 1px solid ${({ theme }) => theme.lineIdle};
@@ -382,33 +389,6 @@ export const SidebarLink = styled(Link)`
   }
 
   ${focusRing}
-`;
-
-export const SidebarButton = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-  text-decoration: none;
-  color: inherit;
-  padding: 11px 12px;
-  border-radius: ${({ theme }) => theme.radiusSm};
-  background: transparent;
-  border: 1px solid ${({ theme }) => theme.lineIdle};
-  font: inherit;
-  cursor: pointer;
-
-  &${ENABLED}:hover {
-    background: ${({ theme }) => theme.surfaceHover};
-  }
-
-  &${ENABLED}:active {
-    background: ${({ theme }) => theme.surfacePressed};
-  }
-
-  ${focusRing}
-  ${disabledLook}
 `;
 
 export const SidebarMeta = styled.div`

@@ -1,6 +1,9 @@
 // Ambient declarations for globals injected at runtime.
 
 declare global {
+  // package.json's version, injected by Vite's `define` (vite.config.ts).
+  const __APP_VERSION__: string;
+
   interface Window {
     // Absolute origin of the local Go API server, set once at startup from the
     // Wails GetApiBase() binding (see main.tsx). Empty/undefined when the SPA is

@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import styled from "@emotion/styled";
 import { api, ChatKind, ChatRecord, Project } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
-import { ArrowLeftIcon, HouseIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
+import { ArrowLeftIcon, MessageSquarePlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
 import { SettingsModal } from "./SettingsModal";
 import { useMediaQuery } from "./useMediaQuery";
 import { usePopupMenu } from "./usePopupMenu";
@@ -16,7 +16,7 @@ import {
   NARROW_MEDIA,
   RouterLink,
   Row,
-  SidebarButton,
+  SIDEBAR_PANE_PADDING,
   SidebarLink,
   SidebarPane,
   SidebarSection,
@@ -215,11 +215,18 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
     </Stack>
   );
 
-  const settingsButton = (
-    <SidebarButton type="button" onClick={openSettings} style={{ flexShrink: 0 }}>
-      <SettingsIcon size={18} />
-      <span>{t("sidebar.settings")}</span>
-    </SidebarButton>
+  const settingsFooter = (
+    <Row style={{ alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "nowrap" }}>
+      <IconButton
+        type="button"
+        aria-label={t("sidebar.settings")}
+        title={t("sidebar.settings")}
+        onClick={openSettings}
+      >
+        <SettingsIcon size={18} />
+      </IconButton>
+      <Subtle style={{ fontSize: snzTokens.font.sizeSmall }}>{`snz studio v${__APP_VERSION__}`}</Subtle>
+    </Row>
   );
 
   const settingsModal = isSettingsOpen ? <SettingsModal onClose={() => setIsSettingsOpen(false)} /> : null;
@@ -244,7 +251,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
           <CollapsedPanel id={entryPanelId} ref={entry.popupRef} tabIndex={-1} {...entry.popupProps}>
             {destinations}
             <Divider />
-            {settingsButton}
+            {settingsFooter}
           </CollapsedPanel>
         ) : null}
         {settingsModal}
@@ -254,17 +261,9 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
 
   return (
     <SidebarPane>
-      <Row style={{ justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-        <Brand />
-        <RouterLink to="/" aria-label={t("sidebar.home")}>
-          <HouseIcon size={18} />
-        </RouterLink>
-      </Row>
-
-      <Divider />
       {destinations}
-      <Divider />
-      {settingsButton}
+      <FullBleedDivider />
+      {settingsFooter}
       {settingsModal}
     </SidebarPane>
   );
@@ -326,6 +325,12 @@ const CollapsedPanel = styled.div`
 // A destination, not an action, so it reaches assistive technology as a link
 // (snz-design doc-9 §6.8) while keeping the icon button's drawn form.
 const BackLink = IconButton.withComponent(Link);
+
+// The rule above the settings footer runs edge to edge of the pane (owner's
+// real-window feedback), so it cancels the pane's own padding.
+const FullBleedDivider = styled(Divider)`
+  margin: 0 calc(-1 * ${SIDEBAR_PANE_PADDING});
+`;
 
 const MenuAnchor = styled.div`
   position: relative;
