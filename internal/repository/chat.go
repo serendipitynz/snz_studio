@@ -22,8 +22,8 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 }
 
 const (
-	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, created_at, updated_at`
-	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids`
+	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, dice_target, created_at, updated_at`
+	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls`
 	summaryColumns = `chat_id, summary, updated_at`
 	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
 )
@@ -33,7 +33,7 @@ func scanChat(s scanner) (model.Chat, error) {
 		c           model.Chat
 		isTemporary int64
 	)
-	if err := s.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := s.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &c.DiceTarget, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return c, err
 	}
 	c.IsTemporary = isTemporary != 0
@@ -49,12 +49,16 @@ func scanMessage(s scanner) (model.Message, error) {
 		modelName     sql.NullString
 		participantID sql.NullString
 		addressees    string
+		diceRolls     string
 	)
-	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName, &participantID, &addressees); err != nil {
+	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName, &participantID, &addressees, &diceRolls); err != nil {
 		return m, err
 	}
 	if err := json.Unmarshal([]byte(addressees), &m.AddressedParticipantIDs); err != nil {
 		return m, fmt.Errorf("message %s: addressed_participant_ids: %w", m.ID, err)
+	}
+	if err := json.Unmarshal([]byte(diceRolls), &m.DiceRolls); err != nil {
+		return m, fmt.Errorf("message %s: dice_rolls: %w", m.ID, err)
 	}
 	m.ResponseMs = int64Ptr(respMs)
 	m.OutputTokens = int64Ptr(outTok)
@@ -98,7 +102,7 @@ func (r *ChatRepository) ListByProject(projectID string) ([]model.Chat, error) {
 // updated first, each with its project's title.
 func (r *ChatRepository) ListRecent(limit int) ([]model.RecentChat, error) {
 	rows, err := r.db.Query(`
-		SELECT c.id, c.project_id, c.title, c.is_temporary, c.kind, c.turn_rule, c.scene_prompt, c.facilitator_participant_id, c.state_sheet, c.created_at, c.updated_at, p.title
+		SELECT c.id, c.project_id, c.title, c.is_temporary, c.kind, c.turn_rule, c.scene_prompt, c.facilitator_participant_id, c.state_sheet, c.dice_target, c.created_at, c.updated_at, p.title
 		FROM chats c
 		JOIN projects p ON p.id = c.project_id
 		ORDER BY c.updated_at DESC, c.created_at DESC
@@ -113,7 +117,7 @@ func (r *ChatRepository) ListRecent(limit int) ([]model.RecentChat, error) {
 			c           model.RecentChat
 			isTemporary int64
 		)
-		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &c.CreatedAt, &c.UpdatedAt, &c.ProjectTitle); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &c.DiceTarget, &c.CreatedAt, &c.UpdatedAt, &c.ProjectTitle); err != nil {
 			return nil, err
 		}
 		c.IsTemporary = isTemporary != 0
@@ -135,7 +139,7 @@ func (r *ChatRepository) GetChat(chatID string) (*model.Chat, error) {
 }
 
 // CreateChatInput carries the fields for CreateChat. Kind, TurnRule,
-// ScenePrompt and StateSheet are optional: an empty Kind/TurnRule falls back to the column
+// ScenePrompt, StateSheet and DiceTarget are optional: an empty Kind/TurnRule falls back to the column
 // defaults, so existing callers keep creating single-assistant chats. The
 // facilitator is not among them — it names a participant, and a chat has no
 // roster until after it exists (UpdateMultiAgentSettings sets it).
@@ -147,6 +151,7 @@ type CreateChatInput struct {
 	TurnRule    string
 	ScenePrompt string
 	StateSheet  string
+	DiceTarget  int
 }
 
 // CreateChat inserts a chat and seeds an empty summary row. Mirrors createChat.
@@ -169,13 +174,14 @@ func (r *ChatRepository) CreateChat(input CreateChatInput) (model.Chat, error) {
 		TurnRule:    turnRule,
 		ScenePrompt: input.ScenePrompt,
 		StateSheet:  input.StateSheet,
+		DiceTarget:  input.DiceTarget,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 	if _, err := r.db.Exec(`
-		INSERT INTO chats (id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, state_sheet, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.ProjectID, c.Title, boolToInt(c.IsTemporary), c.Kind, c.TurnRule, c.ScenePrompt, c.StateSheet, c.CreatedAt, c.UpdatedAt); err != nil {
+		INSERT INTO chats (id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, state_sheet, dice_target, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.ProjectID, c.Title, boolToInt(c.IsTemporary), c.Kind, c.TurnRule, c.ScenePrompt, c.StateSheet, c.DiceTarget, c.CreatedAt, c.UpdatedAt); err != nil {
 		return model.Chat{}, err
 	}
 	if err := r.UpsertSummary(c.ID, ""); err != nil {
@@ -225,10 +231,11 @@ type MultiAgentSettings struct {
 	ScenePrompt   *string
 	FacilitatorID *string
 	StateSheet    *string
+	DiceTarget    *int
 }
 
 // UpdateMultiAgentSettings updates a multi-agent chat's turn rule, scene prompt,
-// facilitator and/or shared state sheet, and returns (nil, nil) if the chat does
+// facilitator, shared state sheet and/or default dice target, and returns (nil, nil) if the chat does
 // not exist. The update is partial because PATCH /api/chats/{chatId} accepts any
 // of the fields on its own (design §5).
 func (r *ChatRepository) UpdateMultiAgentSettings(chatID string, settings MultiAgentSettings) (*model.Chat, error) {
@@ -238,9 +245,10 @@ func (r *ChatRepository) UpdateMultiAgentSettings(chatID string, settings MultiA
 		    scene_prompt = COALESCE(?, scene_prompt),
 		    facilitator_participant_id = COALESCE(?, facilitator_participant_id),
 		    state_sheet = COALESCE(?, state_sheet),
+		    dice_target = COALESCE(?, dice_target),
 		    updated_at = ?
 		WHERE id = ?`,
-		ptrArg(settings.TurnRule), ptrArg(settings.ScenePrompt), ptrArg(settings.FacilitatorID), ptrArg(settings.StateSheet),
+		ptrArg(settings.TurnRule), ptrArg(settings.ScenePrompt), ptrArg(settings.FacilitatorID), ptrArg(settings.StateSheet), ptrArg(settings.DiceTarget),
 		util.NowISO(), chatID)
 	if err != nil {
 		return nil, err
@@ -273,7 +281,9 @@ func (r *ChatRepository) DeleteChat(chatID string) (*model.Chat, error) {
 
 // AddMessageInput carries the fields for AddMessage. ParticipantID is set only
 // for a multi-agent participant's turn; AddressedParticipantIDs only for a
-// multi-agent message that called on someone (nil stores as no call).
+// multi-agent message that called on someone (nil stores as no call);
+// DiceRolls only for a multi-agent message that carried a /roll (nil stores as
+// none).
 type AddMessageInput struct {
 	ChatID          string
 	Role            string
@@ -285,6 +295,7 @@ type AddMessageInput struct {
 	ParticipantID   *string
 
 	AddressedParticipantIDs []string
+	DiceRolls               []model.DiceRoll
 }
 
 // AddMessage inserts a message and bumps the chat's updated_at. Mirrors addMessage.
@@ -311,11 +322,19 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 		ParticipantID:   input.ParticipantID,
 
 		AddressedParticipantIDs: input.AddressedParticipantIDs,
+		DiceRolls:               input.DiceRolls,
 	}
 	if m.AddressedParticipantIDs == nil {
 		m.AddressedParticipantIDs = []string{}
 	}
+	if m.DiceRolls == nil {
+		m.DiceRolls = []model.DiceRoll{}
+	}
 	addressees, err := json.Marshal(m.AddressedParticipantIDs)
+	if err != nil {
+		return model.Message{}, err
+	}
+	diceRolls, err := json.Marshal(m.DiceRolls)
 	if err != nil {
 		return model.Message{}, err
 	}
@@ -326,10 +345,10 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`
-		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatID, m.Role, m.Content, m.CreatedAt,
-		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID), string(addressees)); err != nil {
+		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID), string(addressees), string(diceRolls)); err != nil {
 		return model.Message{}, err
 	}
 	if err := insertReferences(tx, m.ID, references); err != nil {
