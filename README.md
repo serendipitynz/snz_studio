@@ -259,7 +259,7 @@ action off. `IMAGE_DESCRIPTION_TIMEOUT_MS` defaults to 180000 (see `.env.example
 logging minimal and emits no verbose traces.
 
 Endpoints, models, `LLM Response Format` and the review endpoint / model can be updated from
-`Configuration` on the Dashboard. Values saved from the UI are stored in `app-config.json` under the
+the settings (the sidebar's gear button, or `Open settings` on the Dashboard). Values saved from the UI are stored in `app-config.json` under the
 app's data directory, take precedence over `.env`, and apply immediately. For thinking-style models
 such as `llm-jp-4-8b-thinking`, choosing `LLM-jp Thinking` strips the internal reasoning / tagged
 response and shows only the final answer.

@@ -504,10 +504,13 @@ workspace-wide configuration として次を持ちます。
 
 ### 11.1 Dashboard
 
-- Projects 一覧
+上から下、左から右の順に置きます。
+
+- 最近のチャット: 全 project のチャットを更新の新しい順に最大 8 件。project 名と日時を添え、押すとそのチャットを開きます
+- Projects 一覧: 行にチャット数・最終更新 (project 自身の更新と配下チャットの更新の新しい方)・システムプロンプトの1行目を表示します
 - 並べ替え: つまみのドラッグ、つまみと落とせる位置の2回の押下、キーボード (Space で掴む・矢印・Space で置く・Escape で取り消す)
-- project 作成
-- Configuration 表示 / 編集
+- project 作成: 一覧の見出しの「新しいプロジェクト」ボタンでダイアログ (タイトル・システムプロンプト) を開きます。入力があるまま閉じると破棄の確認を出します
+- 接続状態: チャット・レビュー・埋め込みの接続先に届くかをモデル名とともに表示し、設定を開くボタンを置きます。設定を閉じると確認し直します
 
 ### 11.2 Left sidebar
 
@@ -642,6 +645,7 @@ assistant footer:
 - project CRUD
 - document CRUD
 - chat CRUD
+- project をまたいだ最近のチャット
 - message send / stream
 - memory CRUD
 - memory organize

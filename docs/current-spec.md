@@ -382,10 +382,17 @@ Current values:
 
 ### Dashboard
 
-- project list
+Top to bottom and left to right:
+
+- recent chats: the chats of every project, most recently updated first (8 at most), each with its
+  project and time; pressing one opens it
+- project list: each row shows its chat count, its last activity (the later of the project's own
+  update and its chats' updates) and the first line of its system prompt
 - reorder: drag the handle, press the handle then a drop position, or use the keyboard (Space to pick up, arrows, Space to place, Escape to cancel)
-- project creation
-- configuration display and editing
+- project creation: the list heading's "New project" button opens a dialog (title and system
+  prompt); closing it with input typed asks before discarding it
+- connections: whether the chat, review and embedding endpoints are reachable, with their models,
+  and a button that opens the settings; they are checked again when the settings close
 
 ### Sidebar
 
@@ -517,6 +524,7 @@ Current API groups:
 - project CRUD
 - document CRUD
 - chat CRUD
+- recent chats across projects
 - message send / stream
 - memory CRUD
 - memory organization
