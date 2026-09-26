@@ -30,13 +30,14 @@ var (
 	ErrUtteranceOnlyDirective = errors.New("service: the utterance held nothing but its addressee directive")
 )
 
-// turnHistoryLimit caps how many past messages are mapped into a turn's prompt
-// (design §4.3). Older history is dropped rather than summarised (§8): a summary
+// TurnHistoryLimit caps how many past messages are mapped into a turn's prompt
+// (design §4.3). It is exported so the spectator view can say when the
+// transcript has outgrown it instead of keeping a copy of the number. Older history is dropped rather than summarised (§8): a summary
 // call per turn would double the latency of a turn on a local model, and the
 // drift seen on small models is role drift, which the per-turn reminder
 // addresses, rather than forgotten facts. 30 keeps a whole 20-question game and
 // several rounds of a four-speaker roster in view at ~200 characters a turn.
-const turnHistoryLimit = 30
+const TurnHistoryLimit = 30
 
 // Speaker labels for messages that carry no participant_id: the human's own
 // interventions and any assistant message left over from before the chat became
@@ -162,6 +163,10 @@ type SpeakerChoice struct {
 	// speaker by position leave it empty (never nil, so the frame always carries
 	// an array).
 	Weights []SpeakerWeight `json:"weights"`
+	// Next is who speaks after this turn, for the rules that go by position: the
+	// utterance being generated cannot change it there. weighted reads the
+	// utterance's own call and manual waits for a nomination, so both leave it nil.
+	Next *model.Participant `json:"next"`
 }
 
 // SpeakerWeight is one participant's weight and the factors multiplied into it.
@@ -242,7 +247,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 		return nil, fmt.Errorf("%w: %s (%s at %s)", ErrEndpointUnavailable, speaker.DisplayName, effectiveModel, effectiveBaseURL)
 	}
 	if onSpeaker != nil {
-		onSpeaker(SpeakerChoice{Participant: speaker, ModelName: effectiveModel, Weights: weights})
+		onSpeaker(SpeakerChoice{Participant: speaker, ModelName: effectiveModel, Weights: weights, Next: e.speakerAfter(chat, speaker, messages)})
 	}
 
 	knownSpeakers, err := e.participants.ListAll(chatID)
@@ -345,6 +350,50 @@ func referenceInputs(references []model.SearchReference) []repository.ReferenceI
 // out of the transcript instead of server-side progression state, so a restarted
 // server (or a second window) continues unchanged (§2). The weights are the
 // calculation behind the pick, empty for the rules that pick by position.
+// NextSpeaker reads who the next turn would pick, without running it or taking
+// the chat's turn slot, so the spectator view shows the engine's own choice
+// rather than a copy of the rule (design §6). It is nil under manual, where the
+// user names the speaker, and on an empty roster.
+func (e *TurnEngine) NextSpeaker(chatID string) (*model.Participant, error) {
+	chat, err := e.chats.GetChat(chatID)
+	if err != nil {
+		return nil, err
+	}
+	if chat == nil {
+		return nil, ErrChatNotFound
+	}
+	if chat.Kind != model.ChatKindMultiAgent {
+		return nil, ErrNotMultiAgentChat
+	}
+	if chat.TurnRule == model.TurnRuleManual {
+		return nil, nil
+	}
+	messages, err := e.chats.ListMessages(chatID)
+	if err != nil {
+		return nil, err
+	}
+	speaker, _, err := e.selectSpeaker(chat, "", messages)
+	if errors.Is(err, ErrRosterEmpty) {
+		return nil, nil
+	}
+	return speaker, err
+}
+
+// speakerAfter is who follows speaker under a rule that goes by position, read
+// as if speaker's utterance were already stored: those rules look only at who
+// spoke, never at what was said.
+func (e *TurnEngine) speakerAfter(chat *model.Chat, speaker *model.Participant, messages []model.Message) *model.Participant {
+	if chat.TurnRule == model.TurnRuleManual || chat.TurnRule == model.TurnRuleWeighted {
+		return nil
+	}
+	withTurn := append(append([]model.Message(nil), messages...), model.Message{Role: "assistant", ParticipantID: strPtr(speaker.ID)})
+	next, _, err := e.selectSpeaker(chat, "", withTurn)
+	if err != nil {
+		return nil
+	}
+	return next
+}
+
 func (e *TurnEngine) selectSpeaker(chat *model.Chat, participantID string, messages []model.Message) (*model.Participant, []SpeakerWeight, error) {
 	participantID = strings.TrimSpace(participantID)
 	if chat.TurnRule == model.TurnRuleManual {
@@ -535,7 +584,7 @@ func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, 
 		}
 		mapped = append(mapped, model.Message{Role: "user", Content: speakerLabel(m, labels) + ": " + m.Content})
 	}
-	return lastN(mapped, turnHistoryLimit)
+	return lastN(mapped, TurnHistoryLimit)
 }
 
 func speakerLabel(m model.Message, labels map[string]string) string {

@@ -985,3 +985,46 @@ func TestTurnEngineDirectiveOnlyUtteranceFails(t *testing.T) {
 		t.Fatalf("stored %d messages, want none", len(stored))
 	}
 }
+
+// TestTurnEngineSpeakerAfter covers TASK-55: the speaker event names who follows
+// the turn for the rules that go by position, and NextSpeaker reads the same pick
+// without running a turn. weighted cannot know it before the utterance exists.
+func TestTurnEngineSpeakerAfter(t *testing.T) {
+	srv := newTurnLLMServer(t, "発言", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleFacilitatorAlternating, "", srv.URL, "GM", "Player1", "Player2")
+	gm, player1, player2 := roster[0], roster[1], roster[2]
+	g.setFacilitator(t, chat.ID, gm.ID)
+
+	var nexts []string
+	onSpeaker := func(choice SpeakerChoice) {
+		if choice.Next == nil {
+			nexts = append(nexts, "")
+			return
+		}
+		nexts = append(nexts, choice.Next.ID)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := g.engine.RunTurn(chat.ID, "", onSpeaker, nil); err != nil {
+			t.Fatalf("RunTurn #%d: %v", i+1, err)
+		}
+	}
+	if want := []string{player1.ID, gm.ID, player2.ID}; !reflect.DeepEqual(nexts, want) {
+		t.Fatalf("announced next = %v, want %v", nexts, want)
+	}
+	if next, err := g.engine.NextSpeaker(chat.ID); err != nil || next == nil || next.ID != player2.ID {
+		t.Fatalf("NextSpeaker = %v, %v, want Player2", next, err)
+	}
+
+	weighted, _ := g.newMultiAgentChat(t, model.TurnRuleWeighted, "", srv.URL, "Alice", "Bob")
+	var announced SpeakerChoice
+	if _, err := g.engine.RunTurn(weighted.ID, "", func(choice SpeakerChoice) { announced = choice }, nil); err != nil {
+		t.Fatalf("RunTurn (weighted): %v", err)
+	}
+	if announced.Next != nil {
+		t.Fatalf("weighted announced next = %s, want nil", announced.Next.ID)
+	}
+	if next, err := g.engine.NextSpeaker(weighted.ID); err != nil || next == nil {
+		t.Fatalf("NextSpeaker (weighted) = %v, %v, want the pick over the stored transcript", next, err)
+	}
+}

@@ -62,7 +62,7 @@ func TestMultiAgentTurnAnnouncesSpeaker(t *testing.T) {
 	h := newTestServer(t).Handler()
 	projectID := createProject(t, h, "Speaker Project")
 	chatID := createMultiAgentChat(t, h, projectID, "round_robin")
-	addParticipant(t, h, chatID, "Alice", llm.URL+"/v1")
+	alice := addParticipant(t, h, chatID, "Alice", llm.URL+"/v1")
 	bob := addParticipant(t, h, chatID, "Bob", llm.URL+"/v1")
 	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/turns/stream", map[string]any{}), http.StatusOK)
 
@@ -83,6 +83,9 @@ func TestMultiAgentTurnAnnouncesSpeaker(t *testing.T) {
 		} `json:"participant"`
 		ModelName string            `json:"modelName"`
 		Weights   []json.RawMessage `json:"weights"`
+		Next      *struct {
+			ID string `json:"id"`
+		} `json:"next"`
 	}
 	raw := parseSSE(t, rec.Body.String())["speaker"]
 	if err := json.Unmarshal([]byte(raw), &speaker); err != nil {
@@ -93,6 +96,9 @@ func TestMultiAgentTurnAnnouncesSpeaker(t *testing.T) {
 	}
 	if speaker.Weights == nil || len(speaker.Weights) != 0 {
 		t.Fatalf("weights = %s, want an empty array for round_robin", raw)
+	}
+	if speaker.Next == nil || speaker.Next.ID != alice {
+		t.Fatalf("next = %s, want Alice, who follows Bob in round_robin", raw)
 	}
 
 	var spoken struct {
@@ -194,4 +200,54 @@ func TestMultiAgentGenerationFailureIsAStreamError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMultiAgentNextSpeaker covers TASK-55: the view reads who the next turn
+// would pick from the engine rather than from a copy of the rule, with the
+// history limit beside it; manual has no pick of its own to report.
+func TestMultiAgentNextSpeaker(t *testing.T) {
+	llm := newMultiAgentLLM(t, nil)
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Next Project")
+	chatID := createMultiAgentChat(t, h, projectID, "round_robin")
+	alice := addParticipant(t, h, chatID, "Alice", llm.URL+"/v1")
+	bob := addParticipant(t, h, chatID, "Bob", llm.URL+"/v1")
+
+	next := func(id string) (string, float64) {
+		t.Helper()
+		rec := doJSON(t, h, "GET", "/api/chats/"+id+"/turns/next", nil)
+		wantStatus(t, rec, http.StatusOK)
+		var body struct {
+			Participant *struct {
+				ID string `json:"id"`
+			} `json:"participant"`
+			HistoryLimit float64 `json:"historyLimit"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode next: %v (%s)", err, rec.Body.String())
+		}
+		if body.Participant == nil {
+			return "", body.HistoryLimit
+		}
+		return body.Participant.ID, body.HistoryLimit
+	}
+
+	if id, limit := next(chatID); id != alice || limit != 30 {
+		t.Fatalf("next = (%s, %v), want (Alice, 30) before anyone spoke", id, limit)
+	}
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/turns/stream", map[string]any{}), http.StatusOK)
+	if id, _ := next(chatID); id != bob {
+		t.Fatalf("next = %s, want Bob after Alice spoke", id)
+	}
+
+	manual := createMultiAgentChat(t, h, projectID, "manual")
+	addParticipant(t, h, manual, "Carol", llm.URL+"/v1")
+	if id, _ := next(manual); id != "" {
+		t.Fatalf("next = %s, want null under manual", id)
+	}
+	empty := createMultiAgentChat(t, h, projectID, "round_robin")
+	if id, _ := next(empty); id != "" {
+		t.Fatalf("next = %s, want null on an empty roster", id)
+	}
+	wantStatus(t, doJSON(t, h, "GET", "/api/chats/chat_missing/turns/next", nil), http.StatusNotFound)
 }
