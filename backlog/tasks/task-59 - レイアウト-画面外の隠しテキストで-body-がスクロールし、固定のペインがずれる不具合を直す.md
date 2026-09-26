@@ -1,10 +1,10 @@
 ---
 id: TASK-59
 title: 'レイアウト: 画面外の隠しテキストで body がスクロールし、固定のペインがずれる不具合を直す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-26 11:56'
-updated_date: '2026-09-26 12:10'
+updated_date: '2026-09-26 12:24'
 labels:
   - design
 dependencies: []
