@@ -442,12 +442,14 @@ Center:
   - a speaker select: a choice only while the manual rule waits for a nomination; otherwise disabled
     and showing the server's pick as "Next: <name>", or, while a turn runs and the next one is not
     known yet (weighted, manual), "Speaking: <name>" with the busy figure
-  - advance one turn, and auto-advance ("Stop" while it runs) with a `(?)` hint saying that stopping takes
+  - "Advance" (one turn) and "Auto" (auto-advance; "Stop" while it runs) with a `(?)` hint saying that stopping takes
     effect at the turn boundary and that each speaker reads only the latest 30 messages, the user's
     included. Between a stop and the end of the turn in flight the button keeps "Stop" and shows
     it is busy
   - at the far end, a "Turn n" badge (the participants' utterances) and "Intervene". Past 30
-    messages the badge adds "older messages out of view"
+    messages the badge adds "(last 30)"
+  - the row holds one line down to about the width the chat screen's does (the speaker select
+    shrinks first)
   - above the field, lines shown only when there is something to say: a failed turn, conclusion or
     intervention, (facilitator-alternating rule) no facilitator on the roster, a memory saved
 - save to memory on each utterance; disabled in a temporary chat, with the reason on the button
