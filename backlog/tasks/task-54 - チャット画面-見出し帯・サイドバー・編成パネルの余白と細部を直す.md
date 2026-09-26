@@ -4,7 +4,7 @@ title: 'チャット画面: 見出し帯・サイドバー・編成パネルの�
 status: In Review
 assignee: []
 created_date: '2026-09-25 22:12'
-updated_date: '2026-09-26 05:29'
+updated_date: '2026-09-26 05:48'
 labels:
   - design
 dependencies:
@@ -91,4 +91,7 @@ TASK-47 (#47) の後のオーナーの実窓の確認 (2026-09-26) で出た、�
 ## 実窓確認の指摘への対応 (2026-09-26、オーナー)
 - AC#6 の実窓 (WKWebView) の目視: 見出し帯の高さ・題名の天地中央・ボタン間隔 8px・3種の図形 (user-group / rotate-cw-fading-clock / folder)・編成パネルの詰まり・プリセットの (?) と読み込みボタンは問題なしとオーナーが確認。
 - AC#3 の区画見出し: 12px (私の選択、オーナー指定ではない) は「まだ小さすぎ。右パネルと比べて不自然」→ 共有トークン font.sizeSmall (14px) に上げた。右パネルの見出し階層 (SectionTitle 18px / SubsectionTitle 15px) の下に収まる値。色は変えていないので比は既記録のとおり (muted / サイドバー面 4.86〜6.72)。check/build 通過。実窓の再確認待ち。
+
+## 実窓確認の指摘への対応 その2 (2026-09-26、オーナー)
+- 区画見出し 14px は「多少マシ」だが、見出しとしてマークアップされていない点と大きさの指摘 → SidebarSectionLabel を div のミニラベル (大文字トラッキング) から h2 の見出しに変え、16px / weight 500 (オーナー指定) にした。letter-spacing は見出しには不釣り合いなので外した。色は muted のまま (比は既記録 4.86〜6.72 のとおり)。マークアップが div だったのは初期実装の名残で意図は無い。check/build 通過。実窓の再確認待ち。
 <!-- SECTION:NOTES:END -->

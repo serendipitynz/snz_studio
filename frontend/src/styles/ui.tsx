@@ -354,12 +354,15 @@ export const SidebarSection = styled.div`
   gap: 8px;
 `;
 
-// The shared small size (14px): 11px and then 12px both read too small in the
-// owner's real window against the inspector's heading sizes (2026-09-26).
-export const SidebarSectionLabel = styled.div`
-  font-size: ${snzTokens.font.sizeSmall};
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+// A real heading rather than the tracked mini-label it started as: the sections
+// are named by these words (doc-9 §6.3). 16px / 500 is the owner's pick
+// (2026-09-26) — one step under the inspector's h2 (18px / 700), after 11, 12
+// and 14px all read too small in the real window.
+export const SidebarSectionLabel = styled.h2`
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.3;
   color: ${({ theme }) => theme.muted};
 `;
 
