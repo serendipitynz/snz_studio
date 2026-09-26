@@ -94,8 +94,10 @@ export function ProjectListPage() {
               <Card>
                 <Stack>
                   <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-                    <SectionTitle>{t("dashboard.projects")}</SectionTitle>
+                    {/* The count sits beside the heading it counts (owner, 2026-09-26). */}
                     <Row style={{ alignItems: "center", gap: 8 }}>
+                      <SectionTitle>{t("dashboard.projects")}</SectionTitle>
+                      <Badge tone="accent">{t("dashboard.projectsCount", { count: projects.length })}</Badge>
                       {/* The one busy display for a save of the order (doc-9 §5.6):
                           a figure beside the count, so the list keeps its size
                           and nothing under the pointer moves. */}
@@ -107,11 +109,10 @@ export function ProjectListPage() {
                           </>
                         ) : null}
                       </span>
-                      <Badge tone="accent">{t("dashboard.projectsCount", { count: projects.length })}</Badge>
-                      <ActionButton type="button" icon={<PlusIcon />} onClick={() => setIsCreateOpen(true)}>
-                        {t("dashboard.newProject")}
-                      </ActionButton>
                     </Row>
+                    <ActionButton type="button" icon={<PlusIcon />} onClick={() => setIsCreateOpen(true)}>
+                      {t("dashboard.newProject")}
+                    </ActionButton>
                   </Row>
                   {listError ? <FailureNotice>{listError}</FailureNotice> : null}
                   {!loading && !loadFailed && projects.length === 0 ? <Item>{t("dashboard.noProjects")}</Item> : null}
