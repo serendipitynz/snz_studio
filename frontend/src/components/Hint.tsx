@@ -1,8 +1,35 @@
 import styled from "@emotion/styled";
-import { PointerEvent, useEffect, useId, useRef, useState } from "react";
+import { PointerEvent, ReactNode, useEffect, useId, useRef, useState } from "react";
 import { snzTokens } from "../styles/themes/snz-tokens";
-import { focusRing } from "../styles/ui";
+import { Field, focusRing } from "../styles/ui";
 import { CircleHelpIcon } from "./icons";
+import { useLanguage } from "../i18n";
+
+// A field whose label carries a hint. The words are a label of their own, tied to
+// the field by id, and the (?) sits beside it: inside a wrapping label the button
+// would become the labelled control and take the field's name.
+export const HintRow = styled.div`
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+`;
+
+const FieldBox = styled(Field.withComponent("div"))``;
+
+export function HintedField(props: { label: string; hint: string; children: (id: string) => ReactNode }) {
+  const { t } = useLanguage();
+  const id = useId();
+  return (
+    <FieldBox>
+      <HintRow>
+        <label htmlFor={id}>{props.label}</label>
+        <Hint name={t("participants.hintAbout", { label: props.label })} body={props.hint} />
+      </HintRow>
+      {props.children(id)}
+    </FieldBox>
+  );
+}
 
 // How long a hover-opened hint waits after the pointer leaves, so the pointer can
 // cross between the trigger and the body. The spec fixes no length.

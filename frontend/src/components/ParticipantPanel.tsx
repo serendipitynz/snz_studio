@@ -1,5 +1,5 @@
 import styled from "@emotion/styled";
-import { FormEvent, ReactNode, useEffect, useId, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   api,
   CHAT_STATE_SHEET_MAX_CHARS,
@@ -16,7 +16,7 @@ import { Checkbox } from "./Checkbox";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { FailureNotice } from "./FailureNotice";
 import { GuardedSelect } from "./GuardedSelect";
-import { Hint } from "./Hint";
+import { Hint, HintedField, HintRow } from "./Hint";
 import { CheckIcon, MoveDownIcon, MoveUpIcon, PlugIcon, SparklesIcon, TrashIcon, UserPlusIcon } from "./icons";
 import { PresetChoice, PresetPicker } from "./PresetPicker";
 import { useLanguage } from "../i18n";
@@ -50,31 +50,12 @@ interface ParticipantPanelProps {
   canApplyPreset: boolean;
 }
 
-// A field whose label carries a hint. The words are a label of their own, tied to
-// the field by id, and the (?) sits beside it: inside a wrapping label the button
-// would become the labelled control and take the field's name.
-const HintRow = styled.div`
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 2px;
+// The panel's cards nest two deep (section card > participant card), so they
+// take a tighter padding than the shared Card to keep the fields inside wide
+// (owner's real-window feedback, 2026-09-26).
+const PanelCard = styled(Card)`
+  padding: 12px;
 `;
-
-const FieldBox = styled(Field.withComponent("div"))``;
-
-function HintedField(props: { label: string; hint: string; children: (id: string) => ReactNode }) {
-  const { t } = useLanguage();
-  const id = useId();
-  return (
-    <FieldBox>
-      <HintRow>
-        <label htmlFor={id}>{props.label}</label>
-        <Hint name={t("participants.hintAbout", { label: props.label })} body={props.hint} />
-      </HintRow>
-      {props.children(id)}
-    </FieldBox>
-  );
-}
 
 // The character counter under a state sheet. It turns to the error colour past
 // the limit, which is also when the save button says it cannot save.
@@ -309,15 +290,17 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
       <SectionTitle>{t("participants.title")}</SectionTitle>
 
       {props.canApplyPreset ? (
-        <Card>
+        <PanelCard>
           {/* Folded by default, and the open state is deliberately not kept: a
               chat created from a preset already has its line-up, so an expanded
               section above the roster would be shouting about a decision already
               taken. Opening it is one press when the preset is what is wanted. */}
           <CollapsibleSection heading={t("preset.section")}>
             <Stack>
-              <Subtle style={{ margin: 0 }}>{t("preset.applyNote")}</Subtle>
-              <PresetPicker disabledReason={props.lockedReason} onChange={setPresetChoice} />
+              {/* The when-and-what of applying lives in the label's (?) rather
+                  than as a paragraph above the select (owner's real-window
+                  feedback, 2026-09-26). */}
+              <PresetPicker labelHint={t("preset.applyNote")} disabledReason={props.lockedReason} onChange={setPresetChoice} />
               <div>
                 <ActionButton
                   type="button"
@@ -333,10 +316,10 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
               {presetError ? <FailureNotice>{presetError}</FailureNotice> : null}
             </Stack>
           </CollapsibleSection>
-        </Card>
+        </PanelCard>
       ) : null}
 
-      <Card>
+      <PanelCard>
         <Stack>
           <SubsectionTitle>{t("participants.settings")}</SubsectionTitle>
           <Field>
@@ -397,9 +380,9 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
           />
           {settingsError ? <FailureNotice>{settingsError}</FailureNotice> : null}
         </Stack>
-      </Card>
+      </PanelCard>
 
-      <Card>
+      <PanelCard>
         <Stack>
           <Row style={{ justifyContent: "space-between", alignItems: "baseline" }}>
             <SubsectionTitle>{t("participants.roster")}</SubsectionTitle>
@@ -429,7 +412,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
             ))}
           </Stack>
 
-          <Card as="form" onSubmit={handleAddParticipant}>
+          <PanelCard as="form" onSubmit={handleAddParticipant}>
             <Stack>
               <Field>
                 {t("participants.displayName")}
@@ -453,12 +436,12 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
               </div>
               {addError ? <FailureNotice>{addError}</FailureNotice> : null}
             </Stack>
-          </Card>
+          </PanelCard>
         </Stack>
-      </Card>
+      </PanelCard>
 
       {removed.length ? (
-        <Card>
+        <PanelCard>
           <CollapsibleSection heading={t("participants.removed", { count: removed.length })}>
             <Stack>
               {removed.map((participant) => (
@@ -469,7 +452,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
               ))}
             </Stack>
           </CollapsibleSection>
-        </Card>
+        </PanelCard>
       ) : null}
     </Stack>
   );
@@ -642,7 +625,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
   const saveReason = props.lockedReason ?? (dirty ? undefined : t("participants.unchanged"));
 
   return (
-    <Card data-participant={props.participant.id}>
+    <PanelCard data-participant={props.participant.id}>
       <Stack>
         <Row style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap" }}>
           <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>
@@ -798,6 +781,6 @@ function ParticipantEditor(props: ParticipantEditorProps) {
 
         {props.error ? <FailureNotice>{props.error}</FailureNotice> : null}
       </Stack>
-    </Card>
+    </PanelCard>
   );
 }

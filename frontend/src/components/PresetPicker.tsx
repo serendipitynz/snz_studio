@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, MultiAgentPreset, MultiAgentPresetSelection } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
-import { Field, Row, Subtle } from "../styles/ui";
+import { Field, MetaText, Row, Subtle } from "../styles/ui";
 import { ActionButton } from "./ActionButton";
 import { FailureNotice } from "./FailureNotice";
 import { GuardedSelect } from "./GuardedSelect";
+import { HintedField } from "./Hint";
 import { FileIcon } from "./icons";
 
 // The picker value that stands for the preset read from a file: it lives beside
@@ -40,6 +41,9 @@ export interface PresetChoice {
 interface PresetPickerProps {
   // Given, the picker takes no choice and says why (snz-design doc-8 §5.4).
   disabledReason?: string;
+  // Shown as a (?) beside the select's label: the organisation panel puts the
+  // when-and-what of applying there, while the creation form needs none.
+  labelHint?: string;
   onChange: (choice: PresetChoice | null) => void;
 }
 
@@ -126,24 +130,34 @@ export function PresetPicker(props: PresetPickerProps) {
     }
   }
 
+  const select = (id?: string) => (
+    <GuardedSelect id={id} value={choice} disabledReason={props.disabledReason} onChange={(event) => handleChoose(event.target.value)}>
+      <option value="">{t("preset.none")}</option>
+      {imported ? <option value={IMPORTED_PRESET_CHOICE}>{t("preset.imported", { title: imported.title })}</option> : null}
+      {groups.map(([group, items]) => (
+        <optgroup key={group} label={groupLabel(group)}>
+          {items.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.title}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </GuardedSelect>
+  );
+
   return (
     <>
-      <Field>
-        {t("preset.label")}
-        <GuardedSelect value={choice} disabledReason={props.disabledReason} onChange={(event) => handleChoose(event.target.value)}>
-          <option value="">{t("preset.none")}</option>
-          {imported ? <option value={IMPORTED_PRESET_CHOICE}>{t("preset.imported", { title: imported.title })}</option> : null}
-          {groups.map(([group, items]) => (
-            <optgroup key={group} label={groupLabel(group)}>
-              {items.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.title}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </GuardedSelect>
-      </Field>
+      {props.labelHint ? (
+        <HintedField label={t("preset.label")} hint={props.labelHint}>
+          {(id) => select(id)}
+        </HintedField>
+      ) : (
+        <Field>
+          {t("preset.label")}
+          {select()}
+        </Field>
+      )}
       {selected ? (
         <Subtle style={{ margin: 0 }}>
           {selected.description}{" "}
@@ -151,17 +165,20 @@ export function PresetPicker(props: PresetPickerProps) {
         </Subtle>
       ) : null}
       <Row style={{ alignItems: "center", gap: 10 }}>
+        {/* One line: wrapped over two, the button read as two actions in the
+            owner's real window. */}
         <ActionButton
           type="button"
           variant="normal"
           icon={<FileIcon />}
           disabledReason={props.disabledReason}
           onClick={() => fileRef.current?.click()}
+          style={{ whiteSpace: "nowrap" }}
         >
           {t("preset.import")}
         </ActionButton>
       </Row>
-      <Subtle style={{ margin: 0 }}>{t("preset.hint")}</Subtle>
+      <MetaText>{t("preset.hint")}</MetaText>
       {error ? <FailureNotice>{error}</FailureNotice> : null}
       <input
         ref={fileRef}

@@ -144,7 +144,10 @@ export const InspectorPane = styled.aside<{ $toggled?: boolean; $overlay?: boole
   background: ${({ theme }) => theme.surfacePane};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
-  padding: 18px;
+  /* 12px, down from 18px: the cards nest two deep in the organisation panel,
+     and the owner found the stacked margins cramping the fields inside
+     (real-window feedback, 2026-09-26). */
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 16px;
