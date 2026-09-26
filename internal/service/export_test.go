@@ -243,3 +243,21 @@ func TestBuildChatMarkdownFlattensMetadataNewlines(t *testing.T) {
 		t.Errorf("metadata opened a heading of its own: %d heading lines, want 6\n--- got ---\n%s", headingLines, got)
 	}
 }
+
+// TestBuildChatMarkdownDiceRolls covers the export half of TASK-37 AC #4: a
+// roll follows its message's body as a quote, and a roll-only message shows the
+// roll instead of the empty-utterance placeholder.
+func TestBuildChatMarkdownDiceRolls(t *testing.T) {
+	project, chat, participants, messages := exportFixture()
+	failed := false
+	messages[1].DiceRolls = []model.DiceRoll{{Expression: "1d20+3", Action: "数字を読む", Dice: []int{4}, Modifier: 3, Total: 7, Target: 12, Success: &failed}}
+	messages = append(messages, model.Message{ID: "m4", ChatID: "c1", Role: "user", DiceRolls: []model.DiceRoll{{Expression: "2d6", Dice: []int{3, 5}, Total: 8}}})
+
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+	if !strings.Contains(got, "まず前期の数字を見ましょう。\n\n> 🎲 数字を読む — 1d20+3 → 4+3 = 7（目標 12、失敗）\n") {
+		t.Errorf("markdown does not quote the roll after the body\n--- got ---\n%s", got)
+	}
+	if !strings.Contains(got, "### ユーザー\n\n> 🎲 2d6 → 3+5 = 8\n") || strings.Contains(got, "（空の発言）") {
+		t.Errorf("a roll-only message is not exported as its roll\n--- got ---\n%s", got)
+	}
+}
