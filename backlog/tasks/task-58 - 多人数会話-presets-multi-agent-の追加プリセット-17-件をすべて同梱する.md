@@ -1,10 +1,10 @@
 ---
 id: TASK-58
 title: '多人数会話: presets/multi-agent の追加プリセット 17 件をすべて同梱する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-26 09:22'
-updated_date: '2026-09-26 09:26'
+updated_date: '2026-09-26 11:09'
 labels: []
 dependencies: []
 references:
