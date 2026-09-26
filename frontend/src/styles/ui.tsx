@@ -307,12 +307,16 @@ export const Card = styled.section`
   min-width: 0;
 `;
 
+// The title line sits at the band's vertical centre, and the band keeps one
+// height on every screen (min-height covers a header without icon buttons).
+// The 4px block padding is the owner's real-window pick (2026-09-26).
 export const PaneHeader = styled.div`
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 20px;
+  min-height: calc(${snzTokens.size.control} + 8px + ${snzTokens.border.line});
+  padding: 4px 20px;
   border-bottom: 1px solid ${({ theme }) => theme.line};
   background: linear-gradient(180deg, ${({ theme }) => theme.paneHeaderFrom}, ${({ theme }) => theme.paneHeaderTo});
   flex-shrink: 0;

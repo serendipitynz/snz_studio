@@ -28,6 +28,7 @@ import {
   PanelRightCloseIcon,
   PanelRightOpenIcon,
   PencilIcon,
+  RotateCwFadingClockIcon,
   SendIcon,
   SpinnerIcon
 } from "../components/icons";
@@ -63,6 +64,7 @@ import {
   Subtle,
   SubsectionTitle,
   Textarea,
+  VisuallyHidden,
   WorkspaceShell
 } from "../styles/ui";
 import { useParams } from "react-router-dom";
@@ -709,16 +711,20 @@ export function ChatPage() {
         <PaneHeader>
           <Row style={{ alignItems: "center" }}>
             <MessagesSquareIcon size={18} />
+            {state.chat.isTemporary ? (
+              <>
+                <RotateCwFadingClockIcon size={18} />
+                <VisuallyHidden>{t("chat.temporaryChat")}</VisuallyHidden>
+              </>
+            ) : null}
             {state.chat.title.trim() ? (
-              <SectionTitle>{state.chat.isTemporary ? `⏱️ ${state.chat.title}` : state.chat.title}</SectionTitle>
+              <SectionTitle>{state.chat.title}</SectionTitle>
             ) : (
-              <Subtle style={{ opacity: 0.78 }}>
-                {state.chat.isTemporary ? `⏱️ ${t("sidebar.untitled")}` : t("sidebar.untitled")}
-              </Subtle>
+              <Subtle style={{ opacity: 0.78 }}>{t("sidebar.untitled")}</Subtle>
             )}
             <Badge tone="accent">{state.project.title}</Badge>
           </Row>
-          <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+          <Row style={{ alignItems: "center", flexWrap: "nowrap", gap: 8 }}>
             <ExportChatButton
               chatId={state.chat.id}
               chatTitle={state.chat.title}
