@@ -513,6 +513,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(selection)
     }),
+  // Who the next turn would pick, from the engine itself (null under manual),
+  // and how many past messages a turn reads.
+  getNextSpeaker: (chatId: string) =>
+    request<{ participant: Participant | null; historyLimit: number }>(`/api/chats/${chatId}/turns/next`),
   listParticipants: (chatId: string) =>
     request<{ participants: Participant[] }>(`/api/chats/${chatId}/participants`),
   createParticipant: (

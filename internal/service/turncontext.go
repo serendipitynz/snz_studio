@@ -10,7 +10,7 @@ import (
 
 // Budget for the project material one multi-agent turn carries (design §4.4).
 // The history of a turn is the last 30 utterances passed uncompressed
-// (turnHistoryLimit), about 6,000 characters at ~200 a turn, and the window of a
+// (TurnHistoryLimit), about 6,000 characters at ~200 a turn, and the window of a
 // local small model is a few thousand tokens; the material stays under a third of
 // the history so the conversation, not the project, fills the window. The counts
 // are the single-assistant defaults halved (4 × 3 chunks, 4 memories there):

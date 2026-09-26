@@ -140,6 +140,19 @@ func (s *Server) handleRemoveParticipant(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "participant": participant})
 }
 
+// handleNextSpeaker says who the next turn would pick (null under manual), and
+// how many past messages a turn reads, so the view can tell when older ones have
+// dropped out of what the speakers see (design §4.3, §6).
+func (s *Server) handleNextSpeaker(w http.ResponseWriter, r *http.Request) {
+	participant, err := s.turnEngine.NextSpeaker(r.PathValue("chatId"))
+	if err != nil {
+		status, message := turnErrorResponse(err)
+		writeError(w, status, message)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"participant": participant, "historyLimit": service.TurnHistoryLimit})
+}
+
 // handleRunTurnStream runs one turn and streams it (design §4.1, §5, §4.6.6).
 // The SSE writer is created when the engine announces the speaker instead of up
 // front: every way a turn can be refused — a turn already running (409), an
