@@ -214,6 +214,8 @@ export interface WorkspaceConfiguration {
   llmConnected: boolean;
   reviewConnected: boolean;
   embeddingConnected: boolean;
+  // Always false while no image description model is set.
+  imageDescriptionConnected: boolean;
 }
 
 // EmbeddingStatus mirrors the Go embed.Status: the lifecycle of the bundled internal
