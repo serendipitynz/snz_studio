@@ -354,10 +354,10 @@ export const SidebarSection = styled.div`
   gap: 8px;
 `;
 
-// 12px: the 11px it started at read too small in the owner's real window
-// (2026-09-26).
+// The shared small size (14px): 11px and then 12px both read too small in the
+// owner's real window against the inspector's heading sizes (2026-09-26).
 export const SidebarSectionLabel = styled.div`
-  font-size: 12px;
+  font-size: ${snzTokens.font.sizeSmall};
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: ${({ theme }) => theme.muted};
