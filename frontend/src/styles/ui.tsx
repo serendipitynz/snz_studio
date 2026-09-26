@@ -576,15 +576,19 @@ export const Badge = styled.span<{ tone?: "accent" | "warm" | "muted" }>`
 // The state badge of snz-design doc-8 §6.5: a stage that moves over time, told
 // by its words on a soft face inside an outline. The words carry the state, so
 // it does not rest on the tone's colour alone (WCAG 1.4.1).
-export const StateBadge = styled.span<{ tone: "success" | "danger" }>`
+// neutral is a stage that is neither good nor bad, such as preparing or not set.
+export const StateBadge = styled.span<{ tone: "success" | "danger" | "neutral" }>`
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid ${({ tone, theme }) => (tone === "success" ? theme.success : theme.danger)};
-  background: ${({ tone, theme }) => (tone === "success" ? theme.successSoft : theme.dangerSoft)};
-  color: ${({ tone, theme }) => (tone === "success" ? theme.onSuccessSoft : theme.onDangerSoft)};
+  border: 1px solid
+    ${({ tone, theme }) => (tone === "success" ? theme.success : tone === "danger" ? theme.danger : theme.lineMedium)};
+  background: ${({ tone, theme }) =>
+    tone === "success" ? theme.successSoft : tone === "danger" ? theme.dangerSoft : theme.mutedBadgeBg};
+  color: ${({ tone, theme }) =>
+    tone === "success" ? theme.onSuccessSoft : tone === "danger" ? theme.onDangerSoft : theme.muted};
   font-size: 12px;
   line-height: 1.5;
 `;

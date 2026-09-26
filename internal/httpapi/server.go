@@ -229,6 +229,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/image-description", s.handleDescribeImage)
 
 	// Chats
+	mux.HandleFunc("GET /api/chats/recent", s.handleListRecentChats)
 	mux.HandleFunc("GET /api/chats/{chatId}", s.handleGetChat)
 	mux.HandleFunc("PATCH /api/chats/{chatId}", s.handleUpdateChat)
 	mux.HandleFunc("PATCH /api/chats/{chatId}/temporary", s.handleSetChatTemporary)
@@ -319,39 +320,51 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
-// checkConnections runs the three endpoint reachability probes concurrently, as
-// the Node handler did with Promise.all. Each probe can block up to the client's
-// (capped) timeout, so doing them serially would triple the latency of the
+// checkConnections runs the endpoint reachability probes concurrently, as the
+// Node handler did with Promise.all. Each probe can block up to the client's
+// (capped) timeout, so doing them serially would multiply the latency of the
 // configuration endpoints when an endpoint is down.
-func (s *Server) checkConnections(settings config.Settings) (llmConnected, reviewConnected, embeddingConnected bool) {
+func (s *Server) checkConnections(settings config.Settings) (llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected bool) {
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() { defer wg.Done(); llmConnected = s.llm.CheckConnection("", "") }()
 	go func() {
 		defer wg.Done()
 		reviewConnected = s.llm.CheckConnection(settings.ReviewBaseURL, settings.ReviewModel)
 	}()
 	go func() { defer wg.Done(); embeddingConnected = s.embedding.CheckConnection() }()
+	go func() {
+		defer wg.Done()
+		// Unlike the review model, an empty image description model does not fall
+		// back to the chat model (config.Editable), so it is never connected.
+		if strings.TrimSpace(settings.ImageDescriptionModel) == "" {
+			return
+		}
+		imageDescriptionConnected = s.llm.CheckConnection(settings.ImageDescriptionBaseURL, settings.ImageDescriptionModel)
+	}()
 	wg.Wait()
 	return
 }
 
 // workspaceConfiguration is the GET/PUT /api/configuration response body. It
 // flattens the seven editable fields (via the embedded Editable, whose JSON tags
-// already match the frontend) and adds the three live-connection booleans.
+// already match the frontend) and adds the four live-connection booleans.
 type workspaceConfiguration struct {
 	config.Editable
 	LLMConnected       bool `json:"llmConnected"`
 	ReviewConnected    bool `json:"reviewConnected"`
 	EmbeddingConnected bool `json:"embeddingConnected"`
+	// ImageDescriptionConnected is false whenever no image description model is set.
+	ImageDescriptionConnected bool `json:"imageDescriptionConnected"`
 }
 
-func workspaceConfig(editable config.Editable, llmConnected, reviewConnected, embeddingConnected bool) workspaceConfiguration {
+func workspaceConfig(editable config.Editable, llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected bool) workspaceConfiguration {
 	return workspaceConfiguration{
-		Editable:           editable,
-		LLMConnected:       llmConnected,
-		ReviewConnected:    reviewConnected,
-		EmbeddingConnected: embeddingConnected,
+		Editable:                  editable,
+		LLMConnected:              llmConnected,
+		ReviewConnected:           reviewConnected,
+		EmbeddingConnected:        embeddingConnected,
+		ImageDescriptionConnected: imageDescriptionConnected,
 	}
 }
 

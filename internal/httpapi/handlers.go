@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -31,10 +32,10 @@ import (
 
 func (s *Server) handleGetConfiguration(w http.ResponseWriter, _ *http.Request) {
 	settings := s.cfg.Get()
-	llmConnected, reviewConnected, embeddingConnected := s.checkConnections(settings)
+	llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected := s.checkConnections(settings)
 	editable := s.cfg.GetEditable()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configuration": workspaceConfig(editable, llmConnected, reviewConnected, embeddingConnected),
+		"configuration": workspaceConfig(editable, llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected),
 	})
 }
 
@@ -128,9 +129,9 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 		}()
 	}
 
-	llmConnected, reviewConnected, embeddingConnected := s.checkConnections(s.cfg.Get())
+	llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected := s.checkConnections(s.cfg.Get())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configuration": workspaceConfig(updated, llmConnected, reviewConnected, embeddingConnected),
+		"configuration": workspaceConfig(updated, llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected),
 	})
 }
 
@@ -824,6 +825,29 @@ func (s *Server) handleUpdateDocumentContent(w http.ResponseWriter, r *http.Requ
 }
 
 // --- Chats -------------------------------------------------------------------
+
+const (
+	recentChatsDefaultLimit = 10
+	recentChatsMaxLimit     = 50
+)
+
+func (s *Server) handleListRecentChats(w http.ResponseWriter, r *http.Request) {
+	limit := recentChatsDefaultLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > recentChatsMaxLimit {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("limit must be an integer from 1 to %d", recentChatsMaxLimit))
+			return
+		}
+		limit = parsed
+	}
+	chats, err := s.chats.ListRecent(limit)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chats": chats})
+}
 
 func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 	chat, err := s.chats.GetChat(r.PathValue("chatId"))

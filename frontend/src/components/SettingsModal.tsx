@@ -570,7 +570,18 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               </>
             ) : null}
             <Field>
-              {t("settings.imageDescriptionEndpoint")}
+              <FieldHeader>
+                <span>{t("settings.imageDescriptionEndpoint")}</span>
+                {/* No badge without a saved model: the feature is then off, not
+                    unreachable. An empty endpoint means the LLM endpoint's. */}
+                {configuration?.imageDescriptionModel.trim()
+                  ? connectionBadge(Boolean(configuration.imageDescriptionConnected), [
+                      "imageDescriptionBaseUrl",
+                      "imageDescriptionModel",
+                      "llmBaseUrl"
+                    ])
+                  : null}
+              </FieldHeader>
               <Input
                 value={configDraft.imageDescriptionBaseUrl}
                 onChange={(event) =>

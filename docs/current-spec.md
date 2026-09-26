@@ -361,7 +361,8 @@ are a draft, sent with "Save configuration".
   replaces it.
 - A theme choice that cannot be stored still applies for this run, and the appearance section shows the failure.
 - Each endpoint's connection state is shown in words ("Connected" / "Not connected") beside its label. It was
-  checked for the saved values, so it is hidden while the draft changes that endpoint or its model.
+  checked for the saved values, so it is hidden while the draft changes that endpoint or its model. The image
+  description endpoint shows it only while an image description model is saved.
 - Closing (close button, Escape) with a connection draft that differs from the saved values asks before discarding
   it, keeping it by default. The modal does not close while saving. A field given a non-empty value while the
   configuration is still loading keeps it. A failed load leaves the configuration unsavable, since every untouched
@@ -382,10 +383,20 @@ Current values:
 
 ### Dashboard
 
-- project list
+Top to bottom and left to right:
+
+- recent chats: the chats of every project, most recently updated first (10 at most), each with its
+  project and time; pressing one opens it
+- project list: each row shows its chat count, its last activity (the later of the project's own
+  update and its chats' updates) and the first line of its system prompt
 - reorder: drag the handle, press the handle then a drop position, or use the keyboard (Space to pick up, arrows, Space to place, Escape to cancel)
-- project creation
-- configuration display and editing
+- project creation: the list heading's "New project" button opens a dialog (title and system
+  prompt); closing it with input typed asks before discarding it
+- connections: whether the chat, review, embedding and image description endpoints are reachable,
+  with their models, and a button that opens the settings; they are checked again when the settings
+  close. The bundled embedding model shows its lifecycle instead (available / preparing /
+  unavailable), and image description without a model shows "not set"
+- reordering leaves each project's last activity as it was
 
 ### Sidebar
 
@@ -517,6 +528,7 @@ Current API groups:
 - project CRUD
 - document CRUD
 - chat CRUD
+- recent chats across projects
 - message send / stream
 - memory CRUD
 - memory organization

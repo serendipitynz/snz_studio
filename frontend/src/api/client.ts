@@ -13,6 +13,8 @@ export interface Project {
   chatCount: number;
   createdAt: string;
   updatedAt: string;
+  // The later of updatedAt and its chats' updatedAt: a message bumps only the chat.
+  lastActivityAt: string;
 }
 
 export interface DocumentRecord {
@@ -82,6 +84,10 @@ export interface ChatRecord {
   stateSheet: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RecentChat extends ChatRecord {
+  projectTitle: string;
 }
 
 // Participant mirrors the Go model.Participant. deletedAt non-null means the
@@ -208,6 +214,8 @@ export interface WorkspaceConfiguration {
   llmConnected: boolean;
   reviewConnected: boolean;
   embeddingConnected: boolean;
+  // Always false while no image description model is set.
+  imageDescriptionConnected: boolean;
 }
 
 // EmbeddingStatus mirrors the Go embed.Status: the lifecycle of the bundled internal
@@ -467,6 +475,7 @@ export const api = {
     request<{ ok: boolean; document: DocumentRecord }>(`/api/documents/${documentId}`, {
       method: "DELETE"
     }),
+  getRecentChats: () => request<{ chats: RecentChat[] }>("/api/chats/recent"),
   getChatDetail: (chatId: string) =>
     request<{ project: Project; chat: ChatRecord; summary: ChatSummary | null; messages: MessageRecord[] }>(`/api/chats/${chatId}`),
   // Returns the markdown transcript itself, not a JSON envelope. Both chat kinds

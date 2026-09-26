@@ -16,6 +16,9 @@ type Project struct {
 	ChatCount    int    `json:"chatCount"`
 	CreatedAt    string `json:"createdAt"`
 	UpdatedAt    string `json:"updatedAt"`
+	// LastActivityAt is the later of UpdatedAt and its chats' updated_at: a
+	// message bumps only the chat, so UpdatedAt alone misses the project's use.
+	LastActivityAt string `json:"lastActivityAt"`
 }
 
 // DocumentRecord mirrors the DocumentRecord interface. Type and Category are
@@ -84,6 +87,13 @@ type Chat struct {
 	StateSheet    string `json:"stateSheet"`
 	CreatedAt     string `json:"createdAt"`
 	UpdatedAt     string `json:"updatedAt"`
+}
+
+// RecentChat is a chat listed across projects (the dashboard's recent chats),
+// carrying its project's title so the row can name where it lives.
+type RecentChat struct {
+	Chat
+	ProjectTitle string `json:"projectTitle"`
 }
 
 // Message mirrors the Message interface. The metric fields are nil until the

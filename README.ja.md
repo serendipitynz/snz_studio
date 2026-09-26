@@ -240,7 +240,7 @@ embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未
 `DEBUG_CHAT_FLOW` / `DEBUG_RETRIEVAL` は互換のため受け付けますが、Go 版はログを最小限に保つ方針のため
 verbose トレースは出力しません。
 
-Dashboard の `Configuration` から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値はアプリのデータディレクトリの `app-config.json` に保存され、`.env` より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
+設定 (サイドバーの歯車ボタン、または Dashboard の「設定を開く」) から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値はアプリのデータディレクトリの `app-config.json` に保存され、`.env` より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
 
 ローカル LLM が起動していない場合でも、アプリ自体は動作します。  
 その場合 chat 返答は fallback 文面になり、どの参照が選ばれたかの確認に使えます。
