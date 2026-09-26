@@ -4,7 +4,7 @@ title: 'チャット画面: 見出し帯・サイドバー・編成パネルの�
 status: In Review
 assignee: []
 created_date: '2026-09-25 22:12'
-updated_date: '2026-09-26 03:58'
+updated_date: '2026-09-26 04:05'
 labels:
   - design
 dependencies:
@@ -84,4 +84,7 @@ TASK-47 (#47) の後のオーナーの実窓の確認 (2026-09-26) で出た、�
 ## 残したこと
 - AC#3: 区画見出し 12px は私の選択。オーナーの実窓の確認待ち。
 - AC#6: 実窓 (WKWebView) の目視はオーナーの確認待ち。見てほしい箇所: 見出し帯の高さと題名の天地中央、ボタン間隔 8px のバランス、区画見出し 12px、user-group / 時計 / folder の図形の見え方、編成パネルの詰まり具合、プリセットの (?) と読み込みボタン。
+
+## レビュー第1ラウンドの [P3] への対応 (2026-09-26)
+- 共有化した HintedField が participants 名前空間の i18n キー (participants.hintAbout) を使っていた件: キーを hint.about にリネームし、両ロケールと参照2箇所 (Hint.tsx / ParticipantPanel.tsx) を更新。check/build 通過。
 <!-- SECTION:NOTES:END -->

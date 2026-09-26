@@ -698,7 +698,7 @@ function ParticipantEditor(props: ParticipantEditorProps) {
             {t("participants.receivesProjectMaterial")}
           </Checkbox>
           <Hint
-            name={t("participants.hintAbout", { label: t("participants.receivesProjectMaterial") })}
+            name={t("hint.about", { label: t("participants.receivesProjectMaterial") })}
             body={t("participants.receivesProjectMaterialHint")}
           />
         </HintRow>

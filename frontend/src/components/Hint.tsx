@@ -24,7 +24,7 @@ export function HintedField(props: { label: string; hint: string; children: (id:
     <FieldBox>
       <HintRow>
         <label htmlFor={id}>{props.label}</label>
-        <Hint name={t("participants.hintAbout", { label: props.label })} body={props.hint} />
+        <Hint name={t("hint.about", { label: props.label })} body={props.hint} />
       </HintRow>
       {props.children(id)}
     </FieldBox>
