@@ -402,7 +402,7 @@ const KindMenuItem = styled.button`
   ${focusRing}
 `;
 
-function renderChatTitle(t: (key: MessageKey) => string, chat: ChatRecord) {
+export function renderChatTitle(t: (key: MessageKey) => string, chat: ChatRecord) {
   const title = chat.title.trim() ? (
     <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{chat.title}</strong>
   ) : (
