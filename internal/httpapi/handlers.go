@@ -32,10 +32,10 @@ import (
 
 func (s *Server) handleGetConfiguration(w http.ResponseWriter, _ *http.Request) {
 	settings := s.cfg.Get()
-	llmConnected, reviewConnected, embeddingConnected := s.checkConnections(settings)
+	llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected := s.checkConnections(settings)
 	editable := s.cfg.GetEditable()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configuration": workspaceConfig(editable, llmConnected, reviewConnected, embeddingConnected),
+		"configuration": workspaceConfig(editable, llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected),
 	})
 }
 
@@ -129,9 +129,9 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 		}()
 	}
 
-	llmConnected, reviewConnected, embeddingConnected := s.checkConnections(s.cfg.Get())
+	llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected := s.checkConnections(s.cfg.Get())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configuration": workspaceConfig(updated, llmConnected, reviewConnected, embeddingConnected),
+		"configuration": workspaceConfig(updated, llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected),
 	})
 }
 

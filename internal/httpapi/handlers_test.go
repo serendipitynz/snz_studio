@@ -169,6 +169,7 @@ func TestGetConfiguration(t *testing.T) {
 		LLMConnected       bool   `json:"llmConnected"`
 		ReviewConnected    bool   `json:"reviewConnected"`
 		EmbeddingConnected bool   `json:"embeddingConnected"`
+		ImageConnected     *bool  `json:"imageDescriptionConnected"`
 	}
 	unmarshalField(t, m, "configuration", &cfg)
 	if cfg.LLMModel != "test-model" || cfg.LLMResponseFormat != "standard" {
@@ -176,6 +177,53 @@ func TestGetConfiguration(t *testing.T) {
 	}
 	if cfg.LLMConnected || cfg.ReviewConnected || cfg.EmbeddingConnected {
 		t.Fatalf("dead endpoints should report not connected: %+v", cfg)
+	}
+	if cfg.ImageConnected == nil || *cfg.ImageConnected {
+		t.Fatalf("imageDescriptionConnected without a model = %v, want present and false", cfg.ImageConnected)
+	}
+}
+
+// TestImageDescriptionConnection checks the image description probe against its
+// own endpoint and model, and that an empty model is not probed as the chat model.
+func TestImageDescriptionConnection(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"vision-model"},{"id":"test-model"}]}`))
+	}))
+	defer upstream.Close()
+	h := newTestServer(t).Handler()
+
+	imageConnected := func(model string) bool {
+		t.Helper()
+		rec := doJSON(t, h, "PUT", "/api/configuration", map[string]any{
+			"llmBaseUrl":              upstream.URL + "/v1",
+			"llmModel":                "test-model",
+			"imageDescriptionBaseUrl": upstream.URL + "/v1",
+			"imageDescriptionModel":   model,
+		})
+		wantStatus(t, rec, http.StatusOK)
+		var cfg struct {
+			LLMConnected   bool `json:"llmConnected"`
+			ImageConnected bool `json:"imageDescriptionConnected"`
+		}
+		unmarshalField(t, decodeJSONMap(t, rec), "configuration", &cfg)
+		if !cfg.LLMConnected {
+			t.Fatalf("chat model should be connected to the stub")
+		}
+		return cfg.ImageConnected
+	}
+
+	if !imageConnected("vision-model") {
+		t.Error("listed image description model should be connected")
+	}
+	if imageConnected("missing-model") {
+		t.Error("unlisted image description model should not be connected")
+	}
+	if imageConnected("") {
+		t.Error("empty image description model should not be connected, even with the chat model reachable")
 	}
 }
 
