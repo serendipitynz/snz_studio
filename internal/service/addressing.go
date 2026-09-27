@@ -57,10 +57,10 @@ type storedUtterance struct {
 // and what it rolls, in the one order design §4.8.3 item 2 sets for a
 // participant's utterance and a human's intervention alike: (1) the trailing
 // directive is removed and resolved, (2) the last line of what remains is
-// searched for a /roll, which is removed, and (3) only when there was no
-// directive, the last sentence of the body without the command is matched
-// against the roster. speakerID is the participant that wrote the message,
-// empty for the human; a call on oneself is dropped.
+// searched for a command the chat has enabled, which is removed, and (3) only
+// when there was no directive, the last sentence of the body without the
+// command is matched against the roster. speakerID is the participant that
+// wrote the message, empty for the human; a call on oneself is dropped.
 //
 // Why the order: matching names before the command is removed would read the
 // /roll line as the last sentence — "レン、登ってみて" followed by a /roll loses
@@ -74,13 +74,11 @@ type storedUtterance struct {
 // roster included — a call on everyone still lets the ones who have not
 // answered keep their boost after the others have.
 //
-// A line opening with 【ダイス】 is the app's notation, never the speaker's
-// (TASK-63): a result-free one ending the text is rolled in place of a missing
-// /roll, and every other one shaped like a record — a forged result above all —
-// is removed before the name match, so its action names are no call either.
-func prepareUtterance(content, speakerID string, roster []model.Participant) storedUtterance {
+// A chat that has not enabled /roll keeps its /roll and 【ダイス】 lines as the
+// text they are, and the name match reads them like any other (§4.8.7).
+func prepareUtterance(content, speakerID string, roster []model.Participant, enabled model.ChatCommands) storedUtterance {
 	body, names, directive := splitAddresseeDirective(content)
-	extracted := commands.Extract(body)
+	extracted := commands.Extract(body, enabled)
 	utterance := storedUtterance{
 		content:     extracted.Content,
 		roll:        extracted.Roll,

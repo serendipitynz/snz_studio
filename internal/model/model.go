@@ -6,6 +6,12 @@
 // (rather than a zero value) when absent.
 package model
 
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+)
+
 // Project mirrors the Project interface. chatCount is derived (COUNT of chats).
 type Project struct {
 	ID           string `json:"id"`
@@ -85,11 +91,68 @@ type Chat struct {
 	ScenePrompt   string `json:"scenePrompt"`
 	FacilitatorID string `json:"facilitatorId"`
 	StateSheet    string `json:"stateSheet"`
-	// DiceTarget is the target a /roll without 目標N is compared against; 0
-	// compares nothing and records the total alone (design §4.8.3 item 4).
-	DiceTarget int    `json:"diceTarget"`
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
+	// Commands is the slash commands the chat's store-time pass handles
+	// (design §4.8.7).
+	Commands  ChatCommands `json:"commands"`
+	CreatedAt string       `json:"createdAt"`
+	UpdatedAt string       `json:"updatedAt"`
+}
+
+// ChatCommands is a chat's commands as the JSON the chat, the API and a preset
+// share: command name → that command's settings, a present key enabling the
+// command (design §4.8.7). A nil field is a command the chat does not use; an
+// effect command (TASK-36) is added as another field.
+type ChatCommands struct {
+	Roll *RollSettings `json:"roll,omitempty"`
+}
+
+// RollSettings is /roll's settings. Target is the default a /roll without
+// 目標N is compared against; 0 compares nothing and records the total alone
+// (design §4.8.3 item 4).
+type RollSettings struct {
+	Target int `json:"target"`
+}
+
+// ErrInvalidCommands marks a commands object the chat cannot store. The HTTP
+// layer maps it to 400, so the wrapped message says what is wrong.
+var ErrInvalidCommands = errors.New("model: invalid commands")
+
+// UnmarshalJSON refuses a command name the app does not know, so a misspelt
+// command is reported rather than silently left disabled (design §4.8.7). A
+// null value enables the command with its default settings, like {}.
+func (c *ChatCommands) UnmarshalJSON(raw []byte) error {
+	var entries map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return fmt.Errorf("%w: commands must be an object of command name to settings", ErrInvalidCommands)
+	}
+	*c = ChatCommands{}
+	for name, value := range entries {
+		switch name {
+		case "roll":
+			c.Roll = &RollSettings{}
+			if err := unmarshalSettings(value, c.Roll); err != nil {
+				return fmt.Errorf("%w: commands.roll: %v", ErrInvalidCommands, err)
+			}
+		default:
+			return fmt.Errorf("%w: unknown command %q (known: roll)", ErrInvalidCommands, name)
+		}
+	}
+	return nil
+}
+
+func unmarshalSettings(raw json.RawMessage, settings any) error {
+	if string(raw) == "null" {
+		return nil
+	}
+	return json.Unmarshal(raw, settings)
+}
+
+// Validate checks the ranges the settings' types cannot.
+func (c ChatCommands) Validate() error {
+	if c.Roll != nil && (c.Roll.Target < 0 || c.Roll.Target > DiceTargetMax) {
+		return fmt.Errorf("%w: commands.roll.target must be a whole number from 0 to %d", ErrInvalidCommands, DiceTargetMax)
+	}
+	return nil
 }
 
 // RecentChat is a chat listed across projects (the dashboard's recent chats),

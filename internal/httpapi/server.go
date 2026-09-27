@@ -15,6 +15,7 @@ import (
 
 	"snzstudio/internal/config"
 	"snzstudio/internal/embed"
+	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
 )
@@ -467,6 +468,29 @@ func bodyIntPtr(m map[string]any, key string) (*int, bool) {
 	}
 	n := int(f)
 	return &n, true
+}
+
+// bodyCommandsPtr reads an optional commands object (design §4.8.7): nil when
+// absent, and an error naming what is wrong when it is not one the chat can
+// store — an unknown command name, or a roll.target that is not a whole
+// number in range.
+func bodyCommandsPtr(m map[string]any, key string) (*model.ChatCommands, error) {
+	v, present := m[key]
+	if !present || v == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var commands model.ChatCommands
+	if err := json.Unmarshal(raw, &commands); err != nil {
+		return nil, err
+	}
+	if err := commands.Validate(); err != nil {
+		return nil, err
+	}
+	return &commands, nil
 }
 
 // bodyBool returns (value, true) only when the field is present and a JSON

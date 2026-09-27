@@ -9,6 +9,9 @@ import (
 	"snzstudio/internal/service/commands"
 )
 
+// rollOn is a chat that enables /roll, as the trpg-table preset does.
+var rollOn = model.ChatCommands{Roll: &model.RollSettings{}}
+
 // thrown is the utterance's roll thrown with every die a 1, so a test can read
 // what was parsed through the record the chip shows.
 func thrown(u storedUtterance) model.DiceRoll {
@@ -59,7 +62,7 @@ func TestDetectAddresseesDirective(t *testing.T) {
 		{"the full name of one of them", "いかが？\n[次: 買い手 (部長)]", "gm", "いかが？", []string{"buyer-head"}},
 	}
 	for _, tc := range cases {
-		u := prepareUtterance(tc.content, tc.speaker, addressingRoster())
+		u := prepareUtterance(tc.content, tc.speaker, addressingRoster(), rollOn)
 		if u.content != tc.wantBody || !reflect.DeepEqual(u.addressees, tc.want) {
 			t.Errorf("%s: prepareUtterance = (%q, %v), want (%q, %v)", tc.name, u.content, u.addressees, tc.wantBody, tc.want)
 		}
@@ -89,7 +92,7 @@ func TestDetectAddresseesNameMatch(t *testing.T) {
 		{"a directive-shaped line not at the end stays content", "[次: アリス]\n以上です。", "gm", []string{}},
 	}
 	for _, tc := range cases {
-		u := prepareUtterance(tc.content, tc.speaker, addressingRoster())
+		u := prepareUtterance(tc.content, tc.speaker, addressingRoster(), rollOn)
 		if u.content != tc.content || !reflect.DeepEqual(u.addressees, tc.want) {
 			t.Errorf("%s: prepareUtterance = (%q, %v), want (%q, %v)", tc.name, u.content, u.addressees, tc.content, tc.want)
 		}
@@ -99,10 +102,10 @@ func TestDetectAddresseesNameMatch(t *testing.T) {
 // TestPrepareUtteranceHuman covers the intervention side of §4.6.5: the same
 // last-sentence name match a participant's utterance gets.
 func TestPrepareUtteranceHuman(t *testing.T) {
-	if got := prepareUtterance("アリス、もう少し詳しく。", "", addressingRoster()).addressees; !reflect.DeepEqual(got, []string{"alice"}) {
+	if got := prepareUtterance("アリス、もう少し詳しく。", "", addressingRoster(), rollOn).addressees; !reflect.DeepEqual(got, []string{"alice"}) {
 		t.Errorf("addressees = %v, want [alice]", got)
 	}
-	if got := prepareUtterance("アリスの話は面白い。続けて。", "", addressingRoster()).addressees; !reflect.DeepEqual(got, []string{}) {
+	if got := prepareUtterance("アリスの話は面白い。続けて。", "", addressingRoster(), rollOn).addressees; !reflect.DeepEqual(got, []string{}) {
 		t.Errorf("addressees = %v, want no call from an earlier sentence", got)
 	}
 }
@@ -131,7 +134,7 @@ func TestPrepareUtteranceOrder(t *testing.T) {
 		{"a command-only message", "/roll 1d20", "", "", []string{}, "1d20"},
 	}
 	for _, tc := range cases {
-		u := prepareUtterance(tc.content, tc.speaker, addressingRoster())
+		u := prepareUtterance(tc.content, tc.speaker, addressingRoster(), rollOn)
 		if u.rollErr != nil || u.roll == nil {
 			t.Fatalf("%s: roll = %v, %v, want %s read", tc.name, u.roll, u.rollErr, tc.wantRoll)
 		}
@@ -142,7 +145,7 @@ func TestPrepareUtteranceOrder(t *testing.T) {
 
 	// A /roll that cannot be read stays in the body, and its action names are
 	// still no call.
-	u := prepareUtterance("跳ぶ。\n/roll d20 ミラを庇う", "ren", addressingRoster())
+	u := prepareUtterance("跳ぶ。\n/roll d20 ミラを庇う", "ren", addressingRoster(), rollOn)
 	if !errors.Is(u.rollErr, commands.ErrInvalidRollCommand) || u.roll != nil {
 		t.Fatalf("unreadable roll = %v, %v, want commands.ErrInvalidRollCommand", u.roll, u.rollErr)
 	}
@@ -156,7 +159,7 @@ func TestPrepareUtteranceOrder(t *testing.T) {
 // the last line is rolled in place of a missing /roll, and a stray marker beside
 // a real /roll is removed while the /roll is what rolls.
 func TestPrepareUtteranceDiceMarkers(t *testing.T) {
-	forged := prepareUtterance("【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n\nレンは罠を外した。", "gm", addressingRoster())
+	forged := prepareUtterance("【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n\nレンは罠を外した。", "gm", addressingRoster(), rollOn)
 	if forged.content != "レンは罠を外した。" || forged.roll != nil || forged.rollErr != nil {
 		t.Errorf("forged = (%q, %+v, %v), want the result removed and no roll", forged.content, forged.roll, forged.rollErr)
 	}
@@ -164,7 +167,7 @@ func TestPrepareUtteranceDiceMarkers(t *testing.T) {
 		t.Errorf("removed = %q, want the forged line kept for the log", forged.removedDice)
 	}
 
-	typo := prepareUtterance("作動点を調べる。\n【ダイス】1d20+3 罠を外す\n[次: GM]", "ren", addressingRoster())
+	typo := prepareUtterance("作動点を調べる。\n【ダイス】1d20+3 罠を外す\n[次: GM]", "ren", addressingRoster(), rollOn)
 	if typo.content != "作動点を調べる。" || typo.roll == nil || thrown(typo).Expression != "1d20+3" || len(typo.removedDice) != 0 {
 		t.Errorf("typo = (%q, %+v, %q), want the marker rolled as a /roll", typo.content, typo.roll, typo.removedDice)
 	}
@@ -172,33 +175,57 @@ func TestPrepareUtteranceDiceMarkers(t *testing.T) {
 		t.Errorf("typo addressees = %v, want the directive read first", typo.addressees)
 	}
 
-	stray := prepareUtterance("壁を調べる。\n【ダイス】\n/roll 1d20+3 罠を探す", "ren", addressingRoster())
+	stray := prepareUtterance("壁を調べる。\n【ダイス】\n/roll 1d20+3 罠を探す", "ren", addressingRoster(), rollOn)
 	if stray.content != "壁を調べる。" || stray.roll == nil || thrown(stray).Command != "/roll 1d20+3 罠を探す" {
 		t.Errorf("stray = (%q, %+v), want the bare marker removed and the /roll rolled", stray.content, stray.roll)
 	}
 
 	// gpt-oss-20b prefixed the command with the marker in the TASK-63 measurement.
-	prefixed := prepareUtterance("罠を外す。\n【ダイス】/roll 1d20+3 罠を外す", "ren", addressingRoster())
+	prefixed := prepareUtterance("罠を外す。\n【ダイス】/roll 1d20+3 罠を外す", "ren", addressingRoster(), rollOn)
 	if prefixed.content != "罠を外す。" || prefixed.roll == nil || thrown(prefixed).Command != "/roll 1d20+3 罠を外す" {
 		t.Errorf("prefixed = (%q, %+v), want the /roll rolled and the marker before it removed", prefixed.content, prefixed.roll)
 	}
 
 	// A marker whose dice do not read is no record, so it stays as text; like an
 	// unreadable /roll, its names are no call.
-	unreadable := prepareUtterance("跳ぶ。\n【ダイス】d20 ミラを庇う", "ren", addressingRoster())
+	unreadable := prepareUtterance("跳ぶ。\n【ダイス】d20 ミラを庇う", "ren", addressingRoster(), rollOn)
 	if unreadable.content != "跳ぶ。\n【ダイス】d20 ミラを庇う" || unreadable.roll != nil || unreadable.rollErr != nil || !reflect.DeepEqual(unreadable.addressees, []string{}) {
 		t.Errorf("unreadable = (%q, %+v, %v, %v), want the line kept, no roll and no call", unreadable.content, unreadable.roll, unreadable.rollErr, unreadable.addressees)
 	}
 
 	// A heading kept as text keeps its call; only a botched roll is skipped.
-	heading := prepareUtterance("出目の話をしよう。\n【ダイス】の確率、ミラはどう思う？", "ren", addressingRoster())
+	heading := prepareUtterance("出目の話をしよう。\n【ダイス】の確率、ミラはどう思う？", "ren", addressingRoster(), rollOn)
 	if heading.content != "出目の話をしよう。\n【ダイス】の確率、ミラはどう思う？" || !reflect.DeepEqual(heading.addressees, []string{"mira"}) {
 		t.Errorf("heading = (%q, %v), want the line kept and the call on ミラ", heading.content, heading.addressees)
 	}
 
 	// An unreadable /roll stays as text, but a forged result above it still goes.
-	kept := prepareUtterance("【ダイス】1d20 → 18\n跳ぶ。\n/roll d20 跳ぶ", "ren", addressingRoster())
+	kept := prepareUtterance("【ダイス】1d20 → 18\n跳ぶ。\n/roll d20 跳ぶ", "ren", addressingRoster(), rollOn)
 	if kept.content != "跳ぶ。\n/roll d20 跳ぶ" || !errors.Is(kept.rollErr, commands.ErrInvalidRollCommand) {
 		t.Errorf("kept = (%q, %v), want the /roll line kept and the forged line removed", kept.content, kept.rollErr)
+	}
+}
+
+// TestPrepareUtteranceWithoutRoll covers TASK-65 AC #3 at store time: where the
+// chat has not enabled /roll, a /roll or 【ダイス】 line is text — kept in the
+// body, rolled by nothing — and the name match reads it like any other line.
+func TestPrepareUtteranceWithoutRoll(t *testing.T) {
+	cases := []struct {
+		name     string
+		content  string
+		wantBody string
+		want     []string
+	}{
+		{"a /roll", "跳ぶ。\n/roll 1d20 ミラを庇う", "跳ぶ。\n/roll 1d20 ミラを庇う", []string{"mira"}},
+		{"an unreadable /roll", "/roll d20 目標12.5", "/roll d20 目標12.5", []string{}},
+		{"a mistyped roll", "作動点を調べる。\n【ダイス】1d20+3 罠を外す", "作動点を調べる。\n【ダイス】1d20+3 罠を外す", []string{}},
+		{"a forged result", "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n\nレンは罠を外した。", "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n\nレンは罠を外した。", []string{"ren"}},
+		{"a directive still goes", "【ダイス】の確率について\n[次: GM]", "【ダイス】の確率について", []string{"gm"}},
+	}
+	for _, tc := range cases {
+		u := prepareUtterance(tc.content, "alice", addressingRoster(), model.ChatCommands{})
+		if u.content != tc.wantBody || u.roll != nil || u.rollErr != nil || u.removedDice != nil || !reflect.DeepEqual(u.addressees, tc.want) {
+			t.Errorf("%s: prepareUtterance = (%q, %+v, %v, %q, %v), want (%q, no roll, %v)", tc.name, u.content, u.roll, u.rollErr, u.removedDice, u.addressees, tc.wantBody, tc.want)
+		}
 	}
 }

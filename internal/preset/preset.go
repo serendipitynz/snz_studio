@@ -57,18 +57,22 @@ type Participant struct {
 
 // MultiAgentPreset is the shape of one preset JSON. ID and Group only mean
 // something for bundled presets; an imported preset may leave both empty.
-// DiceTarget is the chat's default target for a /roll that names none (0 =
-// compare nothing, design §4.8.3 item 4).
+// Commands is what the chat's commands become (design §4.8.7). It is a pointer
+// so Validate can tell an omitted field from an empty one, and it fills it in:
+// a parsed preset never carries nil. DiceTarget is the TASK-37 form of
+// commands.roll.target, which Validate folds into Commands and then clears, so
+// what applies a preset reads Commands alone.
 type MultiAgentPreset struct {
-	ID           string        `json:"id"`
-	Title        string        `json:"title"`
-	Description  string        `json:"description"`
-	Group        string        `json:"group"`
-	TurnRule     string        `json:"turnRule"`
-	ScenePrompt  string        `json:"scenePrompt"`
-	StateSheet   string        `json:"stateSheet,omitempty"`
-	DiceTarget   int           `json:"diceTarget,omitempty"`
-	Participants []Participant `json:"participants"`
+	ID           string              `json:"id"`
+	Title        string              `json:"title"`
+	Description  string              `json:"description"`
+	Group        string              `json:"group"`
+	TurnRule     string              `json:"turnRule"`
+	ScenePrompt  string              `json:"scenePrompt"`
+	StateSheet   string              `json:"stateSheet,omitempty"`
+	Commands     *model.ChatCommands `json:"commands,omitempty"`
+	DiceTarget   int                 `json:"diceTarget,omitempty"`
+	Participants []Participant       `json:"participants"`
 }
 
 var bundled = mustLoadBundled()
@@ -131,6 +135,9 @@ func (p *MultiAgentPreset) Validate() error {
 	if p.DiceTarget < 0 || p.DiceTarget > model.DiceTargetMax {
 		return fmt.Errorf("%w: diceTarget must be a whole number from 0 to %d", ErrInvalid, model.DiceTargetMax)
 	}
+	if err := p.foldCommands(); err != nil {
+		return err
+	}
 	if p.TurnRule == "" {
 		p.TurnRule = model.TurnRuleRoundRobin
 	}
@@ -180,6 +187,25 @@ func (p *MultiAgentPreset) Validate() error {
 		if facilitators > 0 {
 			return fmt.Errorf("%w: participants[].facilitator applies to turnRule \"facilitator_alternating\" and \"weighted\" only", ErrInvalid)
 		}
+	}
+	return nil
+}
+
+// foldCommands settles Commands from the two forms a preset can use. Both at
+// once are refused: which target applies could not be told from the file.
+func (p *MultiAgentPreset) foldCommands() error {
+	if p.Commands != nil && p.DiceTarget != 0 {
+		return fmt.Errorf("%w: write the dice target as commands.roll.target or as diceTarget, not both", ErrInvalid)
+	}
+	if p.Commands == nil {
+		p.Commands = &model.ChatCommands{}
+		if p.DiceTarget > 0 {
+			p.Commands.Roll = &model.RollSettings{Target: p.DiceTarget}
+		}
+	}
+	p.DiceTarget = 0
+	if err := p.Commands.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	return nil
 }

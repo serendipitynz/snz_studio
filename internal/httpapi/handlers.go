@@ -399,7 +399,7 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 		input.TurnRule = chosen.TurnRule
 		input.ScenePrompt = chosen.ScenePrompt
 		input.StateSheet = chosen.StateSheet
-		input.DiceTarget = chosen.DiceTarget
+		input.Commands = *chosen.Commands
 		if strings.TrimSpace(title) == "" {
 			input.Title = chosen.Title
 		}
@@ -890,7 +890,7 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateChat applies the fields the body actually carries: the title, and
 // for a multi-agent chat the turn rule, scene prompt, facilitator, shared state
-// sheet and default dice target (design §5, §4.7, §4.8). Each field
+// sheet and commands (design §5, §4.7, §4.8.7). Each field
 // is keyed on its presence rather than on its value, so a body sent to change
 // the scene prompt alone does not blank the title.
 func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
@@ -904,9 +904,9 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 	scenePrompt := bodyStringPtr(m, "scenePrompt")
 	facilitatorID := bodyStringPtr(m, "facilitatorId")
 	stateSheet := trimmedBodyStringPtr(m, "stateSheet")
-	diceTarget, diceTargetIsInt := bodyIntPtr(m, "diceTarget")
-	if !diceTargetIsInt || (diceTarget != nil && (*diceTarget < 0 || *diceTarget > model.DiceTargetMax)) {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("diceTarget must be a whole number from 0 to %d", model.DiceTargetMax))
+	commands, err := bodyCommandsPtr(m, "commands")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -920,12 +920,12 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if turnRule != nil || scenePrompt != nil || facilitatorID != nil || stateSheet != nil || diceTarget != nil {
+	if turnRule != nil || scenePrompt != nil || facilitatorID != nil || stateSheet != nil || commands != nil {
 		// kind is fixed at creation, so a single-assistant chat can never reach a
 		// state where these fields mean anything; accepting them would store
 		// settings that nothing reads.
 		if chat.Kind != model.ChatKindMultiAgent {
-			writeError(w, http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId, stateSheet and diceTarget apply to multi-agent chats only")
+			writeError(w, http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId, stateSheet and commands apply to multi-agent chats only")
 			return
 		}
 		if turnRule != nil && !isKnownTurnRule(*turnRule) {
@@ -947,7 +947,7 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 			ScenePrompt:   scenePrompt,
 			FacilitatorID: facilitatorID,
 			StateSheet:    stateSheet,
-			DiceTarget:    diceTarget,
+			Commands:      commands,
 		})
 		if err != nil {
 			fail(w, err)
