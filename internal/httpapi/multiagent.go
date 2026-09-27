@@ -313,13 +313,44 @@ func (s *Server) presetFromBody(w http.ResponseWriter, m map[string]any, kind st
 	return p, true
 }
 
+// handleExportMultiAgentPreset returns the chat's current line-up as a preset
+// (TASK-62), to be saved as a file and applied to another chat. It is a read and
+// takes no exclusion: a turn in flight changes only the transcript, which the
+// preset does not carry. A chat whose line-up would not load back as a preset
+// is refused with 409 — the request is well formed and the chat's state is what
+// rules it out, as with a late preset.
+func (s *Server) handleExportMultiAgentPreset(w http.ResponseWriter, r *http.Request) {
+	chat, ok := s.requireMultiAgentChat(w, r.PathValue("chatId"))
+	if !ok {
+		return
+	}
+	roster, err := s.participants.ListRoster(chat.ID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	exported, err := preset.FromChat(chat, roster)
+	if errors.Is(err, preset.ErrInvalid) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"preset": exported})
+}
+
 // createPresetParticipants creates the preset's participants in preset order,
 // which is the round_robin order (§2), and returns the id the preset's
 // facilitator mark resolved to (empty when the preset marks none). Endpoint and
-// model are left empty, so a turn runs against the workspace endpoint until the
-// organisation panel assigns one. receivesProjectMaterial is preset data, because
-// a preset is what expresses a line-up where one speaker knows what the others
-// must not.
+// model come from the preset and are empty unless it was exported from a chat,
+// so a turn runs against the workspace endpoint until the organisation panel
+// assigns one. They are not checked here: whether an endpoint answers is what
+// the turn's own check reports (502), and a machine whose network differs from
+// the exporting one's is an ordinary case, not a malformed preset.
+// receivesProjectMaterial is preset data, because a preset is what expresses a
+// line-up where one speaker knows what the others must not.
 func (s *Server) createPresetParticipants(chatID string, p *preset.MultiAgentPreset) (string, error) {
 	facilitatorID := ""
 	for _, participant := range p.Participants {
@@ -327,6 +358,8 @@ func (s *Server) createPresetParticipants(chatID string, p *preset.MultiAgentPre
 			ChatID:                  chatID,
 			DisplayName:             participant.DisplayName,
 			RolePrompt:              participant.RolePrompt,
+			BaseURL:                 participant.BaseURL,
+			ModelName:               participant.ModelName,
 			ReceivesProjectMaterial: participant.ReceivesProjectMaterial,
 			StateSheet:              participant.StateSheet,
 		})

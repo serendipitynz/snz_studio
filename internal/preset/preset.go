@@ -34,9 +34,12 @@ var Groups = []string{"discussion", "drama", "hosted", "pair"}
 // it to 400 with errors.Is, so the wrapped message must say what is wrong.
 var ErrInvalid = errors.New("preset: invalid preset")
 
-// Participant is one roster entry of a preset. The endpoint and model are not
-// preset data: they are chosen at use time, and an empty pair falls back to the
-// workspace endpoint when a turn runs.
+// Participant is one roster entry of a preset. BaseURL and ModelName are
+// optional: a preset exported from a chat carries them so the line-up comes back
+// on the same endpoints (TASK-62), while a bundled preset must leave them empty,
+// because an endpoint depends on the machine's network and a bundled file ships
+// to every machine. An empty pair falls back to the workspace endpoint when a
+// turn runs.
 //
 // ReceivesProjectMaterial is a pointer so an omitted field can mean the default
 // (true) rather than false — every preset written before the field existed must
@@ -51,8 +54,10 @@ type Participant struct {
 	DisplayName             string `json:"displayName"`
 	RolePrompt              string `json:"rolePrompt"`
 	ReceivesProjectMaterial *bool  `json:"receivesProjectMaterial"`
-	Facilitator             bool   `json:"facilitator"`
+	Facilitator             bool   `json:"facilitator,omitempty"`
 	StateSheet              string `json:"stateSheet,omitempty"`
+	BaseURL                 string `json:"baseUrl,omitempty"`
+	ModelName               string `json:"modelName,omitempty"`
 }
 
 // MultiAgentPreset is the shape of one preset JSON. ID and Group only mean
@@ -63,10 +68,10 @@ type Participant struct {
 // commands.roll.target, which Validate folds into Commands and then clears, so
 // what applies a preset reads Commands alone.
 type MultiAgentPreset struct {
-	ID           string              `json:"id"`
+	ID           string              `json:"id,omitempty"`
 	Title        string              `json:"title"`
-	Description  string              `json:"description"`
-	Group        string              `json:"group"`
+	Description  string              `json:"description,omitempty"`
+	Group        string              `json:"group,omitempty"`
 	TurnRule     string              `json:"turnRule"`
 	ScenePrompt  string              `json:"scenePrompt"`
 	StateSheet   string              `json:"stateSheet,omitempty"`
@@ -154,6 +159,8 @@ func (p *MultiAgentPreset) Validate() error {
 		p.Participants[i].DisplayName = strings.TrimSpace(p.Participants[i].DisplayName)
 		p.Participants[i].RolePrompt = strings.TrimSpace(p.Participants[i].RolePrompt)
 		p.Participants[i].StateSheet = strings.TrimSpace(p.Participants[i].StateSheet)
+		p.Participants[i].BaseURL = strings.TrimSpace(p.Participants[i].BaseURL)
+		p.Participants[i].ModelName = strings.TrimSpace(p.Participants[i].ModelName)
 		if p.Participants[i].DisplayName == "" {
 			return fmt.Errorf("%w: participants[%d].displayName is required", ErrInvalid, i)
 		}
@@ -231,6 +238,11 @@ func mustLoadBundled() []MultiAgentPreset {
 		}
 		if p.ID == "" {
 			panic(fmt.Sprintf("preset: %s: bundled presets need an id", entry.Name()))
+		}
+		for i, participant := range p.Participants {
+			if participant.BaseURL != "" || participant.ModelName != "" {
+				panic(fmt.Sprintf("preset: %s: participants[%d]: bundled presets carry no baseUrl or modelName", entry.Name(), i))
+			}
 		}
 		if other, dup := seen[p.ID]; dup {
 			panic(fmt.Sprintf("preset: %s and %s share id %q", other, entry.Name(), p.ID))

@@ -232,6 +232,36 @@ func TestParseStateSheet(t *testing.T) {
 	}
 }
 
+// TestParseEndpoints covers TASK-62 AC #3: baseUrl and modelName are optional
+// participant fields, trimmed like the others, and a preset without them parses
+// to an empty pair (the workspace endpoint). No bundled preset carries one.
+func TestParseEndpoints(t *testing.T) {
+	p, err := Parse([]byte(`{
+		"title": "持ち出した編成",
+		"participants": [
+			{ "displayName": "A", "baseUrl": " http://192.168.0.10:1234/v1 ", "modelName": " qwen3-8b " },
+			{ "displayName": "B" }
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if p.Participants[0].BaseURL != "http://192.168.0.10:1234/v1" || p.Participants[0].ModelName != "qwen3-8b" {
+		t.Fatalf("participants[0] = %+v, want the trimmed endpoint and model", p.Participants[0])
+	}
+	if p.Participants[1].BaseURL != "" || p.Participants[1].ModelName != "" {
+		t.Fatalf("participants[1] = %+v, want no endpoint", p.Participants[1])
+	}
+
+	for _, bundledPreset := range Bundled() {
+		for i, participant := range bundledPreset.Participants {
+			if participant.BaseURL != "" || participant.ModelName != "" {
+				t.Errorf("%s: participants[%d] carries an endpoint or a model", bundledPreset.ID, i)
+			}
+		}
+	}
+}
+
 // TestPresetCommands covers the preset half of TASK-65 AC #2 (design §4.8.7):
 // commands fills the chat's commands, the TASK-37 top-level diceTarget reads
 // as commands.roll.target, both at once or an unknown command is refused, and
