@@ -523,6 +523,7 @@ const en = {
   "preset.exportError": "Failed to export the preset",
   "preset.exportNeedsTwo": "A preset needs at least two participants on the roster",
   "preset.exportNeedsFacilitator": "This turn rule needs a facilitator: choose one on the roster before exporting",
+  "preset.exportRefused": "This line-up would not load back as a preset. Check the roster and the facilitator",
 
   "memoryKind.semantic": "semantic",
   "memoryKind.procedural": "procedural",
@@ -1042,6 +1043,7 @@ const ja: Record<MessageKey, string> = {
   "preset.exportError": "プリセットの書き出しに失敗しました",
   "preset.exportNeedsTwo": "編成に参加者が 2 人以上いるときに書き出せます",
   "preset.exportNeedsFacilitator": "このターン進行ルールでは進行役が要ります。編成から進行役を選ぶと書き出せます",
+  "preset.exportRefused": "この編成は読み込めるプリセットになりません。編成と進行役を確かめてください",
 
   "memoryKind.semantic": "意味（semantic）",
   "memoryKind.procedural": "手続き（procedural）",

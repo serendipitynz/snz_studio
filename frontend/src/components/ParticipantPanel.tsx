@@ -2,6 +2,7 @@ import styled from "@emotion/styled";
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   api,
+  ApiError,
   CHAT_STATE_SHEET_MAX_CHARS,
   ChatCommands,
   ChatRecord,
@@ -313,7 +314,14 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
         "application/json;charset=utf-8"
       );
     } catch (nextError) {
-      setExportError(errorMessage(nextError, "preset.exportError"));
+      // A 409 is a line-up the import would refuse that exportReason did not
+      // foresee (a rule Validate gained later); the server's text is written for
+      // the preset file, not for this panel.
+      setExportError(
+        nextError instanceof ApiError && nextError.status === 409
+          ? t("preset.exportRefused")
+          : errorMessage(nextError, "preset.exportError")
+      );
     } finally {
       setExportingPreset(false);
     }
@@ -384,7 +392,8 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
 
   const presetReason = props.lockedReason ?? (presetChoice ? undefined : t("preset.chooseFirst"));
   // The two line-ups the import would refuse, told before the request rather
-  // than by the server's 409 (owner's call, TASK-62). Not held by lockedReason:
+  // than by the server's 409 (owner's call, TASK-62). It mirrors
+  // preset.Validate's roster and facilitator rules. Not held by lockedReason:
   // the export reads the line-up and a running turn changes only the transcript.
   const exportReason =
     roster.length < 2

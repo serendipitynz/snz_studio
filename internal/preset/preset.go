@@ -151,6 +151,10 @@ func (p *MultiAgentPreset) Validate() error {
 	default:
 		return fmt.Errorf("%w: turnRule must be \"round_robin\", \"manual\", \"facilitator_alternating\" or \"weighted\"", ErrInvalid)
 	}
+	// The organisation panel disables the export (TASK-62) on this roster size
+	// and on the facilitator rules below, so a change to either wants the
+	// panel's exportReason changed with it; any other refusal reaches the panel
+	// as the export route's 409.
 	if len(p.Participants) < 2 {
 		return fmt.Errorf("%w: participants must have at least two entries", ErrInvalid)
 	}
