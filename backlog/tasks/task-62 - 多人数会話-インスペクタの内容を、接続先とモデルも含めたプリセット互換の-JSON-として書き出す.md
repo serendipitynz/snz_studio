@@ -1,10 +1,10 @@
 ---
 id: TASK-62
 title: '多人数会話: インスペクタの内容を、接続先とモデルも含めたプリセット互換の JSON として書き出す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-27 00:57'
-updated_date: '2026-09-27 10:45'
+updated_date: '2026-09-27 11:22'
 labels: []
 dependencies: []
 references:
