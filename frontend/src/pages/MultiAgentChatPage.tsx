@@ -5,7 +5,7 @@ import { streamSSE } from "../api/sse";
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
-import { DiceRollChips } from "../components/DiceRollChips";
+import { DiceRollChips, messageCopyText } from "../components/DiceRollChips";
 import { Dialog, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { ComposerTextarea } from "../components/ComposerTextarea";
@@ -787,7 +787,7 @@ export function MultiAgentChatPage() {
                     <MessageReferences references={message.references} />
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
                       <CopyMessageButton
-                        content={message.content}
+                        content={messageCopyText(message, t)}
                         onError={(next) => setMessageErrors((current) => ({ ...current, [message.id]: next }))}
                       />
                       <ActionButton
