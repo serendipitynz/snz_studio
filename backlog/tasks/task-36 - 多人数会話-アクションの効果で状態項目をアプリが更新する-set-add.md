@@ -4,7 +4,7 @@ title: '多人数会話: アクションの効果で状態項目をアプリが�
 status: To Do
 assignee: []
 created_date: '2026-09-22 08:37'
-updated_date: '2026-09-27 06:45'
+updated_date: '2026-09-27 09:24'
 labels: []
 milestone: m-1
 dependencies:
@@ -55,4 +55,5 @@ TASK-23 の spike (設計書 §4.8.4) で、効果を生むアクションを効
 - [ ] #3 上限を超える効果・先頭が整数でない値への add は適用されず、その旨が分かる
 - [ ] #4 go test / フロントの型検査・lint が通る
 - [ ] #5 /use は値の先頭の整数が 0 (または行が無い) とき適用されず、その旨がチップで分かる (テストで確認)
+- [ ] #6 コマンドごとの仕様 (書式・前提条件・chat とプリセットの commands に書く設定・記録の残り方) を docs/multi-agent-commands.md に移し、docs/multi-agent-presets.md と docs/current-spec (日英) からリンクする
 <!-- AC:END -->
