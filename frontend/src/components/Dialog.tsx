@@ -1,5 +1,6 @@
+import styled from "@emotion/styled";
 import { createContext, CSSProperties, ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
-import { ModalCard, ModalOverlay, SectionTitle } from "../styles/ui";
+import { ModalBody, ModalCard, ModalFooter, ModalForm, ModalHeader, ModalOverlay, SectionTitle } from "../styles/ui";
 
 // Innermost last. A confirm dialog raised from inside another dialog must take Escape and
 // Tab alone: both listeners sit on document, so without this one Escape would close both.
@@ -99,10 +100,81 @@ export function Dialog({ onClose, children, labelledBy, describedBy, returnFocus
   );
 }
 
-export function DialogTitle({ children, id }: { children: ReactNode; id?: string }) {
+// `title` carries the full text of a heading long enough to be clamped in the header.
+export function DialogTitle({ children, id, title }: { children: ReactNode; id?: string; title?: string }) {
   const contextId = useContext(DialogTitleIdContext);
-  return <SectionTitle id={id ?? contextId}>{children}</SectionTitle>;
+  return (
+    <SectionTitle id={id ?? contextId} title={title}>
+      {children}
+    </SectionTitle>
+  );
 }
+
+// A dialog is laid out as DialogHeader, DialogBody and, where it has one action that
+// ends it, DialogActions (snz-design doc-9 §6.6). DialogForm wraps the body and the
+// actions when the action submits.
+export function DialogHeader({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+  return (
+    <ModalHeader>
+      <HeaderText>{children}</HeaderText>
+      {actions ? <HeaderActions>{actions}</HeaderActions> : null}
+    </ModalHeader>
+  );
+}
+
+export const DialogBody = ModalBody;
+export const DialogForm = ModalForm;
+
+// A failure of the action is told here, beside the button that ran it, rather than at
+// the top of the body: the body may be scrolled away from its top when the button is
+// pressed, and the footer is always in view.
+export function DialogActions({ children, notice }: { children: ReactNode; notice?: ReactNode }) {
+  return (
+    <ModalFooter>
+      {notice}
+      <ActionsRow>{children}</ActionsRow>
+    </ModalFooter>
+  );
+}
+
+// The header does not scroll, so an unbounded heading (a document's title has no length
+// limit) could grow past the card and push the close button and the body out of it.
+// So can the line under it (a participant's name). Clamped, the full text stays in the
+// DOM for assistive technology and, for a document title, in `title`.
+const HeaderText = styled.div`
+  flex: 1 1 12rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
+
+  & > h2,
+  & > p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+
+  & > p {
+    -webkit-line-clamp: 2;
+  }
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  gap: 12px;
+  margin-inline-start: auto;
+`;
+
+// Right-aligned in every dialog, wrapped lines included (doc-9 §6.6).
+const ActionsRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+`;
 
 // The overlay hides the page's controls without taking them out of the tab order, so Tab
 // has to be wrapped by hand.

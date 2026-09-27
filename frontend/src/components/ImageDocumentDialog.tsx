@@ -1,10 +1,10 @@
 import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import { api, DocumentRecord, ImageDescriptionAvailability } from "../api/client";
 import { useLanguage } from "../i18n";
-import { Field, Input, Row, Stack, Subtle, Textarea } from "../styles/ui";
+import { Field, Input, Row, Subtle, Textarea } from "../styles/ui";
 import { ActionButton } from "./ActionButton";
 import { useConfirm } from "./ConfirmDialog";
-import { Dialog, DialogTitle } from "./Dialog";
+import { Dialog, DialogActions, DialogBody, DialogForm, DialogHeader, DialogTitle } from "./Dialog";
 import { FailureNotice } from "./FailureNotice";
 import { FileDropZone } from "./FileDropZone";
 import { ImageIcon, PlusIcon, SparklesIcon } from "./icons";
@@ -187,20 +187,22 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
 
   return (
     <Dialog onClose={() => void handleClose()}>
-      <form onSubmit={handleSubmit}>
-        <Stack>
-          <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <DialogTitle>{t("imageDialog.title")}</DialogTitle>
-            <ActionButton
-              type="button"
-              variant="normal"
-              disabledReason={saving ? t("project.savingClose") : undefined}
-              onClick={() => void handleClose()}
-            >
-              {t("common.close")}
-            </ActionButton>
-          </Row>
-
+      <DialogHeader
+        actions={
+          <ActionButton
+            type="button"
+            variant="normal"
+            disabledReason={saving ? t("project.savingClose") : undefined}
+            onClick={() => void handleClose()}
+          >
+            {t("common.close")}
+          </ActionButton>
+        }
+      >
+        <DialogTitle>{t("imageDialog.title")}</DialogTitle>
+      </DialogHeader>
+      <DialogForm onSubmit={handleSubmit}>
+        <DialogBody>
           <FileDropZone
             label={t("imageDialog.dropLabel")}
             acceptWords={t("imageDialog.dropAccept")}
@@ -261,21 +263,19 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
             {generating ? <Subtle>{t("imageDialog.generatingNote")}</Subtle> : generateBlocker ? <Subtle>{generateBlocker}</Subtle> : null}
           </Row>
           {generateError ? <FailureNotice>{generateError}</FailureNotice> : null}
-
-          {saveError ? <FailureNotice>{saveError}</FailureNotice> : null}
-          <Row style={{ justifyContent: "flex-end" }}>
-            <ActionButton
-              type="submit"
-              icon={<PlusIcon />}
-              busy={saving}
-              title={saving ? t("project.saving") : undefined}
-              disabledReason={submitReason}
-            >
-              {t("imageDialog.create")}
-            </ActionButton>
-          </Row>
-        </Stack>
-      </form>
+        </DialogBody>
+        <DialogActions notice={saveError ? <FailureNotice>{saveError}</FailureNotice> : null}>
+          <ActionButton
+            type="submit"
+            icon={<PlusIcon />}
+            busy={saving}
+            title={saving ? t("project.saving") : undefined}
+            disabledReason={submitReason}
+          >
+            {t("imageDialog.create")}
+          </ActionButton>
+        </DialogActions>
+      </DialogForm>
     </Dialog>
   );
 }

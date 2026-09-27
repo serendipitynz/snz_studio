@@ -15,7 +15,7 @@ import { Checkbox } from "../components/Checkbox";
 import { ComposerTextarea } from "../components/ComposerTextarea";
 import { useConfirm } from "../components/ConfirmDialog";
 import { CopyMessageButton } from "../components/CopyMessageButton";
-import { Dialog, DialogTitle } from "../components/Dialog";
+import { Dialog, DialogActions, DialogBody, DialogForm, DialogHeader, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { FailureNotice } from "../components/FailureNotice";
 import { DropZoneProgress, FileDropZone } from "../components/FileDropZone";
@@ -884,9 +884,8 @@ export function ChatPage() {
 
       {isTitleModalOpen ? (
         <Dialog onClose={closeTitleModal}>
-          <Stack>
-            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <DialogTitle>{t("chat.editTitleModal")}</DialogTitle>
+          <DialogHeader
+            actions={
               <ActionButton
                 type="button"
                 variant="normal"
@@ -895,38 +894,38 @@ export function ChatPage() {
               >
                 {t("common.close")}
               </ActionButton>
-            </Row>
-            <Card as="form" onSubmit={handleUpdateChatTitle}>
-              <Stack>
-                <Field>
-                  {t("chat.titleField")}
-                  <Input
-                    value={titleDraft}
-                    onChange={(event) => setTitleDraft(event.target.value)}
-                    placeholder={t("chat.titlePlaceholder")}
-                  />
-                </Field>
-                <Checkbox checked={isTemporaryDraft} onChange={setIsTemporaryDraft}>
-                  {t("chat.temporaryChat")}
-                </Checkbox>
-                <Subtle>{t("chat.temporaryNote")}</Subtle>
-                {errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}
-                <Row style={{ justifyContent: "flex-end" }}>
-                  <ActionButton type="submit" icon={<CheckIcon />} busy={savingTitle}>
-                    {t("chat.saveSettings")}
-                  </ActionButton>
-                </Row>
-              </Stack>
-            </Card>
-          </Stack>
+            }
+          >
+            <DialogTitle>{t("chat.editTitleModal")}</DialogTitle>
+          </DialogHeader>
+          <DialogForm onSubmit={handleUpdateChatTitle}>
+            <DialogBody>
+              <Field>
+                {t("chat.titleField")}
+                <Input
+                  value={titleDraft}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  placeholder={t("chat.titlePlaceholder")}
+                />
+              </Field>
+              <Checkbox checked={isTemporaryDraft} onChange={setIsTemporaryDraft}>
+                {t("chat.temporaryChat")}
+              </Checkbox>
+              <Subtle>{t("chat.temporaryNote")}</Subtle>
+            </DialogBody>
+            <DialogActions notice={errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}>
+              <ActionButton type="submit" icon={<CheckIcon />} busy={savingTitle}>
+                {t("chat.saveSettings")}
+              </ActionButton>
+            </DialogActions>
+          </DialogForm>
         </Dialog>
       ) : null}
 
       {isDocumentModalOpen ? (
         <Dialog onClose={closeDocumentModal}>
-          <Stack>
-            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <DialogTitle>{t("chat.addDocumentModal")}</DialogTitle>
+          <DialogHeader
+            actions={
               <ActionButton
                 type="button"
                 variant="normal"
@@ -935,8 +934,13 @@ export function ChatPage() {
               >
                 {t("common.close")}
               </ActionButton>
-            </Row>
-
+            }
+          >
+            <DialogTitle>{t("chat.addDocumentModal")}</DialogTitle>
+          </DialogHeader>
+          {/* No footer: choosing or dropping files starts the upload, so there is no
+              action left to run. */}
+          <DialogBody>
             <FileDropZone
               label={t("project.dropLabel")}
               acceptWords={t("project.dropAccept")}
@@ -952,19 +956,24 @@ export function ChatPage() {
             />
 
             {errors.upload ? <FailureNotice>{errors.upload}</FailureNotice> : null}
-          </Stack>
+          </DialogBody>
         </Dialog>
       ) : null}
 
       {reviewTargetMessageId ? (
         <Dialog onClose={closeReview}>
-          <Stack>
-            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <DialogTitle>{t("chat.editorialReview")}</DialogTitle>
+          <DialogHeader
+            actions={
               <Button type="button" variant="normal" onClick={closeReview}>
                 {t("common.close")}
               </Button>
-            </Row>
+            }
+          >
+            <DialogTitle>{t("chat.editorialReview")}</DialogTitle>
+          </DialogHeader>
+          {/* No footer: the review is only read, and its copy buttons belong to the
+              review text they copy. */}
+          <DialogBody>
             <Card style={{ position: "relative" }}>
               <IconButton
                 type="button"
@@ -1018,7 +1027,7 @@ export function ChatPage() {
                 )}
               </Stack>
             </Card>
-          </Stack>
+          </DialogBody>
         </Dialog>
       ) : null}
     </WorkspaceShell>

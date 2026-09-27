@@ -6,7 +6,7 @@ import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
 import { DiceRollChips, messageCopyText } from "../components/DiceRollChips";
-import { Dialog, DialogTitle } from "../components/Dialog";
+import { Dialog, DialogActions, DialogBody, DialogForm, DialogHeader, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { ComposerTextarea } from "../components/ComposerTextarea";
 import { FailureNotice } from "../components/FailureNotice";
@@ -1036,19 +1036,21 @@ export function MultiAgentChatPage() {
           returnFocusTo={memoryOpenerRef.current}
           style={{ width: "min(640px, 100%)" }}
         >
-          <form onSubmit={handleSaveMemory}>
-            <Stack>
-              {memoryDraft.origin.type === "message" ? (
-                <>
-                  <DialogTitle>{t("multiAgent.saveMemoryTitle")}</DialogTitle>
-                  <Subtle>{t("multiAgent.saveMemoryFrom", { name: speakerLabel(memoryDraft.origin.message) })}</Subtle>
-                </>
-              ) : (
-                <>
-                  <DialogTitle>{t("multiAgent.concludeDialogTitle")}</DialogTitle>
-                  <Subtle>{t("multiAgent.concludeFrom", { count: memoryDraft.origin.messageCount })}</Subtle>
-                </>
-              )}
+          <DialogHeader>
+            {memoryDraft.origin.type === "message" ? (
+              <>
+                <DialogTitle>{t("multiAgent.saveMemoryTitle")}</DialogTitle>
+                <Subtle>{t("multiAgent.saveMemoryFrom", { name: speakerLabel(memoryDraft.origin.message) })}</Subtle>
+              </>
+            ) : (
+              <>
+                <DialogTitle>{t("multiAgent.concludeDialogTitle")}</DialogTitle>
+                <Subtle>{t("multiAgent.concludeFrom", { count: memoryDraft.origin.messageCount })}</Subtle>
+              </>
+            )}
+          </DialogHeader>
+          <DialogForm onSubmit={handleSaveMemory}>
+            <DialogBody>
               <Field>
                 {t("project.kind")}
                 <Select
@@ -1081,35 +1083,34 @@ export function MultiAgentChatPage() {
               </Checkbox>
               <MetaText>{t("multiAgent.saveMemoryNote")}</MetaText>
               {memorySaveBlocked ? <MetaText>{t("multiAgent.temporaryNoSave")}</MetaText> : null}
-              {memoryError ? <FailureNotice>{memoryError}</FailureNotice> : null}
-              <Row style={{ justifyContent: "flex-end" }}>
-                <ActionButton
-                  type="button"
-                  variant="normal"
-                  disabledReason={memorySaving ? t("project.savingClose") : undefined}
-                  onClick={closeMemoryDialog}
-                >
-                  {t("common.cancel")}
-                </ActionButton>
-                <ActionButton
-                  type="submit"
-                  icon={<CheckIcon />}
-                  busy={memorySaving}
-                  disabledReason={
-                    memorySaving
-                      ? undefined
-                      : memorySaveBlocked
-                        ? t("multiAgent.temporaryNoSave")
-                        : memoryDraft.content.trim()
-                          ? undefined
-                          : t("multiAgent.memoryContentRequired")
-                  }
-                >
-                  {t("multiAgent.saveMemoryConfirm")}
-                </ActionButton>
-              </Row>
-            </Stack>
-          </form>
+            </DialogBody>
+            <DialogActions notice={memoryError ? <FailureNotice>{memoryError}</FailureNotice> : null}>
+              <ActionButton
+                type="button"
+                variant="normal"
+                disabledReason={memorySaving ? t("project.savingClose") : undefined}
+                onClick={closeMemoryDialog}
+              >
+                {t("common.cancel")}
+              </ActionButton>
+              <ActionButton
+                type="submit"
+                icon={<CheckIcon />}
+                busy={memorySaving}
+                disabledReason={
+                  memorySaving
+                    ? undefined
+                    : memorySaveBlocked
+                      ? t("multiAgent.temporaryNoSave")
+                      : memoryDraft.content.trim()
+                        ? undefined
+                        : t("multiAgent.memoryContentRequired")
+                }
+              >
+                {t("multiAgent.saveMemoryConfirm")}
+              </ActionButton>
+            </DialogActions>
+          </DialogForm>
         </Dialog>
       ) : null}
     </WorkspaceShell>

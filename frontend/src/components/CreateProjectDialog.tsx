@@ -1,10 +1,10 @@
 import { FormEvent, useState } from "react";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n";
-import { Field, Input, Row, Stack, Textarea } from "../styles/ui";
+import { Field, Input, Textarea } from "../styles/ui";
 import { ActionButton } from "./ActionButton";
 import { useConfirm } from "./ConfirmDialog";
-import { Dialog, DialogTitle } from "./Dialog";
+import { Dialog, DialogActions, DialogBody, DialogForm, DialogHeader, DialogTitle } from "./Dialog";
 import { FailureNotice } from "./FailureNotice";
 import { PlusIcon } from "./icons";
 
@@ -59,19 +59,22 @@ export function CreateProjectDialog({ onClose, onCreated }: CreateProjectDialogP
 
   return (
     <Dialog onClose={() => void handleClose()}>
-      <form onSubmit={handleSubmit}>
-        <Stack>
-          <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <DialogTitle>{t("dashboard.createProject")}</DialogTitle>
-            <ActionButton
-              type="button"
-              variant="normal"
-              disabledReason={submitting ? t("dashboard.creatingClose") : undefined}
-              onClick={() => void handleClose()}
-            >
-              {t("common.close")}
-            </ActionButton>
-          </Row>
+      <DialogHeader
+        actions={
+          <ActionButton
+            type="button"
+            variant="normal"
+            disabledReason={submitting ? t("dashboard.creatingClose") : undefined}
+            onClick={() => void handleClose()}
+          >
+            {t("common.close")}
+          </ActionButton>
+        }
+      >
+        <DialogTitle>{t("dashboard.createProject")}</DialogTitle>
+      </DialogHeader>
+      <DialogForm onSubmit={handleSubmit}>
+        <DialogBody>
           <Field>
             {t("dashboard.titleField")}
             <Input
@@ -89,19 +92,18 @@ export function CreateProjectDialog({ onClose, onCreated }: CreateProjectDialogP
               placeholder={t("dashboard.systemPromptPlaceholder")}
             />
           </Field>
-          {createError ? <FailureNotice>{createError}</FailureNotice> : null}
-          <Row style={{ justifyContent: "flex-end" }}>
-            <ActionButton
-              type="submit"
-              icon={<PlusIcon />}
-              busy={submitting}
-              title={submitting ? t("dashboard.creating") : undefined}
-            >
-              {t("dashboard.createButton")}
-            </ActionButton>
-          </Row>
-        </Stack>
-      </form>
+        </DialogBody>
+        <DialogActions notice={createError ? <FailureNotice>{createError}</FailureNotice> : null}>
+          <ActionButton
+            type="submit"
+            icon={<PlusIcon />}
+            busy={submitting}
+            title={submitting ? t("dashboard.creating") : undefined}
+          >
+            {t("dashboard.createButton")}
+          </ActionButton>
+        </DialogActions>
+      </DialogForm>
     </Dialog>
   );
 }

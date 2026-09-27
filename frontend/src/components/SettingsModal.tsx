@@ -6,7 +6,7 @@ import type { ThemeFamily } from "../styles/themes";
 import { ActionButton } from "./ActionButton";
 import { announce } from "./announce";
 import { useConfirm } from "./ConfirmDialog";
-import { Dialog, DialogTitle } from "./Dialog";
+import { Dialog, DialogBody, DialogHeader, DialogTitle } from "./Dialog";
 import { FailureNotice, InfoNotice } from "./FailureNotice";
 import { CheckIcon } from "./icons";
 import { Progress } from "./Progress";
@@ -15,7 +15,6 @@ import {
   Field,
   FieldHeader,
   Input,
-  Row,
   Select,
   Stack,
   StateBadge,
@@ -374,9 +373,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
   return (
     <Dialog onClose={() => void requestClose()}>
-      <Stack>
-        <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <DialogTitle>{t("settings.title")}</DialogTitle>
+      <DialogHeader
+        actions={
           <ActionButton
             type="button"
             variant="normal"
@@ -385,7 +383,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           >
             {t("common.close")}
           </ActionButton>
-        </Row>
+        }
+      >
+        <DialogTitle>{t("settings.title")}</DialogTitle>
+      </DialogHeader>
+      {/* No footer: each section saves on its own, so its save stays at the end of
+          its section rather than in one footer that would not say which it saves. */}
+      <DialogBody>
 
         <Card>
           <Stack>
@@ -622,7 +626,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             </div>
           </Stack>
         </Card>
-      </Stack>
+      </DialogBody>
     </Dialog>
   );
 }
