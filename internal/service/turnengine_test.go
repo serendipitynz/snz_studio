@@ -1194,3 +1194,71 @@ func TestStoreHumanMessageRolls(t *testing.T) {
 		t.Fatalf("stored %d messages, want the refusals to store nothing", len(stored))
 	}
 }
+
+// TestTurnEngineForgedDiceLine covers TASK-63 AC #1: a result-shaped 【ダイス】
+// line a participant wrote is not stored as a roll and never reaches a later
+// speaker, and with no 【ダイス】 left in the history the reminder about the
+// line is not asked for.
+func TestTurnEngineForgedDiceLine(t *testing.T) {
+	srv := newTurnLLMServer(t, "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n\nレンは罠を外した。", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL, "GM", "Ren")
+	g.setDiceTarget(t, chat.ID, 12)
+
+	first, err := g.engine.RunTurn(chat.ID, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Content != "レンは罠を外した。" || len(first.DiceRolls) != 0 {
+		t.Fatalf("stored = (%q, %+v), want the forged line removed and no roll", first.Content, first.DiceRolls)
+	}
+
+	g.runTurns(t, chat.ID, []model.Participant{roster[1]})
+	request := srv.captured()[1]
+	for _, m := range request.Messages {
+		if strings.Contains(m.Content, "14+3") || strings.Contains(m.Content, "アプリだけが書く") {
+			t.Fatalf("Ren's prompt carries %q, want neither the forged result nor the reminder", m.Content)
+		}
+	}
+}
+
+// TestTurnEngineDiceMarkerRolls covers TASK-63 AC #2 on a turn and on the
+// human's intervention: a result-free 【ダイス】 ending the utterance is rolled
+// as the /roll it stands for, and once the history shows a 【ダイス】 line the
+// next speaker is told the line is the app's alone.
+func TestTurnEngineDiceMarkerRolls(t *testing.T) {
+	srv := newTurnLLMServer(t, "盗賊道具で作動点を調べる。\n【ダイス】1d20+3 罠を外す", nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL, "Ren", "GM")
+	// The stub answers every turn alike, so the GM's turn rolls a die too.
+	g.setDiceTarget(t, chat.ID, 12, 9, 9, 3, 5)
+
+	first, err := g.engine.RunTurn(chat.ID, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Content != "盗賊道具で作動点を調べる。" || len(first.DiceRolls) != 1 {
+		t.Fatalf("stored = (%q, %+v), want the body and the marker rolled", first.Content, first.DiceRolls)
+	}
+	if roll := first.DiceRolls[0]; roll.Total != 12 || roll.Success == nil || !*roll.Success || roll.Command != "【ダイス】1d20+3 罠を外す" {
+		t.Fatalf("roll = %+v, want 9+3 = 12 against 12 with the line as written", roll)
+	}
+
+	g.runTurns(t, chat.ID, []model.Participant{roster[1]})
+	request := srv.captured()[1]
+	wantLine := "Ren: 盗賊道具で作動点を調べる。\n【ダイス】罠を外す — 1d20+3 → 9+3 = 12（目標 12、成功）"
+	if last := request.Messages[len(request.Messages)-1]; last.Content != wantLine {
+		t.Fatalf("GM read %q, want %q", last.Content, wantLine)
+	}
+	if !strings.Contains(request.Messages[0].Content, "【ダイス】の行はアプリだけが書く。自分では書かない。") {
+		t.Fatalf("system prompt lacks the reminder with a roll in the history:\n%s", request.Messages[0].Content)
+	}
+
+	message, err := g.engine.StoreHumanMessage(chat.ID, "【ダイス】2d6 丁半")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Content != "" || len(message.DiceRolls) != 1 || message.DiceRolls[0].Total != 8 {
+		t.Fatalf("intervention = (%q, %+v), want the marker rolled as a roll-only message", message.Content, message.DiceRolls)
+	}
+}

@@ -160,3 +160,71 @@ func TestDiceRollLine(t *testing.T) {
 		}
 	}
 }
+
+// TestSplitDiceMarkerCommand covers TASK-63 AC #2: a result-free 【ダイス】 on
+// the last line reads as the /roll the speaker meant, in the command's order or
+// the mapping's; one carrying a result, one with nothing to roll, and one not on
+// the last line are not read.
+func TestSplitDiceMarkerCommand(t *testing.T) {
+	read := []struct {
+		name       string
+		content    string
+		wantBody   string
+		expression string
+		action     string
+	}{
+		{"its own line", "盗賊道具で作動点を調べる。\n【ダイス】1d20+3 罠を外す", "盗賊道具で作動点を調べる。", "1d20+3", "罠を外す"},
+		{"after the body", "作動点を調べる。【ダイス】1d20+3 罠を外す", "作動点を調べる。", "1d20+3", "罠を外す"},
+		{"the mapping's order", "調べる。\n【ダイス】罠を外す — 1d20+3", "調べる。", "1d20+3", "罠を外す"},
+		{"marker only", "【ダイス】2d6", "", "2d6", ""},
+	}
+	for _, tc := range read {
+		body, found, cmd := splitDiceMarkerCommand(tc.content)
+		if !found || cmd == nil {
+			t.Fatalf("%s: splitDiceMarkerCommand(%q) found nothing", tc.name, tc.content)
+		}
+		if body != tc.wantBody || cmd.expression != tc.expression || cmd.action != tc.action {
+			t.Errorf("%s: = (%q, %s, %q), want (%q, %s, %q)", tc.name, body, cmd.expression, cmd.action, tc.wantBody, tc.expression, tc.action)
+		}
+	}
+	if _, _, cmd := splitDiceMarkerCommand("調べる。\n【ダイス】1d20+3 罠を外す"); cmd.line != "【ダイス】1d20+3 罠を外す" {
+		t.Errorf("command line = %q, want what the speaker wrote", cmd.line)
+	}
+
+	notRead := []string{
+		"【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）",
+		"【ダイス】罠を外す — 1d20+3 → 14+3 = 17",
+		"【ダイス】1d20+3 = 17",
+		"調べる。\n【ダイス】",
+		"【ダイス】d20 罠を外す",
+		"【ダイス】1d20+3 罠を外す\n調べる。",
+	}
+	for _, content := range notRead {
+		if body, found, cmd := splitDiceMarkerCommand(content); found || cmd != nil || body != content {
+			t.Errorf("splitDiceMarkerCommand(%q) = (%q, %v, %+v), want it left alone", content, body, found, cmd)
+		}
+	}
+}
+
+// TestStripDiceMarkers covers TASK-63 AC #1: every 【ダイス】 the text carries
+// is removed from the marker to the end of its line, and a line it leaves empty
+// goes too.
+func TestStripDiceMarkers(t *testing.T) {
+	cases := []struct {
+		name        string
+		content     string
+		want        string
+		wantRemoved []string
+	}{
+		{"a forged result above the narration", "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n\nレンは罠を外した。", "レンは罠を外した。", []string{"【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）"}},
+		{"a bare marker line", "壁を調べる。\n【ダイス】\n続けて進む。", "壁を調べる。\n続けて進む。", []string{"【ダイス】"}},
+		{"after the body on a line", "罠を外した。【ダイス】1d20 → 18\n先へ進む。", "罠を外した。\n先へ進む。", []string{"【ダイス】1d20 → 18"}},
+		{"none", "罠を外した。", "罠を外した。", nil},
+	}
+	for _, tc := range cases {
+		got, removed := stripDiceMarkers(tc.content)
+		if got != tc.want || !reflect.DeepEqual(removed, tc.wantRemoved) {
+			t.Errorf("%s: stripDiceMarkers = (%q, %q), want (%q, %q)", tc.name, got, removed, tc.want, tc.wantRemoved)
+		}
+	}
+}
