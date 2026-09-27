@@ -1,8 +1,8 @@
 import styled from "@emotion/styled";
 import { createContext, ReactNode, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { useLanguage } from "../i18n";
-import { Button, Row, Stack } from "../styles/ui";
-import { Dialog, DialogTitle } from "./Dialog";
+import { Button } from "../styles/ui";
+import { Dialog, DialogActions, DialogBody, DialogHeader, DialogTitle } from "./Dialog";
 
 // window.confirm / alert / prompt must not be used anywhere in this app: Wails' macOS
 // WebView declares WKUIDelegate without implementing the panel callbacks, so WKWebView
@@ -75,20 +75,22 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           describedBy={MESSAGE_ID}
           style={{ width: "min(420px, 100%)" }}
         >
-          <Stack>
+          <DialogHeader>
             <DialogTitle id={HEADING_ID}>{pending.options.heading}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
             <Message id={MESSAGE_ID}>{pending.message}</Message>
-            <Row style={{ justifyContent: "flex-end" }}>
-              {/* Cancel takes the initial focus: every current caller asks about a destructive
-                  action, so a stray Enter right after the click must not confirm one. */}
-              <Button type="button" variant="normal" autoFocus onClick={() => close(false)}>
-                {pending.options.cancelLabel ?? t("common.cancel")}
-              </Button>
-              <Button type="button" variant="danger" onClick={() => close(true)}>
-                {pending.options.confirmLabel}
-              </Button>
-            </Row>
-          </Stack>
+          </DialogBody>
+          <DialogActions>
+            {/* Cancel takes the initial focus: every current caller asks about a destructive
+                action, so a stray Enter right after the click must not confirm one. */}
+            <Button type="button" variant="normal" autoFocus onClick={() => close(false)}>
+              {pending.options.cancelLabel ?? t("common.cancel")}
+            </Button>
+            <Button type="button" variant="danger" onClick={() => close(true)}>
+              {pending.options.confirmLabel}
+            </Button>
+          </DialogActions>
         </Dialog>
       ) : null}
     </ConfirmContext.Provider>

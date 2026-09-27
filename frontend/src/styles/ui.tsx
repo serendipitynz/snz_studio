@@ -764,13 +764,59 @@ export const ModalOverlay = styled.div`
   z-index: 20;
 `;
 
+// Only the body scrolls, so a dialog taller than the window keeps its heading, its
+// close button and its actions in view (snz-design doc-9 §6.6).
 export const ModalCard = styled.div`
   width: min(860px, 100%);
   max-height: calc(100vh - 48px);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: ${({ theme }) => theme.surfaceCard};
   border: 1px solid ${({ theme }) => theme.lineMedium};
   border-radius: ${({ theme }) => theme.radius};
   box-shadow: ${({ theme }) => theme.shadow};
-  padding: 20px;
+`;
+
+export const ModalHeader = styled.div`
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid ${({ theme }) => theme.lineMedium};
+`;
+
+// The ring of a control focused at the body's edge would be cut by the scroll box, so
+// the padding outreaches it and scroll-padding keeps a control scrolled into view by
+// focus clear of the edge by the same amount.
+export const ModalBody = styled.div`
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px 20px;
+  scroll-padding-block: ${FOCUS_RING_REACH};
+`;
+
+export const ModalFooter = styled.div`
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 20px 20px;
+  border-top: 1px solid ${({ theme }) => theme.lineMedium};
+`;
+
+// A form that spans the body and the footer, so the submit button in the footer stays
+// the form's own. It passes the card's height limit on to the body.
+export const ModalForm = styled.form`
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 `;
