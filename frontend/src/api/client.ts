@@ -82,10 +82,17 @@ export interface ChatRecord {
   // The shared state sheet: "name: value" lines every participant's turn reads
   // (design §4.7). At most CHAT_STATE_SHEET_MAX_CHARS characters.
   stateSheet: string;
-  // What a /roll without 目標 is compared with; 0 compares nothing (design §4.8.3).
-  diceTarget: number;
+  // The slash commands the chat handles (design §4.8.7).
+  commands: ChatCommands;
   createdAt: string;
   updatedAt: string;
+}
+
+// ChatCommands mirrors the Go model.ChatCommands: command name → its settings, a
+// present key enabling the command. roll.target is what a /roll without 目標 is
+// compared with; 0 compares nothing (design §4.8.3).
+export interface ChatCommands {
+  roll?: { target: number };
 }
 
 export interface RecentChat extends ChatRecord {
@@ -161,7 +168,7 @@ export interface MultiAgentPreset {
   turnRule: TurnRule;
   scenePrompt: string;
   stateSheet?: string;
-  diceTarget?: number;
+  commands?: ChatCommands;
   participants: MultiAgentPresetParticipant[];
 }
 
@@ -516,7 +523,7 @@ export const api = {
     }),
   updateChatMultiAgentSettings: (
     chatId: string,
-    input: { turnRule?: TurnRule; scenePrompt?: string; facilitatorId?: string; stateSheet?: string; diceTarget?: number }
+    input: { turnRule?: TurnRule; scenePrompt?: string; facilitatorId?: string; stateSheet?: string; commands?: ChatCommands }
   ) =>
     request<{ chat: ChatRecord }>(`/api/chats/${chatId}`, {
       method: "PATCH",
