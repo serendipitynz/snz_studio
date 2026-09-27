@@ -175,6 +175,9 @@ func TestSplitDiceMarkerCommand(t *testing.T) {
 	}{
 		{"its own line", "盗賊道具で作動点を調べる。\n【ダイス】1d20+3 罠を外す", "盗賊道具で作動点を調べる。", "1d20+3", "罠を外す"},
 		{"indented", "調べる。\n　【ダイス】1d20+3 罠を外す", "調べる。", "1d20+3", "罠を外す"},
+		// An outcome word in the action is part of what the player does, not a
+		// result: the app rolls, as it would for the same /roll.
+		{"an outcome word in the action", "説得する。\n【ダイス】1d20+3 交渉を成功させる", "説得する。", "1d20+3", "交渉を成功させる"},
 		{"the mapping's order", "調べる。\n【ダイス】罠を外す — 1d20+3", "調べる。", "1d20+3", "罠を外す"},
 		{"the dice before the dash", "調べる。\n【ダイス】1d20+3 — 罠を外す", "調べる。", "1d20+3", "罠を外す"},
 		{"marker only", "【ダイス】2d6", "", "2d6", ""},
@@ -196,7 +199,8 @@ func TestSplitDiceMarkerCommand(t *testing.T) {
 		"【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）",
 		"【ダイス】罠を外す — 1d20+3 → 14+3 = 17",
 		"【ダイス】1d20+3 = 17",
-		"【ダイス】1d20+3 成功",
+		"【ダイス】15 成功",
+		"【ダイス】13（成功）",
 		"作動点を調べる。【ダイス】1d20+3 罠を外す",
 		"調べる。\n【ダイス】",
 		"【ダイス】d20 罠を外す",
@@ -224,6 +228,7 @@ func TestStripDiceMarkers(t *testing.T) {
 		{"an outcome without an arrow", "【ダイス】15 成功\n罠を外した。", "罠を外した。", []string{"【ダイス】15 成功"}},
 		{"a result-free roll", "【ダイス】1d20+3 罠を外す\n罠を外した。", "罠を外した。", []string{"【ダイス】1d20+3 罠を外す"}},
 		{"a heading", "【ダイス】の確率について\n2d6 の分布を見る。", "【ダイス】の確率について\n2d6 の分布を見る。", nil},
+		{"a heading with an outcome word", "【ダイス】の判定で失敗した話\n続ける。", "【ダイス】の判定で失敗した話\n続ける。", nil},
 		{"dice that do not read", "跳ぶ。\n【ダイス】d20 跳ぶ", "跳ぶ。\n【ダイス】d20 跳ぶ", nil},
 		{"inside a sentence", "罠を外した。【ダイス】1d20 → 18\n先へ進む。", "罠を外した。【ダイス】1d20 → 18\n先へ進む。", nil},
 		{"none", "罠を外した。", "罠を外した。", nil},

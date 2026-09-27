@@ -83,11 +83,31 @@ func splitRollCommand(content string) (stripped string, found bool, cmd *rollCom
 // record from such a line once both sit in the transcript.
 const diceMarker = "【ダイス】"
 
-// diceMarkerResult is what a 【ダイス】 line carries once a result is written
-// into it: the mapping's "→", the total's "=", or the outcome itself —
-// gpt-oss-20b wrote "【ダイス】15 成功" with neither of the others (TASK-63). A
-// line carrying any of them is a forged result and is never rolled.
-var diceMarkerResult = regexp.MustCompile(`→|->|⇒|=|＝|成功|失敗`)
+// diceMarkerArrow is the mapping's "→" and the total's "=", which only a
+// written result carries.
+var diceMarkerArrow = regexp.MustCompile(`→|->|⇒|=|＝`)
+
+// diceMarkerOutcome is an outcome word. gpt-oss-20b forged "【ダイス】15 成功"
+// with no arrow or equals sign (TASK-63), but the word is also ordinary in an
+// action ("交渉を成功させる") and in a heading, so diceMarkerHasResult reads it
+// as a result only beside a number that is not a roll.
+var diceMarkerOutcome = regexp.MustCompile(`成功|失敗`)
+
+// diceLikeToken is dice written as a field, readable or not ("1d20", "d20").
+var diceLikeToken = regexp.MustCompile(`(?:^|\s)[0-9０-９]*[dDｄＤ][0-9０-９]+`)
+
+// diceMarkerHasResult reports marker arguments that carry a written result: an
+// arrow or an equals sign, or an outcome word with a number when the arguments
+// do not read as a /roll. A forged line is never rolled; a mistyped roll whose
+// action happens to say 成功 still is.
+func diceMarkerHasResult(args string) bool {
+	if diceMarkerArrow.MatchString(args) {
+		return true
+	}
+	return diceMarkerOutcome.MatchString(args) &&
+		strings.ContainsAny(asciiDigits(args), "0123456789") &&
+		readDiceMarkerRoll(args) == nil
+}
 
 // diceMarkerArgs returns what follows a 【ダイス】 that opens the line. Only the
 // start of a line counts: that is where the app writes it, and where every one
@@ -128,7 +148,7 @@ func isDiceRecordLine(line string) bool {
 	if !ok {
 		return false
 	}
-	return args == "" || diceMarkerResult.MatchString(args) || readDiceMarkerRoll(args) != nil
+	return args == "" || diceMarkerHasResult(args) || readDiceMarkerRoll(args) != nil
 }
 
 // splitDiceMarkerCommand reads a result-free 【ダイス】 line ending the text as
@@ -140,7 +160,7 @@ func splitDiceMarkerCommand(content string) (stripped string, found bool, cmd *r
 	trimmed := strings.TrimRight(content, " \t\r\n")
 	lineStart := strings.LastIndex(trimmed, "\n") + 1
 	args, ok := diceMarkerArgs(trimmed[lineStart:])
-	if !ok || diceMarkerResult.MatchString(args) {
+	if !ok || diceMarkerHasResult(args) {
 		return content, false, nil
 	}
 	if cmd = readDiceMarkerRoll(args); cmd == nil {
@@ -174,14 +194,15 @@ func stripDiceMarkers(content string) (string, []string) {
 	return strings.Trim(strings.Join(kept, "\n"), "\r\n"), removed
 }
 
-// withoutTrailingDiceMarkerLine drops a last line that opens with 【ダイス】 but
-// stayed in the body because its dice could not be read. The name match skips
-// it for the reason it skips an unreadable /roll: "【ダイス】d20 ミラを庇う" is a
-// botched roll, not a call on ミラ.
+// withoutTrailingDiceMarkerLine drops a last line that opens with 【ダイス】 and
+// writes dice that could not be read. The name match skips it for the reason it
+// skips an unreadable /roll: "【ダイス】d20 ミラを庇う" is a botched roll, not a
+// call on ミラ. A heading kept as text ("【ダイス】の確率、ミラはどう思う？") has
+// no dice and keeps its call.
 func withoutTrailingDiceMarkerLine(content string) string {
 	trimmed := strings.TrimRight(content, " \t\r\n")
 	lineStart := strings.LastIndex(trimmed, "\n") + 1
-	if _, ok := diceMarkerArgs(trimmed[lineStart:]); !ok {
+	if args, ok := diceMarkerArgs(trimmed[lineStart:]); !ok || !diceLikeToken.MatchString(args) {
 		return content
 	}
 	return trimmed[:lineStart]

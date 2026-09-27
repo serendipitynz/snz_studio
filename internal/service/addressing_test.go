@@ -183,6 +183,12 @@ func TestPrepareUtteranceDiceMarkers(t *testing.T) {
 		t.Errorf("unreadable = (%q, %+v, %v, %v), want the line kept, no roll and no call", unreadable.content, unreadable.roll, unreadable.rollErr, unreadable.addressees)
 	}
 
+	// A heading kept as text keeps its call; only a botched roll is skipped.
+	heading := prepareUtterance("出目の話をしよう。\n【ダイス】の確率、ミラはどう思う？", "ren", addressingRoster())
+	if heading.content != "出目の話をしよう。\n【ダイス】の確率、ミラはどう思う？" || !reflect.DeepEqual(heading.addressees, []string{"mira"}) {
+		t.Errorf("heading = (%q, %v), want the line kept and the call on ミラ", heading.content, heading.addressees)
+	}
+
 	// An unreadable /roll stays as text, but a forged result above it still goes.
 	kept := prepareUtterance("【ダイス】1d20 → 18\n跳ぶ。\n/roll d20 跳ぶ", "ren", addressingRoster())
 	if kept.content != "跳ぶ。\n/roll d20 跳ぶ" || !errors.Is(kept.rollErr, ErrInvalidRollCommand) {
