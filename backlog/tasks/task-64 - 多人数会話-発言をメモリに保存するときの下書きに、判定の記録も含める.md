@@ -1,10 +1,10 @@
 ---
 id: TASK-64
 title: '多人数会話: 発言をメモリに保存するときの下書きに、判定の記録も含める'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-27 01:31'
-updated_date: '2026-09-27 09:33'
+updated_date: '2026-09-27 10:20'
 labels: []
 dependencies:
   - TASK-37
