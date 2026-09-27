@@ -142,8 +142,9 @@ export interface ChatSummary {
 }
 
 // MultiAgentPreset mirrors the Go preset.MultiAgentPreset: the roster, turn rule
-// and scene a new multi-agent chat starts from (design §6). Endpoint and model
-// are not preset data; they are picked per participant after creation.
+// and scene a new multi-agent chat starts from (design §6). A participant's
+// endpoint and model are carried only by a preset exported from a chat; the
+// bundled ones leave them to be picked per participant after creation.
 export type PresetGroup = "discussion" | "drama" | "hosted" | "pair";
 
 export interface MultiAgentPresetParticipant {
@@ -158,6 +159,8 @@ export interface MultiAgentPresetParticipant {
   // stores a participant id, which the preset cannot know before it is applied.
   facilitator?: boolean;
   stateSheet?: string;
+  baseUrl?: string;
+  modelName?: string;
 }
 
 export interface MultiAgentPreset {
@@ -542,6 +545,11 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(selection)
     }),
+  // The chat's current line-up as a preset, endpoints included. 409 when it
+  // would not load back (fewer than two participants, or
+  // facilitator_alternating without its facilitator on the roster).
+  exportMultiAgentPreset: (chatId: string) =>
+    request<{ preset: MultiAgentPreset }>(`/api/chats/${chatId}/export/preset`),
   // Who the next turn would pick, from the engine itself (null under manual),
   // and how many past messages a turn reads.
   getNextSpeaker: (chatId: string) =>

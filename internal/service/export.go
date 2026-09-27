@@ -31,7 +31,7 @@ func BuildChatMarkdown(project *model.Project, chat *model.Chat, participants []
 
 	title := singleLine(chat.Title)
 	if title == "" {
-		title = "無題のチャット"
+		title = model.UntitledChatTitle
 	}
 	fmt.Fprintf(&b, "# %s\n\n", title)
 	if project != nil {

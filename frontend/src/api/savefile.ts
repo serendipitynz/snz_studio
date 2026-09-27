@@ -11,6 +11,15 @@ const maxFilenameStem = 80;
 
 // markdownFilename turns a chat title into the name the save dialog preselects.
 export function markdownFilename(title: string): string {
+  return `${filenameStem(title)}.md`;
+}
+
+// presetFilename is markdownFilename for a preset exported from the chat.
+export function presetFilename(title: string): string {
+  return `${filenameStem(title)}.json`;
+}
+
+function filenameStem(title: string): string {
   const stem = title
     .replace(unsafeFilenameChars, " ")
     .replace(/\s+/g, " ")
@@ -20,7 +29,7 @@ export function markdownFilename(title: string): string {
     // Windows.
     .replace(/^\.+/, "")
     .trim();
-  return `${stem || "chat"}.md`;
+  return stem || "chat";
 }
 
 // saveTextFile writes content to a location the user picks.
@@ -34,16 +43,20 @@ export function markdownFilename(title: string): string {
 // An error from the binding is propagated rather than retried through the Blob
 // path, so a failed write is reported instead of being replaced by a download
 // that would not happen either.
-export async function saveTextFile(suggestedName: string, content: string): Promise<SaveOutcome> {
+export async function saveTextFile(
+  suggestedName: string,
+  content: string,
+  mimeType = "text/markdown;charset=utf-8"
+): Promise<SaveOutcome> {
   if (window.go?.main?.App?.SaveTextFile) {
     return (await SaveTextFile(suggestedName, content)) ? "saved" : "cancelled";
   }
-  downloadAsFile(suggestedName, content);
+  downloadAsFile(suggestedName, content, mimeType);
   return "saved";
 }
 
-function downloadAsFile(filename: string, content: string): void {
-  const url = URL.createObjectURL(new Blob([content], { type: "text/markdown;charset=utf-8" }));
+function downloadAsFile(filename: string, content: string, mimeType: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;

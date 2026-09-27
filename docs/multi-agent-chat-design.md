@@ -1311,6 +1311,7 @@ TASK-65 で、`roll` が有効な会話にだけ掛けるように改めた（§
 | `POST /api/projects/{projectId}/chats` | 既存を拡張: `kind: "multi_agent"` を受け付ける。任意で `presetId`（同梱プリセットの id）または `preset`（プリセットの JSON オブジェクトそのもの）を 1 つだけ受け付け、そのプリセットを適用する。両方指定・`kind` が `assistant` のときの指定は 400、未知の `presetId` は 404 |
 | `GET /api/multi-agent-presets` | 同梱プリセットの一覧（`id` / `title` / `description` / `group` / `turnRule` / `scenePrompt` / `participants[]`） |
 | `POST /api/chats/{chatId}/preset` | 既存の多人数会話にプリセットを適用する。body は作成時と同じ `presetId` または `preset` を 1 つだけ。単独 assistant の chat は 400、未知の `presetId` は 404、`messages` が 1 件以上ある chat は 409。応答は適用後の `{ chat, participants }` |
+| `GET /api/chats/{chatId}/export/preset` | その時点の編成・設定・状態をプリセットとして返す（2026-09-27、TASK-62）。応答は `{ preset }` で、`title`（空なら「無題のチャット」）・`turnRule`・`scenePrompt`・`stateSheet`・`commands` と、編成順の `participants[]`（除籍済みは除く。各自の `baseUrl` / `modelName` を含む）。`id` / `group` / `description` と transcript は入れない。読み込みと同じ検証を通してから返し、通らない編成（参加者 2 人未満、`facilitator_alternating` で進行役が編成に居ない）は 409。単独 assistant の chat は 400、chat が無ければ 404 |
 | `PATCH /api/chats/{chatId}` | 既存を拡張: `turnRule` / `scenePrompt` / `facilitatorId` / `stateSheet`（共通の状態、前後の空白を除いて 400 字まで。超えれば 400）/ `commands`（有効なコマンドとその設定、§4.8.7。オブジェクトで丸ごと置き換える。知らないコマンド名や、0〜9999 の整数でない `roll.target` は 400。TASK-37 の `diceTarget` はこれに置き換えた）の更新を受け付ける。`turnRule` は `round_robin` / `manual` / `facilitator_alternating` / `weighted` のいずれか。`facilitatorId` は空文字（指定の解除）か、その chat の編成に居る参加者の id。それ以外は 400 |
 | `POST /api/chats/{chatId}/messages`（`/stream` も） | 既存を拡張: 多人数会話では人間の介入発言として保存するだけで生成しない（§4.4）。最終行の `/roll` を振って判定の記録を保存する（§4.8.3）。解釈できない `/roll`、指示子を剥がすと空になる本文は 400 |
 | `GET /api/chats/{chatId}/participants` | 参加者一覧 |
@@ -1335,8 +1336,9 @@ TASK-65 で、`roll` が有効な会話にだけ掛けるように改めた（§
 プリセット側が participant id ではなく名簿の要素に印を付けるのは、id が適用の瞬間まで存在しないためである。
 `turnRule` が `facilitator_alternating` のプリセットは `facilitator: true` をちょうど 1 件持つことを検証する（持たない・複数は 400）。
 `weighted` のプリセットは 0 件か 1 件（進行役は任意、複数は 400）。
-他のルールのプリセットに印を付けるのも 400 とする（保存されても誰も読まない値になるため）。chat の title が空ならプリセットの `title` を使う。参加者の接続先・モデルは空で作られ、
-ターン実行時はワークスペース既定のエンドポイントに落ちる（参加者ごとに変えるのは編成パネル）。
+他のルールのプリセットに印を付けるのも 400 とする（保存されても誰も読まない値になるため）。chat の title が空ならプリセットの `title` を使う。参加者の接続先・モデルはプリセットの
+`participants[].baseUrl` / `modelName` で作る。持たない参加者（同梱プリセットは全員）は空で作られ、ターン実行時はワークスペース既定のエンドポイントに落ちる
+（参加者ごとに変えるのは編成パネル）。適用のときに接続先へつながるかは確かめない（§8.1 の TASK-62 の項）。
 適用後の chat はプリセットとの結びつきを持たない（以後の編集はすべて編成パネル）。新規作成時に参加者の作成が途中で失敗したら chat ごと削除して返す
 （repository 層にトランザクションが無く、編成が欠けた多人数会話を残さないため）。
 
@@ -1407,6 +1409,11 @@ TASK-65 で、`roll` が有効な会話にだけ掛けるように改めた（§
   保存は Wails の `SaveTextFile` 束縛（ネイティブの保存ダイアログ）。WebView の外（`window.go` が無い環境）では
   Blob ダウンロードに落ちる。Wails v2.16 の macOS 実装はダウンロードのデリゲートを実装していないため、
   `<a download>` だけでは WebView 内で無言で失敗する。
+- **プリセットとして書き出す**（2026-09-27、TASK-62）: インスペクタの見出し「インスペクタ」の直後にアイコンボタン（ダウンロードの図形、名前はツールチップと `aria-label`）を置き、
+  `GET /api/chats/{chatId}/export/preset` の `preset` を整形した JSON として、markdown エクスポートと同じ `SaveTextFile`（WebView の外では Blob）で
+  `<チャット名>.json` に保存する。発言の有無によらず出し、ターン実行中・自動進行中も押せる（読むだけで、ターンが変えるのは transcript だけのため）。
+  読み込めないファイルになる編成（参加者 2 人未満、`facilitator_alternating` で進行役が編成に居ない）ではボタンを無効にして理由を持たせる。
+  見出しの行の右端に寄せないのは、1180px 以下で重ねて出したインスペクタでは右上の角を閉じるボタンが占めるため。
 - **プリセット**: 新規作成フォームで `kind = multi_agent` を選ぶとプリセット選択が出る。同じ選択 UI（`components/PresetPicker.tsx`）を
   編成パネルの先頭にも置き、**発言が 1 件も無いあいだだけ**「このプリセットを適用」を出す（発言が 1 件でもあれば選択 UI ごと出さない）。
   パネル側は `<details>` で既定は折り畳み、開閉状態は保存しない。作成時にプリセットを選んだ chat では編成が既に埋まっており、
@@ -1417,6 +1424,7 @@ TASK-65 で、`roll` が有効な会話にだけ掛けるように改めた（§
   プリセットの `participants[]` は任意で `receivesProjectMaterial` を持てる（省略時は `true`）。GM だけがシナリオを読む編成は
   プリセットの側で表現できるべきで、適用のたびに編成パネルで設定し直すものではない。同じ理由で `facilitator`（真偽値、省略時は偽）も持てる。
   同梱の `trpg-table`（GM + プレイヤー 2 名）が両方を使い、`facilitator_alternating` で GM だけがプロジェクト資料を読む卓になる。
+  `participants[]` の `baseUrl` / `modelName` は会話から書き出したファイルだけが持つ任意の欄で、同梱プリセットには書けない（§8.1 の TASK-62 の項）。
 
 ## 7. 段階分け
 
@@ -1487,6 +1495,19 @@ TASK-34 で入っている。TRPG 対応のうち状態シートは TASK-35、`/
   導出は `selectSpeaker`（[turnengine.go](../internal/service/turnengine.go)）だけにあり、フロントは話者を
   `speaker` イベントで受け取る（当初はフロントの `turnOrder.ts` にも同じ導出を複製していたが、TASK-33 で削除した）。
   画面は進行役が編成に居ないことを編成パネルと観戦ビューの双方に出す（§6）。
+
+- **プリセットに接続先・モデルを書くか → 会話から書き出したプリセットだけが書く**（2026-09-27、TASK-62、オーナー判断）:
+  それまでのプリセットは、接続先（`baseUrl`）とモデル（`modelName`）を「使う時点で選ぶもの」として持たず、適用した参加者は接続先が空で作られていた。
+  インスペクタから会話の編成・設定・状態を書き出し、別のチャットで完全に再現する要望を受けて、`participants[]` に両方を任意の欄として足した。
+  同梱プリセットは今までどおり持たない（持っていれば起動時の検証で落とす）。
+  **Why**: 書き出したファイルは、書き出したマシン（と同じ LAN）で読み込むのが主な使い方で、そこでは接続先ごと再現できないと
+  参加者ごとに接続先を選び直すことになる。同梱プリセットはどのマシンにも配られるので、特定の LAN の接続先を持たせる理由が無い。
+  あわせて決めたこと（いずれも着手時のオーナー判断）:
+  (1) つながらない接続先を含むファイルも、適用のときに確かめずにそのまま適用する。つながらない参加者はターン開始前の 502 で分かり、
+  編成パネルの接続確認で直せる。適用時に確かめると、確かめる処理と結果の見せ方が増える一方、直す手段は同じ編成パネルになる。
+  (2) 書き出しには `id` / `group` / `description` を入れない。読み込みでは使われない値で、書き出し元のチャットにも対応する値が無い。
+  (3) 読み込めないファイルになる編成では書き出さない（ボタンの無効の理由とサーバーの 409）。書き出したファイルは必ず読み込める、を保つため。
+  書き出しの組み立ては `preset.FromChat`（[export.go](../internal/preset/export.go)）で、読み込みと同じ `Validate` を通す。
 
 ### 8.2 将来拡張で判断する事項
 

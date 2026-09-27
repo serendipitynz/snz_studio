@@ -130,7 +130,10 @@ conversation is created, and afterwards from the inspector for as long as the co
 has no messages — which replaces the roster, the turn rule and the scene. Once something has been
 said the preset is refused, since the transcript would be left naming speakers the conversation no
 longer has. An applied preset leaves no link behind — everything is edited from the
-inspector afterwards.
+inspector afterwards. The inspector can also export the conversation's current line-up — settings,
+state sheets and the roster in order, each participant's endpoint and model included — as a preset
+JSON file, at any point of the conversation. Loaded into a new conversation, or one with no
+messages, it gives back the same line-up. The bundled presets carry no endpoints.
 
 The user is not a participant. Human messages are stored as `user` messages with no participant, so
 the user can speak into the conversation at any point (adding a topic, heckling) without taking a turn.
@@ -476,6 +479,9 @@ Right pane:
 - inspector: a run of collapsible sections. Their default folds flip when the first message lands
   (the state section opens; the conversation settings and the participant cards fold). The choices
   are not stored.
+  - an export button right after the inspector's heading saves the current line-up as a preset JSON
+    file; disabled, with the reason, while the roster has fewer than two participants or the
+    facilitator-alternating rule has no facilitator on it
   - preset: shown only while the conversation has no messages; collapsed by default
   - state: the shared state sheet and one per roster participant (labelled "state of <display
     name>" with the name in bold, in roster order; the character counter sits at the label row's
@@ -570,6 +576,7 @@ Current API groups:
 - multi-agent turn streaming
 - bundled preset listing
 - applying a preset to a multi-agent conversation that has no messages
+- exporting a multi-agent conversation's line-up as a preset
 
 ## Debugging
 

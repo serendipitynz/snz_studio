@@ -268,6 +268,7 @@ verbose トレースは出力しません。
 - `GET /api/chats/:chatId`
 - `POST /api/chats/:chatId/messages`
 - `GET /api/multi-agent-presets`
+- `GET /api/chats/:chatId/export/preset`（会話の編成を接続先ごとプリセットとして返す）
 - `GET / POST /api/chats/:chatId/participants`
 - `PATCH / DELETE /api/participants/:participantId`
 - `POST /api/chats/:chatId/turns/stream`（1 ターン実行・SSE。`speaker` → `delta` … → `done` の順に流す。実行中の重複呼び出しは 409）

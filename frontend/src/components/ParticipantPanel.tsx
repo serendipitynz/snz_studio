@@ -2,6 +2,7 @@ import styled from "@emotion/styled";
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   api,
+  ApiError,
   CHAT_STATE_SHEET_MAX_CHARS,
   ChatCommands,
   ChatRecord,
@@ -11,6 +12,7 @@ import {
   stateSheetLength,
   TurnRule
 } from "../api/client";
+import { presetFilename, saveTextFile } from "../api/savefile";
 import { ActionButton } from "./ActionButton";
 import { announce } from "./announce";
 import { useConfirm } from "./ConfirmDialog";
@@ -19,7 +21,7 @@ import { CollapsibleSection } from "./CollapsibleSection";
 import { FailureNotice } from "./FailureNotice";
 import { GuardedSelect } from "./GuardedSelect";
 import { Hint, HintedField, HintRow } from "./Hint";
-import { CheckIcon, MoveDownIcon, MoveUpIcon, SparklesIcon, TrashIcon, UserPlusIcon } from "./icons";
+import { CheckIcon, DownloadIcon, MoveDownIcon, MoveUpIcon, SparklesIcon, TrashIcon, UserPlusIcon } from "./icons";
 import { PresetChoice, PresetPicker } from "./PresetPicker";
 import { useLanguage } from "../i18n";
 import {
@@ -98,6 +100,8 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
   const [moving, setMoving] = useState<{ participantId: string; direction: MoveDirection } | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [presetError, setPresetError] = useState("");
+  const [exportingPreset, setExportingPreset] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [settingsError, setSettingsError] = useState("");
   const [addError, setAddError] = useState("");
   const [participantErrors, setParticipantErrors] = useState<Record<string, string>>({});
@@ -299,6 +303,30 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     }
   }
 
+  async function handleExportPreset() {
+    setExportingPreset(true);
+    setExportError("");
+    try {
+      const response = await api.exportMultiAgentPreset(props.chat.id);
+      await saveTextFile(
+        presetFilename(props.chat.title),
+        `${JSON.stringify(response.preset, null, 2)}\n`,
+        "application/json;charset=utf-8"
+      );
+    } catch (nextError) {
+      // A 409 is a line-up the import would refuse that exportReason did not
+      // foresee (a rule Validate gained later); the server's text is written for
+      // the preset file, not for this panel.
+      setExportError(
+        nextError instanceof ApiError && nextError.status === 409
+          ? t("preset.exportRefused")
+          : errorMessage(nextError, "preset.exportError")
+      );
+    } finally {
+      setExportingPreset(false);
+    }
+  }
+
   async function saveSettings(input: Parameters<typeof api.updateChatMultiAgentSettings>[1], rethrow = false) {
     setSettingsError("");
     try {
@@ -363,6 +391,16 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
   }
 
   const presetReason = props.lockedReason ?? (presetChoice ? undefined : t("preset.chooseFirst"));
+  // The two line-ups the import would refuse, told before the request rather
+  // than by the server's 409 (owner's call, TASK-62). It mirrors
+  // preset.Validate's roster and facilitator rules. Not held by lockedReason:
+  // the export reads the line-up and a running turn changes only the transcript.
+  const exportReason =
+    roster.length < 2
+      ? t("preset.exportNeedsTwo")
+      : props.chat.turnRule === "facilitator_alternating" && !facilitatorOnRoster
+        ? t("preset.exportNeedsFacilitator")
+        : undefined;
   const addReason = props.lockedReason ?? (newDisplayName.trim() ? undefined : t("participants.nameRequired"));
 
   // The participant's name set in bold inside its state label (owner's sketch,
@@ -381,7 +419,23 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
 
   return (
     <Stack>
-      <SectionTitle>{t("multiAgent.inspector")}</SectionTitle>
+      {/* The export sits right after the heading rather than at the row's end:
+          on a narrow screen the region's close button takes the top-right corner. */}
+      <Row style={{ alignItems: "center", gap: 8 }}>
+        <SectionTitle>{t("multiAgent.inspector")}</SectionTitle>
+        <ActionButton
+          type="button"
+          iconOnly
+          aria-label={t("preset.export")}
+          title={t("preset.export")}
+          busy={exportingPreset}
+          disabledReason={exportReason}
+          onClick={() => void handleExportPreset()}
+        >
+          <DownloadIcon />
+        </ActionButton>
+      </Row>
+      {exportError ? <FailureNotice>{exportError}</FailureNotice> : null}
 
       {!started ? (
         <PanelCard>
