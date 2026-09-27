@@ -322,6 +322,17 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     }
   }
 
+  async function saveDiceTarget(diceTarget: number) {
+    setStateErrors((current) => ({ ...current, diceTarget: "" }));
+    try {
+      const response = await api.updateChatMultiAgentSettings(props.chat.id, { diceTarget });
+      props.onChatChange(response.chat);
+    } catch (nextError) {
+      setStateErrors((current) => ({ ...current, diceTarget: errorMessage(nextError, "participants.settingsSaveError") }));
+      throw nextError;
+    }
+  }
+
   async function saveParticipantStateSheet(participantId: string, stateSheet: string) {
     setStateErrors((current) => ({ ...current, [participantId]: "" }));
     try {
@@ -395,6 +406,10 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
           onToggle={setStateCollapsed}
         >
           <Stack>
+            {/* Keyed on the stored value so a preset applied from outside
+                resets the draft. */}
+            <DiceTargetField key={props.chat.diceTarget} value={props.chat.diceTarget} onSave={saveDiceTarget} />
+            {stateErrors.diceTarget ? <FailureNotice>{stateErrors.diceTarget}</FailureNotice> : null}
             {/* Keyed on the stored value so a sheet replaced from outside the
                 field (a preset applied, a save that trimmed it) resets the
                 draft. */}
@@ -473,14 +488,6 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
               </Subtle>
             </Field>
           ) : null}
-          {/* Keyed on the stored value so a preset applied from outside resets
-              the draft. */}
-          <DiceTargetField
-            key={props.chat.diceTarget}
-            value={props.chat.diceTarget}
-            lockedReason={props.lockedReason}
-            onSave={(diceTarget) => saveSettings({ diceTarget }, true)}
-          />
           <ScenePromptField
             value={props.chat.scenePrompt}
             lockedReason={props.lockedReason}
@@ -614,9 +621,14 @@ function ScenePromptField(props: { value: string; lockedReason?: string; onSave:
 }
 
 // DiceTargetField edits the chat's default dice target: what a /roll without
-// 目標 is compared with, 0 for none (design §4.8.3 item 4). The draft is text so
-// an emptied field reads as unfinished rather than as 0.
-function DiceTargetField(props: { value: number; lockedReason?: string; onSave: (value: number) => Promise<void> }) {
+// 目標 is compared with, 0 for none (design §4.8.3 item 4). It sits with the
+// state sheets and, like them, takes no locked reason: the players write the
+// /roll and do not know the target, so raising the difficulty for a scene is
+// the human's edit to this value, made while the play runs. A turn reads it
+// when the turn starts and an intervention when it is stored, so a value saved
+// mid-turn applies from the next roll. The draft is text so an emptied field
+// reads as unfinished rather than as 0.
+function DiceTargetField(props: { value: number; onSave: (value: number) => Promise<void> }) {
   const { t } = useLanguage();
   const [draft, setDraft] = useState(String(props.value));
   const [saving, setSaving] = useState(false);
@@ -634,13 +646,11 @@ function DiceTargetField(props: { value: number; lockedReason?: string; onSave: 
     }
   }
 
-  const reason =
-    props.lockedReason ??
-    (!valid
-      ? t("participants.diceTargetInvalid", { max: DICE_TARGET_MAX })
-      : parsed === props.value
-        ? t("participants.unchanged")
-        : undefined);
+  const reason = !valid
+    ? t("participants.diceTargetInvalid", { max: DICE_TARGET_MAX })
+    : parsed === props.value
+      ? t("participants.unchanged")
+      : undefined;
 
   return (
     <Stack>
@@ -676,7 +686,7 @@ function DiceTargetField(props: { value: number; lockedReason?: string; onSave: 
 }
 
 // StateSheetField edits one state sheet and saves it on its own. It takes no
-// locked reason, unlike every other control in the panel: a turn reads the
+// locked reason, unlike the controls outside the state section: a turn reads the
 // sheets when it starts, so a sheet saved while a turn or the auto-advance is
 // running is simply what the next turn reads — and keeping HP and inventory in
 // step with the play as it happens is what the sheet is for (design §4.7).

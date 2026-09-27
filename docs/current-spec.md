@@ -475,11 +475,11 @@ Right pane:
   - preset: shown only while the conversation has no messages; collapsed by default
   - state: the shared state sheet and one per roster participant (labelled "state of <display
     name>" with the name in bold, in roster order; the character counter sits at the label row's
-    end and the save is right-aligned). Folded before the conversation starts, open after.
-    Editable and savable while a turn or the auto-advance runs
+    end and the save is right-aligned), headed by the default dice target (0–9999, 0 for none).
+    Folded before the conversation starts, open after. Editable and savable while a turn or the
+    auto-advance runs
   - conversation settings: turn rule, the facilitator (shown for the facilitator-alternating and
-    weighted rules only), the default dice target (0–9999, 0 for none), scene. Open before the
-    conversation starts, folded after
+    weighted rules only), scene. Open before the conversation starts, folded after
   - roster: one collapsible card per participant (open before the conversation starts, folded
     after; a just-added card opens). Move and remove sit in the card's heading, so the roster can
     be reordered and left while the cards stay folded. Inside: display name, role prompt, the
