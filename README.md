@@ -293,6 +293,7 @@ message, which is still useful for checking which references were selected.
 - `GET /api/chats/:chatId`
 - `POST /api/chats/:chatId/messages`
 - `GET /api/multi-agent-presets`
+- `GET /api/chats/:chatId/export/preset` (the conversation's line-up as a preset, endpoints included)
 - `GET / POST /api/chats/:chatId/participants`
 - `PATCH / DELETE /api/participants/:participantId`
 - `POST /api/chats/:chatId/turns/stream` (runs one turn over SSE: a `speaker` event, then
