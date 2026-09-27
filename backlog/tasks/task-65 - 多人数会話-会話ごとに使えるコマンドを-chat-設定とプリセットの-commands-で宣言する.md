@@ -1,10 +1,10 @@
 ---
 id: TASK-65
 title: '多人数会話: 会話ごとに使えるコマンドを chat 設定とプリセットの commands で宣言する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-27 06:45'
-updated_date: '2026-09-27 07:44'
+updated_date: '2026-09-27 09:04'
 labels: []
 dependencies:
   - TASK-63
