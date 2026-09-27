@@ -163,11 +163,28 @@ func writeTranscript(b *strings.Builder, participants []model.Participant, messa
 	for _, m := range messages {
 		fmt.Fprintf(b, "\n### %s\n\n", exportSpeakerLabel(m, byID))
 		body := strings.TrimRight(m.Content, "\n")
-		if strings.TrimSpace(body) == "" {
-			body = "（空の発言）"
+		if strings.TrimSpace(body) != "" {
+			b.WriteString(body)
+			b.WriteString("\n")
+		} else if len(m.DiceRolls) == 0 {
+			b.WriteString("（空の発言）\n")
 		}
-		b.WriteString(body)
+		writeDiceRolls(b, m.DiceRolls, strings.TrimSpace(body) != "")
+	}
+}
+
+// writeDiceRolls writes the rolls the app threw for a message, set apart from
+// the body as a quote so a reader away from the app can tell them from what the
+// speaker wrote, as the chip does on screen (design §4.8.3 item 3).
+func writeDiceRolls(b *strings.Builder, rolls []model.DiceRoll, afterBody bool) {
+	if len(rolls) == 0 {
+		return
+	}
+	if afterBody {
 		b.WriteString("\n")
+	}
+	for _, r := range rolls {
+		b.WriteString("> 🎲 " + singleLine(diceRollLine(r)) + "\n")
 	}
 }
 

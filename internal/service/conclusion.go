@@ -56,7 +56,10 @@ func (s *SummaryService) DraftConclusion(messages []model.Message, participants 
 	spoke := map[string]bool{}
 	chars := 0
 	for _, m := range messages {
-		if m.Role == "system" || strings.TrimSpace(m.Content) == "" {
+		// The rolls go in with the body, as the speakers read them: an outcome
+		// the conversation turned on is part of what it concluded.
+		content := contentWithDiceRolls(m)
+		if m.Role == "system" || content == "" {
 			continue
 		}
 		label := assistantSpeakerLabel
@@ -69,7 +72,7 @@ func (s *SummaryService) DraftConclusion(messages []model.Message, participants 
 				spoke[p.ID] = true
 			}
 		}
-		line := label + ": " + strings.TrimSpace(m.Content)
+		line := label + ": " + content
 		chars += runeLen(line)
 		lines = append(lines, line)
 	}

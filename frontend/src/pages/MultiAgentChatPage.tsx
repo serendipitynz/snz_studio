@@ -5,6 +5,7 @@ import { streamSSE } from "../api/sse";
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
+import { DiceRollChips, messageCopyText } from "../components/DiceRollChips";
 import { Dialog, DialogTitle } from "../components/Dialog";
 import { ExportChatButton } from "../components/ExportChatButton";
 import { ComposerTextarea } from "../components/ComposerTextarea";
@@ -138,6 +139,9 @@ const SPEAKER_SPINNER_STYLE = {
   pointerEvents: "none"
 } as const;
 
+// The one slash command the composer suggests (design §4.8.3 item 3).
+const ROLL_KEYWORD = "/roll";
+
 // The 24px bare icon buttons of a message's action row, shared with the copy button.
 const MESSAGE_ACTION_STYLE = { width: 24, height: 24, border: "none", background: "transparent", padding: 0 } as const;
 
@@ -186,6 +190,7 @@ export function MultiAgentChatPage() {
   const completedTurnsRef = useRef(0);
   const [nomineeId, setNomineeId] = useState("");
   const [draft, setDraft] = useState("");
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [posting, setPosting] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState<MemoryDraft | null>(null);
@@ -466,6 +471,21 @@ export function MultiAgentChatPage() {
     }
   }
 
+  // A candidate replaces the command being typed on the last line, and the action
+  // word is selected so what is typed next replaces it.
+  function insertRollCandidate(candidate: string, action: string) {
+    const next = draft.slice(0, draft.lastIndexOf("\n") + 1) + candidate;
+    setDraft(next);
+    window.requestAnimationFrame(() => {
+      const node = composerRef.current;
+      if (!node) {
+        return;
+      }
+      node.focus();
+      node.setSelectionRange(next.length - action.length, next.length);
+    });
+  }
+
   // The dialog opens on the server's draft rather than on the message alone
   // because the default kind comes from the extraction rules, which live only
   // on the server (design §4.4).
@@ -658,6 +678,18 @@ export function MultiAgentChatPage() {
     : null;
   const shownNext = current(turnRunning ? runningSpeaker?.next : manualRule ? null : nextSpeaker);
   const speakerIsCurrent = turnRunning && !shownNext;
+  // The composer suggests the command while its name is being typed on the last
+  // line, and keeps the format in view while the arguments are (design §4.8.3
+  // item 3). There is no dice button: the command is the one way in, for the
+  // human and the models alike.
+  const commandLine = draft.slice(draft.lastIndexOf("\n") + 1).trimStart();
+  const typingCommand = commandLine.startsWith("/") && !/\s/.test(commandLine) && ROLL_KEYWORD.startsWith(commandLine);
+  const writingRoll = commandLine.startsWith(`${ROLL_KEYWORD} `) || commandLine.startsWith(`${ROLL_KEYWORD}\u3000`);
+  const rollAction = t("multiAgent.rollAction");
+  const rollCandidates = [
+    `${ROLL_KEYWORD} 1d20+0 ${rollAction}`,
+    `${ROLL_KEYWORD} 1d20+0 ${t("multiAgent.rollTargetKeyword")}${state.chat.diceTarget || 12} ${rollAction}`
+  ];
   const speakerText = shownNext
     ? t("multiAgent.speakerNext", { name: shownNext.displayName })
     : speakingNow
@@ -745,15 +777,17 @@ export function MultiAgentChatPage() {
                       <strong style={{ overflowWrap: "anywhere" }}>{speakerLabel(message)}</strong>
                       <MetaText style={{ whiteSpace: "nowrap" }}>{message.modelName ?? ""}</MetaText>
                     </Row>
-                    {message.role === "assistant" ? (
+                    {/* A roll-only message has no body to draw; its chip stands alone. */}
+                    {!message.content ? null : message.role === "assistant" ? (
                       <MarkdownPreview source={message.content} />
                     ) : (
                       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{message.content}</div>
                     )}
+                    <DiceRollChips rolls={message.diceRolls ?? []} />
                     <MessageReferences references={message.references} />
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
                       <CopyMessageButton
-                        content={message.content}
+                        content={messageCopyText(message, t)}
                         onError={(next) => setMessageErrors((current) => ({ ...current, [message.id]: next }))}
                       />
                       <ActionButton
@@ -852,7 +886,29 @@ export function MultiAgentChatPage() {
             {interveneError ? <FailureNotice>{interveneError}</FailureNotice> : null}
             {facilitatorMissing ? <MetaText>{t("multiAgent.facilitatorMissing")}</MetaText> : null}
             {memorySavedTitle ? <MetaText>{t("multiAgent.saveMemorySaved", { title: memorySavedTitle })}</MetaText> : null}
+            {typingCommand ? (
+              <Row role="group" aria-label={t("multiAgent.commandSuggestions")} style={{ gap: 4 }}>
+                {rollCandidates.map((candidate) => (
+                  <ActionButton
+                    key={candidate}
+                    type="button"
+                    variant="normal"
+                    onClick={() => insertRollCandidate(candidate, rollAction)}
+                    style={ROW_BUTTON_STYLE}
+                  >
+                    <code>{candidate}</code>
+                  </ActionButton>
+                ))}
+              </Row>
+            ) : null}
+            {typingCommand || writingRoll ? (
+              <MetaText>
+                {t("multiAgent.rollFormat")}
+                {state.chat.diceTarget > 0 ? t("multiAgent.rollFormatDefault", { target: state.chat.diceTarget }) : ""}
+              </MetaText>
+            ) : null}
             <ComposerTextarea
+              ref={composerRef}
               value={draft}
               onChange={setDraft}
               placeholder={t("multiAgent.intervenePlaceholder")}

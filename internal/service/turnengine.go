@@ -25,8 +25,9 @@ var (
 	ErrParticipantNotInChat      = errors.New("service: participant does not belong to this chat")
 	ErrParticipantRemoved        = errors.New("service: participant was removed from the roster")
 	ErrEndpointUnavailable       = errors.New("service: participant endpoint did not accept the model")
-	// ErrUtteranceOnlyDirective is found after generation, so it only ever
-	// reaches a caller inside an open stream and has no HTTP status of its own.
+	// ErrUtteranceOnlyDirective is an utterance left with no body and no roll once
+	// its directive is removed. A turn finds it after generation, so it reaches
+	// the caller inside an open stream; an intervention is refused with 400.
 	ErrUtteranceOnlyDirective = errors.New("service: the utterance held nothing but its addressee directive")
 )
 
@@ -74,6 +75,9 @@ type TurnEngine struct {
 	// about to take would need refcounting, to save a mutex per chat that has been
 	// written to in this process.
 	messageWrites map[string]*sync.Mutex
+
+	// rollDie throws one die for a /roll; a test replaces it to fix the outcome.
+	rollDie func(sides int) int
 }
 
 // NewTurnEngine builds a TurnEngine.
@@ -86,6 +90,7 @@ func NewTurnEngine(chats *repository.ChatRepository, participants *repository.Pa
 		material:      material,
 		running:       map[string]bool{},
 		messageWrites: map[string]*sync.Mutex{},
+		rollDie:       rollDie,
 	}
 }
 
@@ -280,13 +285,19 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 		return nil, err
 	}
 
-	// Whom the utterance calls on is fixed here, once, for every rule: a chat
-	// switched to weighted later reads the calls already in its window, and
-	// re-reading bodies then would answer differently once a name has changed
-	// (§4.6.5). The directive is only asked for under weighted, but a trailing one
-	// is removed under any rule so no control syntax reaches the transcript.
-	content, addressees := detectAddressees(result.Content, speaker.ID, onRoster(knownSpeakers))
-	if strings.TrimSpace(content) == "" {
+	// Whom the utterance calls on and what it rolls are fixed here, once, for
+	// every rule: a chat switched to weighted later reads the calls already in its
+	// window, and re-reading bodies then would answer differently once a name has
+	// changed (§4.6.5). The directive is only asked for under weighted, but a
+	// trailing one is removed under any rule so no control syntax reaches the
+	// transcript. A /roll that cannot be read stays in the body rather than
+	// failing the turn, which would stop an auto-advancing conversation (§4.8.3).
+	utterance := prepareUtterance(result.Content, speaker.ID, onRoster(knownSpeakers))
+	if utterance.rollErr != nil {
+		log.Printf("[turn] /roll kept as text chatId=%s participantId=%s reason=%v", chatID, speaker.ID, utterance.rollErr)
+	}
+	diceRolls := e.throwDice(utterance, chat)
+	if strings.TrimSpace(utterance.content) == "" && len(diceRolls) == 0 {
 		return nil, ErrUtteranceOnlyDirective
 	}
 
@@ -300,19 +311,81 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	message, err := e.chats.AddMessageWithReferences(repository.AddMessageInput{
 		ChatID:          chatID,
 		Role:            "assistant",
-		Content:         content,
+		Content:         utterance.content,
 		ResponseMs:      int64Ptr(result.ResponseMs),
 		OutputTokens:    int64Ptr(result.OutputTokens),
 		TokensPerSecond: float64Ptr(result.TokensPerSecond),
 		ModelName:       strPtr(result.ModelName),
 		ParticipantID:   strPtr(speaker.ID),
 
-		AddressedParticipantIDs: addressees,
+		AddressedParticipantIDs: utterance.addressees,
+		DiceRolls:               diceRolls,
 	}, referenceInputs(material.References))
 	if err != nil {
 		return nil, err
 	}
 	return &message, nil
+}
+
+// StoreHumanMessage records the human's intervention in a multi-agent chat: the
+// message, whom it calls on and what it rolls, with none of the memory
+// extraction, retrieval or summary work a single-assistant turn does (design
+// §4.4). The call and the roll are fixed here, at store time, for the same
+// reasons a turn's are (§4.6.5, §4.8.3): without the call "A, tell us more"
+// never reaches A under the weighted rule. A /roll that cannot be read is
+// refused with ErrInvalidRollCommand, so the human can correct it where it was
+// typed, and a message left with nothing once its directive is removed with
+// ErrUtteranceOnlyDirective.
+//
+// It takes the chat's message-write lock, which is what keeps it from landing
+// inside a preset apply that has already found the conversation empty; a turn
+// in flight does not hold that lock, so speaking mid-turn still goes straight
+// through.
+func (e *TurnEngine) StoreHumanMessage(chatID, content string) (*model.Message, error) {
+	var message model.Message
+	err := e.WithMessageWrite(chatID, func() error {
+		chat, err := e.chats.GetChat(chatID)
+		if err != nil {
+			return err
+		}
+		if chat == nil {
+			return ErrChatNotFound
+		}
+		roster, err := e.participants.ListRoster(chatID)
+		if err != nil {
+			return err
+		}
+		utterance := prepareUtterance(content, "", roster)
+		if utterance.rollErr != nil {
+			return utterance.rollErr
+		}
+		diceRolls := e.throwDice(utterance, chat)
+		if strings.TrimSpace(utterance.content) == "" && len(diceRolls) == 0 {
+			return ErrUtteranceOnlyDirective
+		}
+		message, err = e.chats.AddMessage(repository.AddMessageInput{
+			ChatID:  chatID,
+			Role:    "user",
+			Content: utterance.content,
+
+			AddressedParticipantIDs: utterance.addressees,
+			DiceRolls:               diceRolls,
+		})
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &message, nil
+}
+
+// throwDice rolls the utterance's /roll, if it carried one that could be read,
+// against the chat's default target as it stood when the chat was read.
+func (e *TurnEngine) throwDice(utterance storedUtterance, chat *model.Chat) []model.DiceRoll {
+	if utterance.roll == nil {
+		return nil
+	}
+	return []model.DiceRoll{utterance.roll.roll(e.rollDie, chat.DiceTarget)}
 }
 
 // assembleMaterial never fails the turn: a broken document or memory search
@@ -575,16 +648,33 @@ func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, 
 	labels := speakerLabels(participants)
 	mapped := make([]model.Message, 0, len(messages))
 	for _, m := range messages {
-		if strings.TrimSpace(m.Content) == "" {
+		content := contentWithDiceRolls(m)
+		if content == "" {
 			continue
 		}
 		if m.ParticipantID != nil && *m.ParticipantID == speaker.ID {
-			mapped = append(mapped, model.Message{Role: "assistant", Content: m.Content})
+			mapped = append(mapped, model.Message{Role: "assistant", Content: content})
 			continue
 		}
-		mapped = append(mapped, model.Message{Role: "user", Content: speakerLabel(m, labels) + ": " + m.Content})
+		mapped = append(mapped, model.Message{Role: "user", Content: speakerLabel(m, labels) + ": " + content})
 	}
 	return lastN(mapped, TurnHistoryLimit)
+}
+
+// contentWithDiceRolls is the message as a speaker reads it: the body, then one
+// 【ダイス】 line per roll (design §4.8.3 item 2). The outcome is spelled out
+// rather than left to the total, because a game master handed the total alone
+// narrated a failure as a success in 3 of 10 trials (§4.8.2 reading 3). A
+// message that only rolled is the line alone; empty means nothing to map.
+func contentWithDiceRolls(m model.Message) string {
+	lines := make([]string, 0, len(m.DiceRolls)+1)
+	if body := strings.TrimSpace(m.Content); body != "" {
+		lines = append(lines, body)
+	}
+	for _, r := range m.DiceRolls {
+		lines = append(lines, "【ダイス】"+diceRollLine(r))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func speakerLabel(m model.Message, labels map[string]string) string {

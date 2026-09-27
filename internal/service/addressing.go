@@ -37,31 +37,53 @@ var nameAnnotation = regexp.MustCompile(`\s*[(（][^()（）]*[)）]\s*$`)
 // on, which is why SillyTavern's \b\w+\b never finds a Japanese name (§4.6.5).
 const minMatchedNameLength = 2
 
-// detectAddressees fixes, at store time, whom a message calls on, and returns the
-// content with the directive removed (design §4.6.5). speakerID is the
-// participant that wrote the message, empty for the human; a call on oneself is
-// dropped.
-//
-// A directive that ends the utterance, with or without a line break before it,
-// decides the call on its own: its names that are on the roster are the
-// addressees, the others are dropped one by one, and the directive is removed
-// even when none of them match, so no control syntax is left in the transcript. Only without a directive does the name match run, over the last
-// sentence alone. Every roster name found there counts, the whole roster included
-// — a call on everyone still lets the ones who have not answered keep their
-// boost after the others have.
-func detectAddressees(content, speakerID string, roster []model.Participant) (string, []string) {
-	body, names, found := splitAddresseeDirective(content)
-	if found {
-		return body, resolveDirectiveNames(names, speakerID, roster)
-	}
-	return content, matchNamesInLastSentence(content, speakerID, roster)
+// storedUtterance is what an utterance becomes at store time: the body with its
+// control syntax taken out, whom it calls on, and the /roll it carries.
+type storedUtterance struct {
+	content    string
+	addressees []string
+	roll       *rollCommand
+	// rollErr is set when the last line held a /roll that could not be read. The
+	// line then stays in content; whether that is acceptable is the caller's call
+	// (design §4.8.3 item 2).
+	rollErr error
 }
 
-// DetectHumanAddressees is detectAddressees for the human's intervention: the
-// name match only, since the human is never asked for a directive, and the body
-// is stored as typed (§4.6.5). roster is the chat's current roster.
-func DetectHumanAddressees(content string, roster []model.Participant) []string {
-	return matchNamesInLastSentence(content, "", roster)
+// prepareUtterance fixes, at store time, what a message says, whom it calls on
+// and what it rolls, in the one order design §4.8.3 item 2 sets for a
+// participant's utterance and a human's intervention alike: (1) the trailing
+// directive is removed and resolved, (2) the last line of what remains is
+// searched for a /roll, which is removed, and (3) only when there was no
+// directive, the last sentence of the body without the command is matched
+// against the roster. speakerID is the participant that wrote the message,
+// empty for the human; a call on oneself is dropped.
+//
+// Why the order: matching names before the command is removed would read the
+// /roll line as the last sentence — "レン、登ってみて" followed by a /roll loses
+// its call — and would take a name in the command's action ("/roll 1d20 ミラを庇う")
+// for a call. Either changes whom the weighted rule picks.
+//
+// A directive decides the call on its own: its names that are on the roster are
+// the addressees, the others are dropped one by one, and it is removed even
+// when none of them match, so no control syntax is left in the transcript
+// (§4.6.5). Every roster name found in the last sentence counts, the whole
+// roster included — a call on everyone still lets the ones who have not
+// answered keep their boost after the others have.
+func prepareUtterance(content, speakerID string, roster []model.Participant) storedUtterance {
+	body, names, directive := splitAddresseeDirective(content)
+	withoutCommand, found, roll, rollErr := splitRollCommand(body)
+	utterance := storedUtterance{content: body, roll: roll, rollErr: rollErr}
+	if found && rollErr == nil {
+		utterance.content = withoutCommand
+	}
+	// A /roll kept as text is still no call: its action names are not addressed
+	// to anyone, whether or not the arguments could be read.
+	if directive {
+		utterance.addressees = resolveDirectiveNames(names, speakerID, roster)
+	} else {
+		utterance.addressees = matchNamesInLastSentence(withoutCommand, speakerID, roster)
+	}
+	return utterance
 }
 
 // splitAddresseeDirective removes the directive when it ends the utterance, and

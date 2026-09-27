@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -51,9 +52,9 @@ func TestDetectAddresseesDirective(t *testing.T) {
 		{"the full name of one of them", "いかが？\n[次: 買い手 (部長)]", "gm", "いかが？", []string{"buyer-head"}},
 	}
 	for _, tc := range cases {
-		body, got := detectAddressees(tc.content, tc.speaker, addressingRoster())
-		if body != tc.wantBody || !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("%s: detectAddressees = (%q, %v), want (%q, %v)", tc.name, body, got, tc.wantBody, tc.want)
+		u := prepareUtterance(tc.content, tc.speaker, addressingRoster())
+		if u.content != tc.wantBody || !reflect.DeepEqual(u.addressees, tc.want) {
+			t.Errorf("%s: prepareUtterance = (%q, %v), want (%q, %v)", tc.name, u.content, u.addressees, tc.wantBody, tc.want)
 		}
 	}
 }
@@ -81,20 +82,64 @@ func TestDetectAddresseesNameMatch(t *testing.T) {
 		{"a directive-shaped line not at the end stays content", "[次: アリス]\n以上です。", "gm", []string{}},
 	}
 	for _, tc := range cases {
-		body, got := detectAddressees(tc.content, tc.speaker, addressingRoster())
-		if body != tc.content || !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("%s: detectAddressees = (%q, %v), want (%q, %v)", tc.name, body, got, tc.content, tc.want)
+		u := prepareUtterance(tc.content, tc.speaker, addressingRoster())
+		if u.content != tc.content || !reflect.DeepEqual(u.addressees, tc.want) {
+			t.Errorf("%s: prepareUtterance = (%q, %v), want (%q, %v)", tc.name, u.content, u.addressees, tc.content, tc.want)
 		}
 	}
 }
 
-// TestDetectHumanAddressees covers the intervention side of §4.6.5: the same
+// TestPrepareUtteranceHuman covers the intervention side of §4.6.5: the same
 // last-sentence name match a participant's utterance gets.
-func TestDetectHumanAddressees(t *testing.T) {
-	if got := DetectHumanAddressees("アリス、もう少し詳しく。", addressingRoster()); !reflect.DeepEqual(got, []string{"alice"}) {
-		t.Errorf("DetectHumanAddressees = %v, want [alice]", got)
+func TestPrepareUtteranceHuman(t *testing.T) {
+	if got := prepareUtterance("アリス、もう少し詳しく。", "", addressingRoster()).addressees; !reflect.DeepEqual(got, []string{"alice"}) {
+		t.Errorf("addressees = %v, want [alice]", got)
 	}
-	if got := DetectHumanAddressees("アリスの話は面白い。続けて。", addressingRoster()); !reflect.DeepEqual(got, []string{}) {
-		t.Errorf("DetectHumanAddressees = %v, want no call from an earlier sentence", got)
+	if got := prepareUtterance("アリスの話は面白い。続けて。", "", addressingRoster()).addressees; !reflect.DeepEqual(got, []string{}) {
+		t.Errorf("addressees = %v, want no call from an earlier sentence", got)
+	}
+}
+
+// TestPrepareUtteranceOrder covers TASK-37 AC #6 (design §4.8.3 item 2): the
+// directive is removed first, then the /roll on the last line of what remains,
+// and only without a directive is the last sentence of the body without the
+// command matched — for the human and a participant alike.
+func TestPrepareUtteranceOrder(t *testing.T) {
+	cases := []struct {
+		name     string
+		content  string
+		speaker  string
+		wantBody string
+		want     []string
+		wantRoll string
+	}{
+		// The call before the command line survives: matched before the command
+		// is removed, the last sentence would be the /roll line.
+		{"a call before the command line", "レン、登ってみて。\n/roll 1d20 登る", "", "レン、登ってみて。", []string{"ren"}, "1d20"},
+		{"a participant's call before the command", "ボブ、支えて。\n/roll 1d20+3 崖を登る", "alice", "ボブ、支えて。", []string{"bob"}, "1d20+3"},
+		// A name in the command's action is not a call.
+		{"a name in the action", "前へ出る。/roll 1d20 ミラを庇う", "ren", "前へ出る。", []string{}, "1d20"},
+		{"the directive after the command", "扉を調べる。\n/roll 1d20+3 調べる\n[次: GM]", "ren", "扉を調べる。", []string{"gm"}, "1d20+3"},
+		{"the directive wins over the name match", "アリス、見て。\n/roll 2d6\n[次: ボブ]", "", "アリス、見て。", []string{"bob"}, "2d6"},
+		{"a command-only message", "/roll 1d20", "", "", []string{}, "1d20"},
+	}
+	for _, tc := range cases {
+		u := prepareUtterance(tc.content, tc.speaker, addressingRoster())
+		if u.rollErr != nil || u.roll == nil {
+			t.Fatalf("%s: roll = %v, %v, want %s read", tc.name, u.roll, u.rollErr, tc.wantRoll)
+		}
+		if u.content != tc.wantBody || !reflect.DeepEqual(u.addressees, tc.want) || u.roll.expression != tc.wantRoll {
+			t.Errorf("%s: prepareUtterance = (%q, %v, %s), want (%q, %v, %s)", tc.name, u.content, u.addressees, u.roll.expression, tc.wantBody, tc.want, tc.wantRoll)
+		}
+	}
+
+	// A /roll that cannot be read stays in the body, and its action names are
+	// still no call.
+	u := prepareUtterance("跳ぶ。\n/roll d20 ミラを庇う", "ren", addressingRoster())
+	if !errors.Is(u.rollErr, ErrInvalidRollCommand) || u.roll != nil {
+		t.Fatalf("unreadable roll = %v, %v, want ErrInvalidRollCommand", u.roll, u.rollErr)
+	}
+	if u.content != "跳ぶ。\n/roll d20 ミラを庇う" || !reflect.DeepEqual(u.addressees, []string{}) {
+		t.Errorf("unreadable roll kept (%q, %v), want the line kept and no call", u.content, u.addressees)
 	}
 }

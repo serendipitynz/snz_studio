@@ -24,6 +24,8 @@ filesystem** — a standalone desktop app you install and launch.
     chosen facilitator speaking every other turn (`facilitator_alternating`, for a game master), or
     letting whoever was called on — or has been quiet longest — speak next (`weighted`)
   - A scene prompt (topic, setting, world) shared by every participant
+  - For tabletop RPGs: state sheets (place, HP, inventory) every participant reads, and `/roll`
+    dice the app rolls and checks against a target when a participant or you write the command
   - 25 bundled presets (debate, improv theatre, a TRPG table and others) to start from, plus
     your own presets loaded from JSON files (format: `docs/multi-agent-presets.md`)
   - A spectator view that advances one turn at a time or runs automatically, and lets you speak
@@ -309,8 +311,8 @@ message, which is still useful for checking which references were selected.
 - Document edit / delete UI
 - A rerank layer
 - Better manual-annotation UX for image documents
-- TRPG support for multi-agent chats (per-chat state, dice, structured-output checks), speaker
-  nomination by a moderator model, and generation cancellation
+- The rest of TRPG support for multi-agent chats (effect commands that update the state sheets),
+  speaker nomination by a moderator model, and generation cancellation
   ([design doc](docs/multi-agent-chat-design.md) §7, in Japanese)
 
 ## License

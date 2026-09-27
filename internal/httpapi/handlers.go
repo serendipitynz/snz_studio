@@ -399,6 +399,7 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 		input.TurnRule = chosen.TurnRule
 		input.ScenePrompt = chosen.ScenePrompt
 		input.StateSheet = chosen.StateSheet
+		input.DiceTarget = chosen.DiceTarget
 		if strings.TrimSpace(title) == "" {
 			input.Title = chosen.Title
 		}
@@ -888,8 +889,8 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpdateChat applies the fields the body actually carries: the title, and
-// for a multi-agent chat the turn rule, scene prompt, facilitator and shared
-// state sheet (design §5, §4.7). Each field
+// for a multi-agent chat the turn rule, scene prompt, facilitator, shared state
+// sheet and default dice target (design §5, §4.7, §4.8). Each field
 // is keyed on its presence rather than on its value, so a body sent to change
 // the scene prompt alone does not blank the title.
 func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
@@ -903,6 +904,11 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 	scenePrompt := bodyStringPtr(m, "scenePrompt")
 	facilitatorID := bodyStringPtr(m, "facilitatorId")
 	stateSheet := trimmedBodyStringPtr(m, "stateSheet")
+	diceTarget, diceTargetIsInt := bodyIntPtr(m, "diceTarget")
+	if !diceTargetIsInt || (diceTarget != nil && (*diceTarget < 0 || *diceTarget > model.DiceTargetMax)) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("diceTarget must be a whole number from 0 to %d", model.DiceTargetMax))
+		return
+	}
 
 	chat, err := s.chats.GetChat(chatID)
 	if err != nil {
@@ -914,12 +920,12 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if turnRule != nil || scenePrompt != nil || facilitatorID != nil || stateSheet != nil {
+	if turnRule != nil || scenePrompt != nil || facilitatorID != nil || stateSheet != nil || diceTarget != nil {
 		// kind is fixed at creation, so a single-assistant chat can never reach a
 		// state where these fields mean anything; accepting them would store
 		// settings that nothing reads.
 		if chat.Kind != model.ChatKindMultiAgent {
-			writeError(w, http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId and stateSheet apply to multi-agent chats only")
+			writeError(w, http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId, stateSheet and diceTarget apply to multi-agent chats only")
 			return
 		}
 		if turnRule != nil && !isKnownTurnRule(*turnRule) {
@@ -941,6 +947,7 @@ func (s *Server) handleUpdateChat(w http.ResponseWriter, r *http.Request) {
 			ScenePrompt:   scenePrompt,
 			FacilitatorID: facilitatorID,
 			StateSheet:    stateSheet,
+			DiceTarget:    diceTarget,
 		})
 		if err != nil {
 			fail(w, err)
@@ -1074,9 +1081,10 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	// the turn engine's decision (design §4.4).
 	var assistantMessage *model.Message
 	if chat.Kind == model.ChatKindMultiAgent {
-		stored, storeErr := s.storeHumanMessage(chatID, content)
+		stored, storeErr := s.turnEngine.StoreHumanMessage(chatID, content)
 		if storeErr != nil {
-			fail(w, storeErr)
+			status, message := interventionErrorResponse(storeErr)
+			writeError(w, status, message)
 			return
 		}
 		assistantMessage = stored
@@ -1139,21 +1147,27 @@ func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request)
 	}
 	isMultiAgent := chat.Kind == model.ChatKindMultiAgent
 
+	// Same store-only intervention as the non-streaming route (§4.4), stored
+	// before the stream opens: it generates nothing, so nothing is lost by
+	// waiting, and a refusal (a /roll that cannot be read) keeps its 400 instead
+	// of arriving as an error frame on a 200. The response still ends in a done
+	// frame — with no delta before it — so the frontend consumes both chat kinds
+	// through one parser.
+	if isMultiAgent {
+		if _, storeErr := s.turnEngine.StoreHumanMessage(chatID, content); storeErr != nil {
+			status, message := interventionErrorResponse(storeErr)
+			writeError(w, status, message)
+			return
+		}
+	}
+
 	sse, err := NewSSEWriter(w)
 	if err != nil {
 		fail(w, err)
 		return
 	}
 
-	if isMultiAgent {
-		// Same store-only intervention as the non-streaming route (§4.4). The
-		// response still ends in a done frame — with no delta before it — so the
-		// frontend consumes both chat kinds through one parser.
-		if _, storeErr := s.storeHumanMessage(chatID, content); storeErr != nil {
-			_ = sse.Event("error", map[string]string{"message": storeErr.Error()})
-			return
-		}
-	} else {
+	if !isMultiAgent {
 		_, streamErr := s.chatService.SendMessageStream(chatID, content, func(chunk string) {
 			_ = sse.Event("delta", map[string]string{"content": chunk})
 		})

@@ -393,6 +393,19 @@ var migrations = []migration{
 			ALTER TABLE participants ADD COLUMN state_sheet TEXT NOT NULL DEFAULT '';
 		`,
 	},
+	{
+		// dice_rolls records the /roll a message carried — the dice the app threw,
+		// the target and the outcome — as a JSON array ('[]' = none) (design
+		// §4.8.3, TASK-37). It lives on the message that wrote the command rather
+		// than on a message of its own, so every turn rule reads one utterance
+		// where there was one. dice_target is the chat's default target (0 = none)
+		// for a /roll that names no target of its own.
+		id: "017_dice_rolls",
+		sql: `
+			ALTER TABLE messages ADD COLUMN dice_rolls TEXT NOT NULL DEFAULT '[]';
+			ALTER TABLE chats ADD COLUMN dice_target INTEGER NOT NULL DEFAULT 0;
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in

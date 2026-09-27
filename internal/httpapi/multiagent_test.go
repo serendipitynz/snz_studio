@@ -378,7 +378,7 @@ func TestMultiAgentChatSettings(t *testing.T) {
 
 	assistantChatID := createChat(t, h, projectID)
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+assistantChatID, map[string]any{"turnRule": "manual"}),
-		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId and stateSheet apply to multi-agent chats only")
+		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId, stateSheet and diceTarget apply to multi-agent chats only")
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/chat_missing", map[string]any{"title": "x"}),
 		http.StatusNotFound, "chat not found")
 }
@@ -435,7 +435,7 @@ func TestMultiAgentFacilitatorSetting(t *testing.T) {
 	}
 
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+createChat(t, h, projectID), map[string]any{"facilitatorId": gmID}),
-		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId and stateSheet apply to multi-agent chats only")
+		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId, stateSheet and diceTarget apply to multi-agent chats only")
 }
 
 // TestMultiAgentPresetFacilitator covers TASK-21 AC #5: the bundled TRPG preset
@@ -1013,7 +1013,7 @@ func TestMultiAgentStateSheets(t *testing.T) {
 
 	assistantChatID := createChat(t, h, projectID)
 	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+assistantChatID, map[string]any{"stateSheet": "場所: 坑道"}),
-		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId and stateSheet apply to multi-agent chats only")
+		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId, stateSheet and diceTarget apply to multi-agent chats only")
 }
 
 // TestMultiAgentPresetStateSheets covers the preset half of TASK-35 AC #4: the
@@ -1071,5 +1071,122 @@ func TestMultiAgentPresetStateSheets(t *testing.T) {
 	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/preset", map[string]any{"presetId": "debate"}), http.StatusOK)
 	if cleared := read(chatID); cleared.Chat != "" {
 		t.Fatalf("applying a preset without a sheet left the shared sheet %q", cleared.Chat)
+	}
+}
+
+// TestMultiAgentDiceTarget covers the chat half of TASK-37: PATCH sets the
+// default target within 0..9999 and refuses anything else, and the bundled TRPG
+// table starts its chat with 12 whether named at creation or applied later.
+func TestMultiAgentDiceTarget(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Dice Project")
+	chatID := createMultiAgentChat(t, h, projectID, "")
+
+	readTarget := func(chatID string) int {
+		t.Helper()
+		var chat struct {
+			DiceTarget int `json:"diceTarget"`
+		}
+		unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil)), "chat", &chat)
+		return chat.DiceTarget
+	}
+
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"diceTarget": 15}), http.StatusOK)
+	if got := readTarget(chatID); got != 15 {
+		t.Fatalf("diceTarget = %d, want 15", got)
+	}
+	for _, bad := range []any{-1, 10000, 12.5, "12"} {
+		wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"diceTarget": bad}),
+			http.StatusBadRequest, "diceTarget must be a whole number from 0 to 9999")
+	}
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"diceTarget": 0}), http.StatusOK)
+	if got := readTarget(chatID); got != 0 {
+		t.Fatalf("diceTarget = %d, want 0 once cleared", got)
+	}
+
+	assistantChatID := createChat(t, h, projectID)
+	wantError(t, doJSON(t, h, "PATCH", "/api/chats/"+assistantChatID, map[string]any{"diceTarget": 12}),
+		http.StatusBadRequest, "turnRule, scenePrompt, facilitatorId, stateSheet and diceTarget apply to multi-agent chats only")
+
+	rec := doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats", map[string]any{"kind": "multi_agent", "presetId": "trpg-table"})
+	wantStatus(t, rec, http.StatusCreated)
+	var created struct {
+		ID string `json:"id"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &created)
+	if got := readTarget(created.ID); got != 12 {
+		t.Fatalf("trpg-table chat diceTarget = %d, want 12", got)
+	}
+	emptyID := createEmptyMultiAgentChat(t, h, projectID, "")
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+emptyID+"/preset", map[string]any{"presetId": "trpg-table"}), http.StatusOK)
+	if got := readTarget(emptyID); got != 12 {
+		t.Fatalf("applied trpg-table diceTarget = %d, want 12", got)
+	}
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+emptyID+"/preset", map[string]any{"presetId": "debate"}), http.StatusOK)
+	if got := readTarget(emptyID); got != 0 {
+		t.Fatalf("applying a preset without a target left %d", got)
+	}
+}
+
+// TestMultiAgentInterventionRolls covers TASK-37 AC #1 and #4 on the routes:
+// both message routes throw an intervention's /roll and store the record with
+// the command taken out of the body, and both refuse one that cannot be read
+// with a 400 — the streaming route before it opens the stream — storing nothing.
+func TestMultiAgentInterventionRolls(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Intervention Roll Project")
+	chatID := createMultiAgentChat(t, h, projectID, "")
+	addParticipant(t, h, chatID, "レン", "")
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"diceTarget": 12}), http.StatusOK)
+
+	type storedRoll struct {
+		Content   string `json:"content"`
+		DiceRolls []struct {
+			Expression string `json:"expression"`
+			Action     string `json:"action"`
+			Total      int    `json:"total"`
+			Target     int    `json:"target"`
+			Success    *bool  `json:"success"`
+		} `json:"diceRolls"`
+	}
+	rec := doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": "レン、跳んで。\n/roll 1d20+3 跳ぶ"})
+	wantStatus(t, rec, http.StatusCreated)
+	var stored storedRoll
+	unmarshalField(t, decodeJSONMap(t, rec), "message", &stored)
+	if stored.Content != "レン、跳んで。" || len(stored.DiceRolls) != 1 {
+		t.Fatalf("stored = %+v, want the body without the command and one roll", stored)
+	}
+	roll := stored.DiceRolls[0]
+	if roll.Expression != "1d20+3" || roll.Action != "跳ぶ" || roll.Target != 12 || roll.Success == nil || roll.Total < 4 || roll.Total > 23 {
+		t.Fatalf("roll = %+v, want 1d20+3 against the default 12", roll)
+	}
+
+	rec = doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages/stream", map[string]any{"content": "/roll 2d6"})
+	wantStatus(t, rec, http.StatusOK)
+	var messages []storedRoll
+	if err := json.Unmarshal(doneFrame(t, rec)["messages"], &messages); err != nil {
+		t.Fatalf("decode done.messages: %v", err)
+	}
+	if last := messages[len(messages)-1]; last.Content != "" || len(last.DiceRolls) != 1 || last.DiceRolls[0].Expression != "2d6" {
+		t.Fatalf("streamed intervention = %+v, want a roll-only message", last)
+	}
+
+	for _, route := range []string{"/messages", "/messages/stream"} {
+		rec = doJSON(t, h, "POST", "/api/chats/"+chatID+route, map[string]any{"content": "/roll d20 跳ぶ"})
+		wantStatus(t, rec, http.StatusBadRequest)
+		if !strings.Contains(rec.Body.String(), "NdM") {
+			t.Fatalf("%s refusal = %s, want the expected form named", route, rec.Body.String())
+		}
+		// A malformed target is refused too, not rolled against the default.
+		rec = doJSON(t, h, "POST", "/api/chats/"+chatID+route, map[string]any{"content": "/roll 1d20 目標12.5 跳ぶ"})
+		wantStatus(t, rec, http.StatusBadRequest)
+		if !strings.Contains(rec.Body.String(), "目標") {
+			t.Fatalf("%s refusal = %s, want the target named", route, rec.Body.String())
+		}
+	}
+	var listed []storedRoll
+	unmarshalField(t, decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil)), "messages", &listed)
+	if len(listed) != 2 {
+		t.Fatalf("stored %d messages, want the refusals to store nothing", len(listed))
 	}
 }

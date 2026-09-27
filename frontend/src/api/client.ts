@@ -82,6 +82,8 @@ export interface ChatRecord {
   // The shared state sheet: "name: value" lines every participant's turn reads
   // (design §4.7). At most CHAT_STATE_SHEET_MAX_CHARS characters.
   stateSheet: string;
+  // What a /roll without 目標 is compared with; 0 compares nothing (design §4.8.3).
+  diceTarget: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -118,6 +120,9 @@ export interface Participant {
 // server answers past them.
 export const CHAT_STATE_SHEET_MAX_CHARS = 400;
 export const PARTICIPANT_STATE_SHEET_MAX_CHARS = 200;
+
+// The server's bound on a dice target (model.DiceTargetMax).
+export const DICE_TARGET_MAX = 9999;
 
 export function stateSheetLength(sheet: string): number {
   return [...sheet.trim()].length;
@@ -156,6 +161,7 @@ export interface MultiAgentPreset {
   turnRule: TurnRule;
   scenePrompt: string;
   stateSheet?: string;
+  diceTarget?: number;
   participants: MultiAgentPresetParticipant[];
 }
 
@@ -197,7 +203,23 @@ export interface MessageRecord {
   // The participants this message called on, fixed when it was stored. Only the
   // weighted turn rule reads it (design §4.6.5).
   addressedParticipantIds: string[];
+  // The /roll the message carried, thrown by the app when it was stored; the
+  // command line itself is no longer in content (design §4.8.3).
+  diceRolls: DiceRoll[];
   references: AssistantReference[];
+}
+
+// DiceRoll mirrors the Go model.DiceRoll. target 0 means nothing was compared,
+// and success is then null.
+export interface DiceRoll {
+  command: string;
+  expression: string;
+  action: string;
+  dice: number[];
+  modifier: number;
+  total: number;
+  target: number;
+  success: boolean | null;
 }
 
 export interface WorkspaceConfiguration {
@@ -494,7 +516,7 @@ export const api = {
     }),
   updateChatMultiAgentSettings: (
     chatId: string,
-    input: { turnRule?: TurnRule; scenePrompt?: string; facilitatorId?: string; stateSheet?: string }
+    input: { turnRule?: TurnRule; scenePrompt?: string; facilitatorId?: string; stateSheet?: string; diceTarget?: number }
   ) =>
     request<{ chat: ChatRecord }>(`/api/chats/${chatId}`, {
       method: "PATCH",

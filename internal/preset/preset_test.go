@@ -228,3 +228,26 @@ func TestParseStateSheet(t *testing.T) {
 		}
 	}
 }
+
+// TestPresetDiceTarget covers the preset half of TASK-37 AC #4: a preset can
+// carry the chat's default target within the range PATCH accepts, and the
+// bundled TRPG table asks for /roll against 12 instead of playing without dice.
+func TestPresetDiceTarget(t *testing.T) {
+	for _, target := range []string{"-1", "10000"} {
+		_, err := Parse([]byte(`{"title": "t", "diceTarget": ` + target + `, "participants": [{"displayName": "A"}, {"displayName": "B"}]}`))
+		if !errors.Is(err, ErrInvalid) {
+			t.Errorf("diceTarget %s: Parse = %v, want ErrInvalid", target, err)
+		}
+	}
+
+	trpg, ok := Find("trpg-table")
+	if !ok {
+		t.Fatal("bundled presets lack the TRPG table")
+	}
+	if trpg.DiceTarget != 12 {
+		t.Errorf("trpg-table diceTarget = %d, want 12", trpg.DiceTarget)
+	}
+	if !strings.Contains(trpg.ScenePrompt, "/roll 1d20+修正 行動の要約") || strings.Contains(trpg.ScenePrompt, "ダイスは使いません") {
+		t.Errorf("trpg-table scene does not carry the /roll rule:\n%s", trpg.ScenePrompt)
+	}
+}

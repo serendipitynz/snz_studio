@@ -57,6 +57,8 @@ type Participant struct {
 
 // MultiAgentPreset is the shape of one preset JSON. ID and Group only mean
 // something for bundled presets; an imported preset may leave both empty.
+// DiceTarget is the chat's default target for a /roll that names none (0 =
+// compare nothing, design §4.8.3 item 4).
 type MultiAgentPreset struct {
 	ID           string        `json:"id"`
 	Title        string        `json:"title"`
@@ -65,6 +67,7 @@ type MultiAgentPreset struct {
 	TurnRule     string        `json:"turnRule"`
 	ScenePrompt  string        `json:"scenePrompt"`
 	StateSheet   string        `json:"stateSheet,omitempty"`
+	DiceTarget   int           `json:"diceTarget,omitempty"`
 	Participants []Participant `json:"participants"`
 }
 
@@ -123,6 +126,10 @@ func (p *MultiAgentPreset) Validate() error {
 	// store a sheet the panel could not have saved (design §4.7.3 item 4).
 	if utf8.RuneCountInString(p.StateSheet) > model.ChatStateSheetMaxRunes {
 		return fmt.Errorf("%w: stateSheet must be at most %d characters", ErrInvalid, model.ChatStateSheetMaxRunes)
+	}
+	// Held to the range PATCH /api/chats/{chatId} accepts, for the same reason.
+	if p.DiceTarget < 0 || p.DiceTarget > model.DiceTargetMax {
+		return fmt.Errorf("%w: diceTarget must be a whole number from 0 to %d", ErrInvalid, model.DiceTargetMax)
 	}
 	if p.TurnRule == "" {
 		p.TurnRule = model.TurnRuleRoundRobin

@@ -85,8 +85,11 @@ type Chat struct {
 	ScenePrompt   string `json:"scenePrompt"`
 	FacilitatorID string `json:"facilitatorId"`
 	StateSheet    string `json:"stateSheet"`
-	CreatedAt     string `json:"createdAt"`
-	UpdatedAt     string `json:"updatedAt"`
+	// DiceTarget is the target a /roll without 目標N is compared against; 0
+	// compares nothing and records the total alone (design §4.8.3 item 4).
+	DiceTarget int    `json:"diceTarget"`
+	CreatedAt  string `json:"createdAt"`
+	UpdatedAt  string `json:"updatedAt"`
 }
 
 // RecentChat is a chat listed across projects (the dashboard's recent chats),
@@ -104,6 +107,10 @@ type RecentChat struct {
 // AddressedParticipantIDs is the set of participants the message called on,
 // fixed when it was stored and never re-derived from Content (design §4.6.5).
 // It is empty, never nil, for a message that called on no one.
+//
+// DiceRolls is what the message's /roll threw, fixed when it was stored with the
+// command line taken out of Content (design §4.8.3 item 2). It is empty, never
+// nil, for a message that rolled nothing.
 type Message struct {
 	ID              string   `json:"id"`
 	ChatID          string   `json:"chatId"`
@@ -116,8 +123,27 @@ type Message struct {
 	ModelName       *string  `json:"modelName"`
 	ParticipantID   *string  `json:"participantId"`
 
-	AddressedParticipantIDs []string `json:"addressedParticipantIds"`
+	AddressedParticipantIDs []string   `json:"addressedParticipantIds"`
+	DiceRolls               []DiceRoll `json:"diceRolls"`
 }
+
+// DiceRoll is one /roll the app threw for a message (design §4.8.1 判定の記録).
+// Target 0 means nothing was compared, and Success is then nil.
+type DiceRoll struct {
+	Command    string `json:"command"`
+	Expression string `json:"expression"`
+	Action     string `json:"action"`
+	Dice       []int  `json:"dice"`
+	Modifier   int    `json:"modifier"`
+	Total      int    `json:"total"`
+	Target     int    `json:"target"`
+	Success    *bool  `json:"success"`
+}
+
+// DiceTargetMax bounds a target, whether a /roll names it or the chat holds it
+// as the default. The highest total a /roll can reach is 20d100+999, so a
+// larger target could never be met and is refused as a slip instead.
+const DiceTargetMax = 9999
 
 // Participant is one speaker of a multi-agent chat: a display name, a role
 // prompt, and the endpoint (BaseURL + ModelName) its turns are generated
