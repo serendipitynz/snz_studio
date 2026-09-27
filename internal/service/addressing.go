@@ -73,10 +73,10 @@ type storedUtterance struct {
 // roster included — a call on everyone still lets the ones who have not
 // answered keep their boost after the others have.
 //
-// A 【ダイス】 line is the app's notation, never the speaker's (TASK-63): a
-// result-free one ending the text is rolled in place of a missing /roll, and
-// every other one — a forged result above all — is removed before the name
-// match, so its action names are no call either.
+// A line opening with 【ダイス】 is the app's notation, never the speaker's
+// (TASK-63): a result-free one ending the text is rolled in place of a missing
+// /roll, and every other one shaped like a record — a forged result above all —
+// is removed before the name match, so its action names are no call either.
 func prepareUtterance(content, speakerID string, roster []model.Participant) storedUtterance {
 	body, names, directive := splitAddresseeDirective(content)
 	withoutCommand, found, roll, rollErr := splitRollCommand(body)
@@ -89,11 +89,12 @@ func prepareUtterance(content, speakerID string, roster []model.Participant) sto
 		utterance.content, _ = stripDiceMarkers(body)
 	}
 	// A /roll kept as text is still no call: its action names are not addressed
-	// to anyone, whether or not the arguments could be read.
+	// to anyone, whether or not the arguments could be read. The same goes for a
+	// 【ダイス】 line kept because its dice could not be read.
 	if directive {
 		utterance.addressees = resolveDirectiveNames(names, speakerID, roster)
 	} else {
-		utterance.addressees = matchNamesInLastSentence(withoutCommand, speakerID, roster)
+		utterance.addressees = matchNamesInLastSentence(withoutTrailingDiceMarkerLine(withoutCommand), speakerID, roster)
 	}
 	return utterance
 }

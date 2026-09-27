@@ -84,54 +84,76 @@ func splitRollCommand(content string) (stripped string, found bool, cmd *rollCom
 const diceMarker = "【ダイス】"
 
 // diceMarkerResult is what a 【ダイス】 line carries once a result is written
-// into it — the mapping's "→" and the total's "=". A line carrying any of them
-// is a forged result and is never rolled, whatever else it holds.
-var diceMarkerResult = regexp.MustCompile(`→|->|⇒|=|＝`)
+// into it: the mapping's "→", the total's "=", or the outcome itself —
+// gpt-oss-20b wrote "【ダイス】15 成功" with neither of the others (TASK-63). A
+// line carrying any of them is a forged result and is never rolled.
+var diceMarkerResult = regexp.MustCompile(`→|->|⇒|=|＝|成功|失敗`)
 
-// splitDiceMarkerCommand reads a result-free 【ダイス】 on the last line as a
-// /roll the speaker meant to write (TASK-63): a player that copied the mapping's
-// shape declared a roll as much as one that wrote the command. Across a "—" the
-// dice may stand on either side: the mapping's own order puts the action first. It returns what
-// splitRollCommand does, and found is false both when there is no such marker
-// and when what follows it does not read as a /roll: that line is then removed
-// by stripDiceMarkers like any other, rather than kept as text, because it is
-// the app's notation either way.
-func splitDiceMarkerCommand(content string) (stripped string, found bool, cmd *rollCommand) {
-	trimmed := strings.TrimRight(content, " \t\r\n")
-	lineStart := strings.LastIndex(trimmed, "\n") + 1
-	at := strings.LastIndex(trimmed[lineStart:], diceMarker)
-	if at < 0 {
-		return content, false, nil
+// diceMarkerArgs returns what follows a 【ダイス】 that opens the line. Only the
+// start of a line counts: that is where the app writes it, and where every one
+// the TASK-63 measurement saw stood (95 of 95). One inside a sentence is
+// somebody writing about dice, which a general conversation may well do.
+func diceMarkerArgs(line string) (string, bool) {
+	trimmed := strings.TrimLeft(line, " \t　")
+	if !strings.HasPrefix(trimmed, diceMarker) {
+		return "", false
 	}
-	at += lineStart
-	written := strings.TrimSpace(trimmed[at:])
-	args := strings.TrimSpace(written[len(diceMarker):])
-	if diceMarkerResult.MatchString(args) {
-		return content, false, nil
-	}
+	return strings.TrimSpace(trimmed[len(diceMarker):]), true
+}
+
+// readDiceMarkerRoll reads a marker line's arguments as the /roll they stand
+// for. Across a "—" the dice may stand on either side: the mapping's own order
+// puts the action first.
+func readDiceMarkerRoll(args string) *rollCommand {
 	candidates := []string{args}
 	if before, after, ok := strings.Cut(args, "—"); ok {
 		before, after = strings.TrimSpace(before), strings.TrimSpace(after)
 		candidates = []string{after + " " + before, before + " " + after}
 	}
 	for _, candidate := range candidates {
-		if parsed, err := parseRollCommand(rollKeyword + " " + candidate); err == nil {
-			cmd = parsed
-			break
+		if cmd, err := parseRollCommand(rollKeyword + " " + candidate); err == nil {
+			return cmd
 		}
 	}
-	if cmd == nil {
-		return content, false, nil
-	}
-	cmd.line = written
-	return strings.TrimRight(trimmed[:at], " \t\r\n　"), true, cmd
+	return nil
 }
 
-// stripDiceMarkers removes every 【ダイス】 the text itself carries, from the
-// marker to the end of its line, and drops a line left empty. It returns the
-// removed parts for the log. Only the app writes the line (TASK-63): left in the
-// body, a forged "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）" would reach every
-// later speaker as a result the app never rolled.
+// isDiceRecordLine reports a line shaped like the app's record or a copy of
+// it: a 【ダイス】 opening the line with nothing after it, a result, or dice
+// that read as a /roll. Anything else after the marker — a heading such as
+// "【ダイス】の確率について" — is text somebody wrote and stays (owner's ruling,
+// TASK-63): it carries no result a later speaker could take for a roll.
+func isDiceRecordLine(line string) bool {
+	args, ok := diceMarkerArgs(line)
+	if !ok {
+		return false
+	}
+	return args == "" || diceMarkerResult.MatchString(args) || readDiceMarkerRoll(args) != nil
+}
+
+// splitDiceMarkerCommand reads a result-free 【ダイス】 line ending the text as
+// a /roll the speaker meant to write (TASK-63): a player that copied the
+// mapping's shape declared a roll as much as one that wrote the command. It
+// returns what splitRollCommand does; found is false when the last line is no
+// such line, and then stripDiceMarkers decides whether it stays.
+func splitDiceMarkerCommand(content string) (stripped string, found bool, cmd *rollCommand) {
+	trimmed := strings.TrimRight(content, " \t\r\n")
+	lineStart := strings.LastIndex(trimmed, "\n") + 1
+	args, ok := diceMarkerArgs(trimmed[lineStart:])
+	if !ok || diceMarkerResult.MatchString(args) {
+		return content, false, nil
+	}
+	if cmd = readDiceMarkerRoll(args); cmd == nil {
+		return content, false, nil
+	}
+	cmd.line = strings.TrimSpace(trimmed[lineStart:])
+	return strings.TrimRight(trimmed[:lineStart], " \t\r\n　"), true, cmd
+}
+
+// stripDiceMarkers removes the lines isDiceRecordLine reports and returns them
+// for the log. Only the app writes such a line (TASK-63): left in the body, a
+// forged "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）" would reach every later
+// speaker as a result the app never rolled.
 func stripDiceMarkers(content string) (string, []string) {
 	if !strings.Contains(content, diceMarker) {
 		return content, nil
@@ -140,17 +162,29 @@ func stripDiceMarkers(content string) (string, []string) {
 	lines := strings.Split(content, "\n")
 	kept := lines[:0]
 	for _, line := range lines {
-		at := strings.Index(line, diceMarker)
-		if at < 0 {
-			kept = append(kept, line)
+		if isDiceRecordLine(line) {
+			removed = append(removed, strings.TrimSpace(line))
 			continue
 		}
-		removed = append(removed, strings.TrimSpace(line[at:]))
-		if rest := strings.TrimRight(line[:at], " \t\r　"); strings.TrimSpace(rest) != "" {
-			kept = append(kept, rest)
-		}
+		kept = append(kept, line)
+	}
+	if removed == nil {
+		return content, nil
 	}
 	return strings.Trim(strings.Join(kept, "\n"), "\r\n"), removed
+}
+
+// withoutTrailingDiceMarkerLine drops a last line that opens with 【ダイス】 but
+// stayed in the body because its dice could not be read. The name match skips
+// it for the reason it skips an unreadable /roll: "【ダイス】d20 ミラを庇う" is a
+// botched roll, not a call on ミラ.
+func withoutTrailingDiceMarkerLine(content string) string {
+	trimmed := strings.TrimRight(content, " \t\r\n")
+	lineStart := strings.LastIndex(trimmed, "\n") + 1
+	if _, ok := diceMarkerArgs(trimmed[lineStart:]); !ok {
+		return content
+	}
+	return trimmed[:lineStart]
 }
 
 // rollKeywordIndex finds /roll as a word of its own: at the start of the line or

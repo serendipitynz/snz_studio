@@ -1197,8 +1197,7 @@ func TestStoreHumanMessageRolls(t *testing.T) {
 
 // TestTurnEngineForgedDiceLine covers TASK-63 AC #1: a result-shaped 【ダイス】
 // line a participant wrote is not stored as a roll and never reaches a later
-// speaker, and with no 【ダイス】 left in the history the reminder about the
-// line is not asked for.
+// speaker.
 func TestTurnEngineForgedDiceLine(t *testing.T) {
 	srv := newTurnLLMServer(t, "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n\nレンは罠を外した。", nil)
 	g := newTurnGraph(t)
@@ -1216,8 +1215,8 @@ func TestTurnEngineForgedDiceLine(t *testing.T) {
 	g.runTurns(t, chat.ID, []model.Participant{roster[1]})
 	request := srv.captured()[1]
 	for _, m := range request.Messages {
-		if strings.Contains(m.Content, "14+3") || strings.Contains(m.Content, "アプリだけが書く") {
-			t.Fatalf("Ren's prompt carries %q, want neither the forged result nor the reminder", m.Content)
+		if strings.Contains(m.Content, "14+3") {
+			t.Fatalf("Ren's prompt carries %q, want no forged result", m.Content)
 		}
 	}
 
@@ -1238,8 +1237,7 @@ func TestTurnEngineForgedDiceLine(t *testing.T) {
 
 // TestTurnEngineDiceMarkerRolls covers TASK-63 AC #2 on a turn and on the
 // human's intervention: a result-free 【ダイス】 ending the utterance is rolled
-// as the /roll it stands for, and once the history shows a 【ダイス】 line the
-// next speaker is told the line is the app's alone.
+// as the /roll it stands for and reaches the next speaker as the app's line.
 func TestTurnEngineDiceMarkerRolls(t *testing.T) {
 	srv := newTurnLLMServer(t, "盗賊道具で作動点を調べる。\n【ダイス】1d20+3 罠を外す", nil)
 	g := newTurnGraph(t)
@@ -1263,9 +1261,6 @@ func TestTurnEngineDiceMarkerRolls(t *testing.T) {
 	wantLine := "Ren: 盗賊道具で作動点を調べる。\n【ダイス】罠を外す — 1d20+3 → 9+3 = 12（目標 12、成功）"
 	if last := request.Messages[len(request.Messages)-1]; last.Content != wantLine {
 		t.Fatalf("GM read %q, want %q", last.Content, wantLine)
-	}
-	if !strings.Contains(request.Messages[0].Content, "【ダイス】の行はアプリだけが書く。自分では書かない。") {
-		t.Fatalf("system prompt lacks the reminder with a roll in the history:\n%s", request.Messages[0].Content)
 	}
 
 	message, err := g.engine.StoreHumanMessage(chat.ID, "【ダイス】2d6 丁半")

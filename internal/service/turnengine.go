@@ -268,11 +268,10 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	material := e.assembleMaterial(chat, speaker, messages)
 
 	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(material.References))
-	mapped := mapHistoryForSpeaker(messages, speaker, knownSpeakers)
-	history, finalUserMessage := buildTurnPrompt(mapped, speaker)
+	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers), speaker)
 	var streamed strings.Builder
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
-		SystemPrompt: buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers, historyShowsDice(mapped)),
+		SystemPrompt: buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers),
 		Messages:     history,
 		UserInput:    finalUserMessage,
 		Temperature:  float64Ptr(0.7),
@@ -685,21 +684,9 @@ func contentWithDiceRolls(m model.Message) string {
 		lines = append(lines, body)
 	}
 	for _, r := range m.DiceRolls {
-		lines = append(lines, "【ダイス】"+diceRollLine(r))
+		lines = append(lines, diceMarker+diceRollLine(r))
 	}
 	return strings.Join(lines, "\n")
-}
-
-// historyShowsDice reports whether the mapped history carries a 【ダイス】 line.
-// It reads the mapped text rather than the records so a line stored before
-// TASK-63 stripped them counts too.
-func historyShowsDice(history []model.Message) bool {
-	for _, m := range history {
-		if strings.Contains(m.Content, diceMarker) {
-			return true
-		}
-	}
-	return false
 }
 
 func speakerLabel(m model.Message, labels map[string]string) string {
@@ -722,7 +709,7 @@ func speakerLabel(m model.Message, labels map[string]string) string {
 // is read before what has changed in it (§4.7.3 item 3). The reminder is
 // repeated every turn because small models drift out of their role as the
 // history grows and settle into agreeing with the previous speaker.
-func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Participant, participants []model.Participant, historyHasDice bool) string {
+func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Participant, participants []model.Participant) string {
 	parts := make([]string, 0, 6)
 	if material = strings.TrimSpace(material); material != "" {
 		parts = append(parts, material)
@@ -754,13 +741,6 @@ func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Par
 	// passes over, and their prompts stay as they were.
 	if chat.TurnRule == model.TurnRuleWeighted {
 		reminder = append(reminder, "次に話してほしい相手がいるときだけ、発言の最後の行に [次: 表示名] と書く（複数なら読点で区切る）。いなければ書かない。")
-	}
-	// The 【ダイス】 line is the app's notation, not a game rule, so unlike when
-	// to roll (§4.8.3 item 3) it belongs here (TASK-63). It is asked for only
-	// once the history shows one: that is the line a model copies, and a
-	// conversation that never rolls keeps its prompt as it was.
-	if historyHasDice {
-		reminder = append(reminder, "【ダイス】の行はアプリだけが書く。自分では書かない。")
 	}
 	parts = append(parts, strings.Join(reminder, "\n"))
 	return strings.Join(parts, "\n\n")

@@ -176,11 +176,11 @@ func TestPrepareUtteranceDiceMarkers(t *testing.T) {
 		t.Errorf("prefixed = (%q, %+v), want the /roll rolled and the marker before it removed", prefixed.content, prefixed.roll)
 	}
 
-	// A marker with nothing to roll is removed rather than kept; its names are
-	// no call.
+	// A marker whose dice do not read is no record, so it stays as text; like an
+	// unreadable /roll, its names are no call.
 	unreadable := prepareUtterance("跳ぶ。\n【ダイス】d20 ミラを庇う", "ren", addressingRoster())
-	if unreadable.content != "跳ぶ。" || unreadable.roll != nil || unreadable.rollErr != nil || !reflect.DeepEqual(unreadable.addressees, []string{}) {
-		t.Errorf("unreadable = (%q, %+v, %v, %v), want the marker removed, no roll and no call", unreadable.content, unreadable.roll, unreadable.rollErr, unreadable.addressees)
+	if unreadable.content != "跳ぶ。\n【ダイス】d20 ミラを庇う" || unreadable.roll != nil || unreadable.rollErr != nil || !reflect.DeepEqual(unreadable.addressees, []string{}) {
+		t.Errorf("unreadable = (%q, %+v, %v, %v), want the line kept, no roll and no call", unreadable.content, unreadable.roll, unreadable.rollErr, unreadable.addressees)
 	}
 
 	// An unreadable /roll stays as text, but a forged result above it still goes.
