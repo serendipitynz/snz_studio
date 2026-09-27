@@ -4,13 +4,14 @@ title: '多人数会話: アクションの効果で状態項目をアプリが�
 status: To Do
 assignee: []
 created_date: '2026-09-22 08:37'
-updated_date: '2026-09-22 09:56'
+updated_date: '2026-09-27 06:45'
 labels: []
 milestone: m-1
 dependencies:
   - TASK-35
   - TASK-23
   - TASK-37
+  - TASK-65
 references:
   - docs/multi-agent-chat-design.md
   - internal/service/turnengine.go
