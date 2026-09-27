@@ -1,10 +1,10 @@
 ---
 id: TASK-63
 title: '多人数会話: モデルが書いた【ダイス】行を、結果の偽造なら剥がし、結果の無い書き損じなら /roll として振る'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-27 01:20'
-updated_date: '2026-09-27 06:53'
+updated_date: '2026-09-27 07:05'
 labels: []
 dependencies:
   - TASK-37
