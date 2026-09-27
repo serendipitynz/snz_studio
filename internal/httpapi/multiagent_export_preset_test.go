@@ -154,6 +154,42 @@ func TestMultiAgentPresetExportRoundTrip(t *testing.T) {
 	}
 }
 
+// TestMultiAgentPresetExportWeightedFacilitator is the other rule that carries
+// the facilitator mark: a weighted chat's facilitator must survive the trip,
+// or the reloaded chat would treat everyone alike (design §4.6).
+func TestMultiAgentPresetExportWeightedFacilitator(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Export Weighted Project")
+	source := createMultiAgentChat(t, h, projectID, "weighted")
+	addParticipant(t, h, source, "語り手", "")
+	lead := addParticipant(t, h, source, "聞き手", "http://192.168.0.10:1234/v1")
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/chats/"+source, map[string]any{"facilitatorId": lead}), http.StatusOK)
+
+	exported := exportPreset(t, h, source)
+	participants, _ := exported["participants"].([]any)
+	if len(participants) != 2 {
+		t.Fatalf("exported participants = %v, want two", exported["participants"])
+	}
+	if mark, _ := participants[1].(map[string]any)["facilitator"].(bool); !mark {
+		t.Fatalf("exported participants = %v, want 聞き手 marked as the facilitator", participants)
+	}
+
+	rec := doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats",
+		map[string]any{"kind": "multi_agent", "preset": exported})
+	wantStatus(t, rec, http.StatusCreated)
+	var created struct {
+		ID string `json:"id"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &created)
+	want := readLineUp(t, h, source).comparable()
+	if got := readLineUp(t, h, created.ID).comparable(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("chat created from the export =\n%+v\nwant\n%+v", got, want)
+	}
+	if want["facilitator"] != 1 {
+		t.Fatalf("source facilitator = %v, want roster position 1", want["facilitator"])
+	}
+}
+
 // TestMultiAgentPresetExportRefusals covers the chats whose line-up would not
 // load back (409, the owner's call when TASK-62 started) and the route's own
 // refusals.
