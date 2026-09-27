@@ -100,9 +100,14 @@ export function Dialog({ onClose, children, labelledBy, describedBy, returnFocus
   );
 }
 
-export function DialogTitle({ children, id }: { children: ReactNode; id?: string }) {
+// `title` carries the full text of a heading long enough to be clamped in the header.
+export function DialogTitle({ children, id, title }: { children: ReactNode; id?: string; title?: string }) {
   const contextId = useContext(DialogTitleIdContext);
-  return <SectionTitle id={id ?? contextId}>{children}</SectionTitle>;
+  return (
+    <SectionTitle id={id ?? contextId} title={title}>
+      {children}
+    </SectionTitle>
+  );
 }
 
 // A dialog is laid out as DialogHeader, DialogBody and, where it has one action that
@@ -132,6 +137,10 @@ export function DialogActions({ children, notice }: { children: ReactNode; notic
   );
 }
 
+// The header does not scroll, so an unbounded heading (a document's title has no length
+// limit) could grow past the card and push the close button and the body out of it.
+// So can the line under it (a participant's name). Clamped, the full text stays in the
+// DOM for assistive technology and, for a document title, in `title`.
 const HeaderText = styled.div`
   flex: 1 1 12rem;
   min-width: 0;
@@ -139,6 +148,18 @@ const HeaderText = styled.div`
   flex-direction: column;
   gap: 4px;
   overflow-wrap: anywhere;
+
+  & > h2,
+  & > p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+
+  & > p {
+    -webkit-line-clamp: 2;
+  }
 `;
 
 const HeaderActions = styled.div`

@@ -880,7 +880,7 @@ export function ProjectDetailPage() {
               </ActionButton>
             }
           >
-            <DialogTitle>{selectedDocument.title}</DialogTitle>
+            <DialogTitle title={selectedDocument.title}>{selectedDocument.title}</DialogTitle>
             <Subtle>
               {selectedDocument.type} · {t(`category.${selectedDocument.category}`)}
               {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
