@@ -350,6 +350,13 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
   ターンエンジンと `storeHumanMessage` はどちらも `MemoryService` を呼ばない。
 - **保存の下書き**とは、保存ダイアログが開くときの初期値（発言本文そのまま + `inferKindFromText` で推定した kind）を指す。
   kind の推定はサーバで行い（`GET /api/messages/{messageId}/memory-draft`）、cue 表をフロントに複製しない。
+  判定の記録（§4.8.3）がある発言では、本文の後に空行を挟んで判定ごとに `🎲 ` + 判定の行（markdown エクスポートと同じ文面）を足す
+  （2026-09-27、TASK-64）。**Why**: コマンドだけの発言は本文が空で、判定の記録が発言のすべてだから。
+  prompt の【ダイス】行の書式にしないのは、メモリがプロジェクト内のすべての会話に渡り、`roll` が有効な会話（§4.8.7）では
+  資料の中の【ダイス】行がいまアプリが振った記録と見分けられないため。チップの文面にしないのは、フロントの i18n で組み立てる文面で、
+  保存するメモリの言語が UI の言語で変わるため。`roll` を無効にした後も記録済みの判定は含める（チップ・prompt と同じ）。
+  kind は本文だけから推定する。判定の行の行動（「必ず跳ぶ」など）が cue に当たって kind を決めないようにするためで、
+  コマンドだけの発言は既定の episodic（起きたことの記録）になる。
 - 保存（`POST /api/messages/{messageId}/memory`）は手動追加・自動抽出と同じ `MemoryRepository.CreateMemory` +
   埋め込み同期を通るので、検索・organizer の対象になる。`source` は `multi_agent`（chat kind と同じ綴り）、
   `source_chat_id` は会話の id。`locked` の既定は手動追加と同じ `true`（文言を人間が決めたので organizer に書き換えさせない）。
@@ -1149,6 +1156,7 @@ spike 時点では人間が介入発言に出目を書くことはできるが�
 - 既定の目標値は、ターンでは開始時に読んだ chat の値、介入では保存時の値を使う。
 - 結論の下書き（§4.4）の写像にも【ダイス】行を入れる（会話が判定の結果で動いたことは結論の一部である）。
   プロジェクト資料の検索クエリ（§4.4）には入れない（出目の数字は検索の手掛かりにならない）。
+  発言のメモリ保存の下書き（§4.4）には【ダイス】行ではなく `🎲` の行で入れる（TASK-64）。
 - チップは状態バッジ（snz-design doc-8 §6.5）で、成功は success、失敗は danger、目標値が無ければ neutral の調子にする。
   図形は Lucide の dice-5、読み上げ用に「アプリが振ったダイス:」を前置し、`title` に書かれたコマンドを持たせる。
   コマンドだけの発言は本文を描かずチップだけにする。
@@ -1311,7 +1319,7 @@ TASK-65 で、`roll` が有効な会話にだけ掛けるように改めた（§
 | `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
 | `GET /api/chats/{chatId}/turns/next` | 次のターンが選ぶ参加者の読み取り（表示用、§4.6.6 の追記）。応答は `{ participant, historyLimit }`。`manual` と空の編成では `participant` が `null`。chat が無ければ 404、単独 assistant の chat は 400 |
 | `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。ターン前の拒否はステータスで返る: 実行中のターンと重なれば 409、chat・指名した参加者が無ければ 404、規則と指名の不整合・除籍済みの指名・空の編成は 400、接続先不通は 502。通れば `speaker`（§4.6.6）→ `delta`… → `done` を流し、それより後の失敗（生成・保存）はストリーム内の `error` になる |
-| `GET /api/messages/{messageId}/memory-draft` | 発言のメモリ保存の下書き `{ draft: { content, kind } }`（§4.4）。発言が無ければ 404、単独 assistant の chat は 400、一時チャットは 409 |
+| `GET /api/messages/{messageId}/memory-draft` | 発言のメモリ保存の下書き `{ draft: { content, kind } }`（§4.4。content は本文 + 判定の記録の `🎲` 行）。発言が無ければ 404、単独 assistant の chat は 400、一時チャットは 409 |
 | `POST /api/chats/{chatId}/conclusion-draft` | 結論の下書きを既定 LLM で生成する（§4.4）。body: `{ fromMessageId? }`（省略時は会話全体）。応答は `{ draft: { content, kind: "semantic" }, anchorMessageId, messageCount }`（`anchorMessageId` は範囲の最後の発言で、保存はこの id で下の保存ルートを呼ぶ）。何も永続化しない。単独 assistant の chat は 400、`fromMessageId` がその chat に無ければ 404、発言 0 件は 409、範囲が 12000 字を超えれば 422（`{ error, chars, limit }`）、生成失敗は 502。一時チャットでも生成できる |
 | `POST /api/messages/{messageId}/memory` | 発言のメモリ保存。body: `{ content, kind?, locked? }`（`kind` 省略時は推定、`locked` 既定 `true`）。拒否は下書きと同じ。応答は `{ memory }`（`source = multi_agent`、`sharedWithAll` は真） |
 | `PATCH /api/documents/{documentId}/shared` | ドキュメントを共通プロジェクト資料に入れる / 外す（§4.4）。body: `{ sharedWithAll: boolean }`。真偽値でなければ 400、未知の id は 404 |
