@@ -16,6 +16,7 @@ import (
 	"snzstudio/internal/preset"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
+	"snzstudio/internal/service/commands"
 )
 
 // handleListParticipants returns every participant row of the chat, removed ones
@@ -445,15 +446,15 @@ func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*
 	if err := s.participants.DeleteRoster(chatID); err != nil {
 		return nil, err
 	}
-	// The shared state sheet and the default dice target are written even when
-	// the preset carries none, for the same reason the facilitator is below: they
+	// The shared state sheet and the commands are written even when the preset
+	// carries none, for the same reason the facilitator is below: they
 	// describe the line-up being replaced, and an empty preset value must clear
 	// them.
 	chat, err := s.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{
 		TurnRule:    &p.TurnRule,
 		ScenePrompt: &p.ScenePrompt,
 		StateSheet:  &p.StateSheet,
-		DiceTarget:  &p.DiceTarget,
+		Commands:    p.Commands,
 	})
 	if err != nil {
 		return nil, err
@@ -501,7 +502,7 @@ func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*
 // composer where it can be corrected (design §4.8.3 item 2).
 func interventionErrorResponse(err error) (int, string) {
 	switch {
-	case errors.Is(err, service.ErrInvalidRollCommand), errors.Is(err, service.ErrUtteranceOnlyDirective), errors.Is(err, service.ErrUtteranceOnlyDiceLine):
+	case errors.Is(err, commands.ErrInvalidRollCommand), errors.Is(err, service.ErrUtteranceOnlyDirective), errors.Is(err, service.ErrUtteranceOnlyDiceLine):
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, service.ErrChatNotFound):
 		return http.StatusNotFound, err.Error()

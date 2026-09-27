@@ -343,3 +343,54 @@ func TestSharedProjectMaterialBackfill(t *testing.T) {
 		}
 	}
 }
+
+// TestChatCommandsBackfill covers TASK-65 AC #4: migration 18 keeps /roll only
+// on the multi-agent chats that used dice — a default target set, or a roll
+// recorded — carrying the default target over as roll.target, and leaves every
+// other chat with no command enabled.
+func TestChatCommandsBackfill(t *testing.T) {
+	d := openUnmigratedTemp(t)
+	applyThrough(t, d, "017_dice_rolls")
+
+	mustExec(t, d, `INSERT INTO projects (id, title, created_at, updated_at)
+		VALUES ('p1', 'proj', '2026-01-01', '2026-01-01')`)
+	for _, c := range []struct {
+		id, kind string
+		target   int
+	}{
+		{"targeted", "multi_agent", 12},
+		{"rolled", "multi_agent", 0},
+		{"talk", "multi_agent", 0},
+		{"assistant", "assistant", 0},
+	} {
+		mustExec(t, d, `INSERT INTO chats (id, project_id, title, is_temporary, kind, dice_target, created_at, updated_at)
+			VALUES (?, 'p1', 't', 0, ?, ?, '2026-01-01', '2026-01-01')`, c.id, c.kind, c.target)
+	}
+	mustExec(t, d, `INSERT INTO messages (id, chat_id, role, content, dice_rolls, created_at)
+		VALUES ('m1', 'rolled', 'user', '', '[{"command":"/roll 1d20","expression":"1d20","action":"","dice":[4],"modifier":0,"total":4,"target":0,"success":null}]', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO messages (id, chat_id, role, content, created_at)
+		VALUES ('m2', 'talk', 'user', '【ダイス】の確率について', '2026-01-01')`)
+
+	if err := ApplyMigrations(d); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+
+	want := map[string]string{
+		"targeted":  `{"roll":{"target":12}}`,
+		"rolled":    `{"roll":{"target":0}}`,
+		"talk":      `{}`,
+		"assistant": `{}`,
+	}
+	for id, commands := range want {
+		var got string
+		if err := d.QueryRow("SELECT commands FROM chats WHERE id = ?", id).Scan(&got); err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		if got != commands {
+			t.Errorf("chat %s commands = %s, want %s", id, got, commands)
+		}
+	}
+	if _, err := d.Exec("SELECT dice_target FROM chats"); err == nil {
+		t.Error("dice_target is still a column after migration 18")
+	}
+}

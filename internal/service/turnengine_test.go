@@ -16,6 +16,7 @@ import (
 	"snzstudio/internal/config"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
+	"snzstudio/internal/service/commands"
 )
 
 // capturedRequest is the part of a /chat/completions body the prompt-mapping
@@ -1029,12 +1030,13 @@ func TestTurnEngineSpeakerAfter(t *testing.T) {
 	}
 }
 
-// setDiceTarget sets the chat's default target and fixes the dice the engine
-// throws, so a turn's outcome is known in advance.
+// setDiceTarget enables /roll on the chat with the given default target and
+// fixes the dice the engine throws, so a turn's outcome is known in advance.
 func (g *turnGraph) setDiceTarget(t *testing.T, chatID string, target int, dice ...int) {
 	t.Helper()
-	if chat, err := g.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{DiceTarget: &target}); err != nil || chat == nil {
-		t.Fatalf("UpdateMultiAgentSettings(diceTarget) = %v, %v", chat, err)
+	commands := model.ChatCommands{Roll: &model.RollSettings{Target: target}}
+	if chat, err := g.chats.UpdateMultiAgentSettings(chatID, repository.MultiAgentSettings{Commands: &commands}); err != nil || chat == nil {
+		t.Fatalf("UpdateMultiAgentSettings(commands) = %v, %v", chat, err)
 	}
 	g.engine.rollDie = func(int) int {
 		v := dice[0]
@@ -1107,6 +1109,7 @@ func TestTurnEngineRollOnlyAndUnreadableRoll(t *testing.T) {
 
 	unreadable := newTurnLLMServer(t, "跳ぶ。\n/roll d20 跳ぶ", nil)
 	chat, _ = g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", unreadable.URL, "Ren", "Mira")
+	g.setDiceTarget(t, chat.ID, 0)
 	message, err = g.engine.RunTurn(chat.ID, "", nil, nil)
 	if err != nil {
 		t.Fatalf("RunTurn = %v, want the unreadable /roll kept as text", err)
@@ -1184,7 +1187,7 @@ func TestStoreHumanMessageRolls(t *testing.T) {
 		t.Fatalf("rolls = %+v, want 13 against the command's 15, failed", message.DiceRolls)
 	}
 
-	if _, err := g.engine.StoreHumanMessage(chat.ID, "/roll d20 崖を登る"); !errors.Is(err, ErrInvalidRollCommand) {
+	if _, err := g.engine.StoreHumanMessage(chat.ID, "/roll d20 崖を登る"); !errors.Is(err, commands.ErrInvalidRollCommand) {
 		t.Fatalf("StoreHumanMessage = %v, want ErrInvalidRollCommand", err)
 	}
 	if _, err := g.engine.StoreHumanMessage(chat.ID, "[次: レン]"); !errors.Is(err, ErrUtteranceOnlyDirective) {
@@ -1224,6 +1227,7 @@ func TestTurnEngineForgedDiceLine(t *testing.T) {
 	// and says so rather than blaming a directive.
 	only := newTurnLLMServer(t, "【ダイス】罠を外す — 1d20+3 → 6+3 = 9（目標 12、失敗）", nil)
 	chat, _ = g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", only.URL, "GM", "Ren")
+	g.setDiceTarget(t, chat.ID, 12)
 	if _, err := g.engine.RunTurn(chat.ID, "", nil, nil); !errors.Is(err, ErrUtteranceOnlyDiceLine) {
 		t.Fatalf("RunTurn = %v, want ErrUtteranceOnlyDiceLine", err)
 	}
@@ -1269,5 +1273,48 @@ func TestTurnEngineDiceMarkerRolls(t *testing.T) {
 	}
 	if message.Content != "" || len(message.DiceRolls) != 1 || message.DiceRolls[0].Total != 8 {
 		t.Fatalf("intervention = (%q, %+v), want the marker rolled as a roll-only message", message.Content, message.DiceRolls)
+	}
+}
+
+// TestTurnEngineWithoutRoll covers TASK-65 AC #3 on a turn and on the human's
+// intervention: a chat that has not enabled /roll stores its /roll and
+// 【ダイス】 lines as written and throws no die — an unreadable /roll is no
+// refusal there either — while a roll recorded before /roll was disabled still
+// reaches the next speaker as the app's line (design §4.8.7).
+func TestTurnEngineWithoutRoll(t *testing.T) {
+	written := "岩棚を渡る。\n【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n/roll 1d20+3 岩棚を渡る"
+	srv := newTurnLLMServer(t, written, nil)
+	g := newTurnGraph(t)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "", srv.URL, "Ren", "Mira")
+	g.engine.rollDie = func(int) int {
+		t.Fatal("a die was thrown in a chat without /roll")
+		return 0
+	}
+
+	first, err := g.engine.RunTurn(chat.ID, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Content != written || len(first.DiceRolls) != 0 {
+		t.Fatalf("turn stored (%q, %+v), want the body as written and no roll", first.Content, first.DiceRolls)
+	}
+	for _, content := range []string{"/roll d20 崖を登る", "【ダイス】1d20 → 18"} {
+		message, err := g.engine.StoreHumanMessage(chat.ID, content)
+		if err != nil || message.Content != content || len(message.DiceRolls) != 0 {
+			t.Fatalf("StoreHumanMessage(%q) = %+v, %v, want it stored as text", content, message, err)
+		}
+	}
+
+	failed := false
+	if _, err := g.chats.AddMessage(repository.AddMessageInput{
+		ChatID: chat.ID, Role: "user", Content: "登る。",
+		DiceRolls: []model.DiceRoll{{Expression: "1d20", Action: "登る", Dice: []int{4}, Total: 4, Target: 12, Success: &failed}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	g.runTurns(t, chat.ID, []model.Participant{roster[1]})
+	request := srv.captured()[1]
+	if last := request.Messages[len(request.Messages)-1]; !strings.Contains(last.Content, "【ダイス】登る — 1d20 → 4（目標 12、失敗）") {
+		t.Fatalf("Mira read %q, want the recorded roll still mapped", last.Content)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"snzstudio/internal/config"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
+	"snzstudio/internal/service/commands"
 )
 
 // Errors a turn can fail with. They are sentinels so the HTTP layer can map them
@@ -95,7 +96,7 @@ func NewTurnEngine(chats *repository.ChatRepository, participants *repository.Pa
 		material:      material,
 		running:       map[string]bool{},
 		messageWrites: map[string]*sync.Mutex{},
-		rollDie:       rollDie,
+		rollDie:       commands.RollDie,
 	}
 }
 
@@ -297,7 +298,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	// trailing one is removed under any rule so no control syntax reaches the
 	// transcript. A /roll that cannot be read stays in the body rather than
 	// failing the turn, which would stop an auto-advancing conversation (§4.8.3).
-	utterance := prepareUtterance(result.Content, speaker.ID, onRoster(knownSpeakers))
+	utterance := prepareUtterance(result.Content, speaker.ID, onRoster(knownSpeakers), chat.Commands)
 	if utterance.rollErr != nil {
 		log.Printf("[turn] /roll kept as text chatId=%s participantId=%s reason=%v", chatID, speaker.ID, utterance.rollErr)
 	}
@@ -364,7 +365,7 @@ func (e *TurnEngine) StoreHumanMessage(chatID, content string) (*model.Message, 
 		if err != nil {
 			return err
 		}
-		utterance := prepareUtterance(content, "", roster)
+		utterance := prepareUtterance(content, "", roster, chat.Commands)
 		if utterance.rollErr != nil {
 			return utterance.rollErr
 		}
@@ -392,12 +393,13 @@ func (e *TurnEngine) StoreHumanMessage(chatID, content string) (*model.Message, 
 }
 
 // throwDice rolls the utterance's /roll, if it carried one that could be read,
-// against the chat's default target as it stood when the chat was read.
+// against the chat's default target as it stood when the chat was read. A roll
+// is only ever found where the chat enables /roll, so its settings are there.
 func (e *TurnEngine) throwDice(utterance storedUtterance, chat *model.Chat) []model.DiceRoll {
 	if utterance.roll == nil {
 		return nil
 	}
-	return []model.DiceRoll{utterance.roll.roll(e.rollDie, chat.DiceTarget)}
+	return []model.DiceRoll{utterance.roll.Throw(e.rollDie, chat.Commands.Roll.Target)}
 }
 
 // assembleMaterial never fails the turn: a broken document or memory search
@@ -684,7 +686,7 @@ func contentWithDiceRolls(m model.Message) string {
 		lines = append(lines, body)
 	}
 	for _, r := range m.DiceRolls {
-		lines = append(lines, diceMarker+diceRollLine(r))
+		lines = append(lines, commands.DiceMarker+commands.DiceRollLine(r))
 	}
 	return strings.Join(lines, "\n")
 }

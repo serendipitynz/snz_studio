@@ -2,8 +2,11 @@ package preset
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+
+	"snzstudio/internal/model"
 )
 
 // TestBundledPresets checks the shipped files as data: every one carries the
@@ -229,25 +232,60 @@ func TestParseStateSheet(t *testing.T) {
 	}
 }
 
-// TestPresetDiceTarget covers the preset half of TASK-37 AC #4: a preset can
-// carry the chat's default target within the range PATCH accepts, and the
-// bundled TRPG table asks for /roll against 12 instead of playing without dice.
-func TestPresetDiceTarget(t *testing.T) {
-	for _, target := range []string{"-1", "10000"} {
-		_, err := Parse([]byte(`{"title": "t", "diceTarget": ` + target + `, "participants": [{"displayName": "A"}, {"displayName": "B"}]}`))
-		if !errors.Is(err, ErrInvalid) {
-			t.Errorf("diceTarget %s: Parse = %v, want ErrInvalid", target, err)
+// TestPresetCommands covers the preset half of TASK-65 AC #2 (design §4.8.7):
+// commands fills the chat's commands, the TASK-37 top-level diceTarget reads
+// as commands.roll.target, both at once or an unknown command is refused, and
+// the bundled TRPG table is the one bundled preset that enables /roll.
+func TestPresetCommands(t *testing.T) {
+	parse := func(fields string) (*MultiAgentPreset, error) {
+		return Parse([]byte(`{"title": "t", ` + fields + `"participants": [{"displayName": "A"}, {"displayName": "B"}]}`))
+	}
+	cases := []struct {
+		name   string
+		fields string
+		want   model.ChatCommands
+	}{
+		{"omitted", ``, model.ChatCommands{}},
+		{"empty", `"commands": {}, `, model.ChatCommands{}},
+		{"roll with a target", `"commands": {"roll": {"target": 12}}, `, model.ChatCommands{Roll: &model.RollSettings{Target: 12}}},
+		{"roll without settings", `"commands": {"roll": {}}, `, model.ChatCommands{Roll: &model.RollSettings{}}},
+		{"diceTarget", `"diceTarget": 12, `, model.ChatCommands{Roll: &model.RollSettings{Target: 12}}},
+		{"diceTarget 0", `"diceTarget": 0, `, model.ChatCommands{}},
+	}
+	for _, tc := range cases {
+		p, err := parse(tc.fields)
+		if err != nil {
+			t.Fatalf("%s: Parse = %v", tc.name, err)
+		}
+		if p.Commands == nil || !reflect.DeepEqual(*p.Commands, tc.want) || p.DiceTarget != 0 {
+			t.Errorf("%s: commands = %+v (diceTarget %d), want %+v folded in", tc.name, p.Commands, p.DiceTarget, tc.want)
 		}
 	}
 
-	trpg, ok := Find("trpg-table")
-	if !ok {
-		t.Fatal("bundled presets lack the TRPG table")
+	for name, fields := range map[string]string{
+		"diceTarget below 0":     `"diceTarget": -1, `,
+		"diceTarget above 9999":  `"diceTarget": 10000, `,
+		"roll.target above 9999": `"commands": {"roll": {"target": 10000}}, `,
+		"roll.target fractional": `"commands": {"roll": {"target": 12.5}}, `,
+		"both forms":             `"commands": {"roll": {"target": 12}}, "diceTarget": 12, `,
+		"an unknown command":     `"commands": {"add": {}}, `,
+		"commands not an object": `"commands": ["roll"], `,
+	} {
+		if _, err := parse(fields); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: Parse = %v, want ErrInvalid", name, err)
+		}
 	}
-	if trpg.DiceTarget != 12 {
-		t.Errorf("trpg-table diceTarget = %d, want 12", trpg.DiceTarget)
-	}
-	if !strings.Contains(trpg.ScenePrompt, "/roll 1d20+修正 行動の要約") || strings.Contains(trpg.ScenePrompt, "ダイスは使いません") {
-		t.Errorf("trpg-table scene does not carry the /roll rule:\n%s", trpg.ScenePrompt)
+
+	for _, p := range Bundled() {
+		if p.ID == "trpg-table" {
+			if p.Commands.Roll == nil || p.Commands.Roll.Target != 12 {
+				t.Errorf("trpg-table commands = %+v, want roll against 12", p.Commands)
+			}
+			if !strings.Contains(p.ScenePrompt, "/roll 1d20+修正 行動の要約") || strings.Contains(p.ScenePrompt, "ダイスは使いません") {
+				t.Errorf("trpg-table scene does not carry the /roll rule:\n%s", p.ScenePrompt)
+			}
+		} else if p.Commands.Roll != nil {
+			t.Errorf("%s enables /roll, want only trpg-table to", p.ID)
+		}
 	}
 }

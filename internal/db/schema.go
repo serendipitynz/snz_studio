@@ -406,6 +406,22 @@ var migrations = []migration{
 			ALTER TABLE chats ADD COLUMN dice_target INTEGER NOT NULL DEFAULT 0;
 		`,
 	},
+	{
+		// commands is the slash commands a chat's store-time pass handles, as
+		// command name → settings JSON ('{}' = none), and takes over dice_target
+		// as roll.target (design §4.8.7, TASK-65). Only the multi-agent chats that
+		// used dice — a default target set or a roll recorded — keep /roll (owner's
+		// ruling): every other conversation stops reading its 【ダイス】 and /roll
+		// lines as commands.
+		id: "018_chat_commands",
+		sql: `
+			ALTER TABLE chats ADD COLUMN commands TEXT NOT NULL DEFAULT '{}';
+			UPDATE chats SET commands = json_object('roll', json_object('target', dice_target))
+			 WHERE kind = 'multi_agent'
+			   AND (dice_target > 0 OR EXISTS (SELECT 1 FROM messages WHERE chat_id = chats.id AND dice_rolls <> '[]'));
+			ALTER TABLE chats DROP COLUMN dice_target;
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in

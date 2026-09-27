@@ -483,6 +483,9 @@ const en = {
   "participants.facilitatorNote": "The facilitator answers the opening turn and every intervention of yours; the rest of the roster cycles in order between its turns.",
   "participants.facilitatorMissing": "Without a facilitator on the roster, turns follow roster order like round_robin.",
   "participants.facilitatorWeightedNote": "The facilitator is not held back for having spoken recently, so it comes back between the others. Without one, everyone is weighed alike.",
+  "participants.rollEnabled": "Roll dice with /roll",
+  "participants.rollEnabledHint":
+    "When on, the app rolls a /roll written on the last line of a message and treats lines starting with 【ダイス】 as its own notation. When off, both stay in the message as written. Rolls already recorded stay. Takes effect from the next message.",
   "participants.diceTarget": "Default dice target",
   "participants.diceTargetHint":
     "The number a /roll without a target (target or 目標) is compared with: a total at or above it succeeds. 0 compares nothing and records the total alone, as target0 does for one roll. Takes effect from the next /roll.",
@@ -995,6 +998,9 @@ const ja: Record<MessageKey, string> = {
   "participants.facilitatorNote": "進行役は最初のターンとあなたの介入発言に応じます。他の参加者はその合間を編成順に循環します。",
   "participants.facilitatorMissing": "進行役が編成にいないあいだは、round_robin と同じく編成順に回します。",
   "participants.facilitatorWeightedNote": "進行役は直近に話したことで順番を下げられないので、他の参加者の合間に戻ってきます。未選択なら全員を同じに扱います。",
+  "participants.rollEnabled": "/roll でダイスを振る",
+  "participants.rollEnabledHint":
+    "オンにすると、発言の最後の行の /roll をアプリが振り、【ダイス】で始まる行をアプリの記法として扱います。オフなら、どちらも書かれたとおりの本文として残ります。記録済みの判定は残ります。次の発言から反映されます。",
   "participants.diceTarget": "既定の目標値",
   "participants.diceTargetHint":
     "目標を書かない /roll の合計と比べる値です。合計がこの値以上なら成功になります。0 なら比べずに合計だけを記録します（1 回だけ比べないときは /roll に「目標なし」と書きます）。次の /roll から反映されます。",

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"snzstudio/internal/model"
+	"snzstudio/internal/service/commands"
 )
 
 // exportRemovedSuffix marks a speaker whose participant row has left the roster.
@@ -184,7 +185,7 @@ func writeDiceRolls(b *strings.Builder, rolls []model.DiceRoll, afterBody bool) 
 		b.WriteString("\n")
 	}
 	for _, r := range rolls {
-		b.WriteString("> 🎲 " + singleLine(diceRollLine(r)) + "\n")
+		b.WriteString("> 🎲 " + singleLine(commands.DiceRollLine(r)) + "\n")
 	}
 }
 

@@ -22,7 +22,7 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 }
 
 const (
-	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, dice_target, created_at, updated_at`
+	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, commands, created_at, updated_at`
 	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls`
 	summaryColumns = `chat_id, summary, updated_at`
 	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
@@ -32,11 +32,15 @@ func scanChat(s scanner) (model.Chat, error) {
 	var (
 		c           model.Chat
 		isTemporary int64
+		commands    string
 	)
-	if err := s.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &c.DiceTarget, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := s.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &commands, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return c, err
 	}
 	c.IsTemporary = isTemporary != 0
+	if err := json.Unmarshal([]byte(commands), &c.Commands); err != nil {
+		return c, fmt.Errorf("chat %s: commands: %w", c.ID, err)
+	}
 	return c, nil
 }
 
@@ -102,7 +106,7 @@ func (r *ChatRepository) ListByProject(projectID string) ([]model.Chat, error) {
 // updated first, each with its project's title.
 func (r *ChatRepository) ListRecent(limit int) ([]model.RecentChat, error) {
 	rows, err := r.db.Query(`
-		SELECT c.id, c.project_id, c.title, c.is_temporary, c.kind, c.turn_rule, c.scene_prompt, c.facilitator_participant_id, c.state_sheet, c.dice_target, c.created_at, c.updated_at, p.title
+		SELECT c.id, c.project_id, c.title, c.is_temporary, c.kind, c.turn_rule, c.scene_prompt, c.facilitator_participant_id, c.state_sheet, c.commands, c.created_at, c.updated_at, p.title
 		FROM chats c
 		JOIN projects p ON p.id = c.project_id
 		ORDER BY c.updated_at DESC, c.created_at DESC
@@ -116,11 +120,15 @@ func (r *ChatRepository) ListRecent(limit int) ([]model.RecentChat, error) {
 		var (
 			c           model.RecentChat
 			isTemporary int64
+			commands    string
 		)
-		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &c.DiceTarget, &c.CreatedAt, &c.UpdatedAt, &c.ProjectTitle); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Title, &isTemporary, &c.Kind, &c.TurnRule, &c.ScenePrompt, &c.FacilitatorID, &c.StateSheet, &commands, &c.CreatedAt, &c.UpdatedAt, &c.ProjectTitle); err != nil {
 			return nil, err
 		}
 		c.IsTemporary = isTemporary != 0
+		if err := json.Unmarshal([]byte(commands), &c.Commands); err != nil {
+			return nil, fmt.Errorf("chat %s: commands: %w", c.ID, err)
+		}
 		chats = append(chats, c)
 	}
 	return chats, rows.Err()
@@ -139,7 +147,7 @@ func (r *ChatRepository) GetChat(chatID string) (*model.Chat, error) {
 }
 
 // CreateChatInput carries the fields for CreateChat. Kind, TurnRule,
-// ScenePrompt, StateSheet and DiceTarget are optional: an empty Kind/TurnRule falls back to the column
+// ScenePrompt, StateSheet and Commands are optional: an empty Kind/TurnRule falls back to the column
 // defaults, so existing callers keep creating single-assistant chats. The
 // facilitator is not among them — it names a participant, and a chat has no
 // roster until after it exists (UpdateMultiAgentSettings sets it).
@@ -151,7 +159,7 @@ type CreateChatInput struct {
 	TurnRule    string
 	ScenePrompt string
 	StateSheet  string
-	DiceTarget  int
+	Commands    model.ChatCommands
 }
 
 // CreateChat inserts a chat and seeds an empty summary row. Mirrors createChat.
@@ -174,14 +182,18 @@ func (r *ChatRepository) CreateChat(input CreateChatInput) (model.Chat, error) {
 		TurnRule:    turnRule,
 		ScenePrompt: input.ScenePrompt,
 		StateSheet:  input.StateSheet,
-		DiceTarget:  input.DiceTarget,
+		Commands:    input.Commands,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+	commands, err := json.Marshal(c.Commands)
+	if err != nil {
+		return model.Chat{}, err
+	}
 	if _, err := r.db.Exec(`
-		INSERT INTO chats (id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, state_sheet, dice_target, created_at, updated_at)
+		INSERT INTO chats (id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, state_sheet, commands, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.ProjectID, c.Title, boolToInt(c.IsTemporary), c.Kind, c.TurnRule, c.ScenePrompt, c.StateSheet, c.DiceTarget, c.CreatedAt, c.UpdatedAt); err != nil {
+		c.ID, c.ProjectID, c.Title, boolToInt(c.IsTemporary), c.Kind, c.TurnRule, c.ScenePrompt, c.StateSheet, string(commands), c.CreatedAt, c.UpdatedAt); err != nil {
 		return model.Chat{}, err
 	}
 	if err := r.UpsertSummary(c.ID, ""); err != nil {
@@ -231,24 +243,33 @@ type MultiAgentSettings struct {
 	ScenePrompt   *string
 	FacilitatorID *string
 	StateSheet    *string
-	DiceTarget    *int
+	// Commands replaces the chat's commands whole.
+	Commands *model.ChatCommands
 }
 
 // UpdateMultiAgentSettings updates a multi-agent chat's turn rule, scene prompt,
-// facilitator, shared state sheet and/or default dice target, and returns (nil, nil) if the chat does
+// facilitator, shared state sheet and/or commands, and returns (nil, nil) if the chat does
 // not exist. The update is partial because PATCH /api/chats/{chatId} accepts any
 // of the fields on its own (design §5).
 func (r *ChatRepository) UpdateMultiAgentSettings(chatID string, settings MultiAgentSettings) (*model.Chat, error) {
+	var commands any
+	if settings.Commands != nil {
+		encoded, err := json.Marshal(settings.Commands)
+		if err != nil {
+			return nil, err
+		}
+		commands = string(encoded)
+	}
 	res, err := r.db.Exec(`
 		UPDATE chats
 		SET turn_rule = COALESCE(?, turn_rule),
 		    scene_prompt = COALESCE(?, scene_prompt),
 		    facilitator_participant_id = COALESCE(?, facilitator_participant_id),
 		    state_sheet = COALESCE(?, state_sheet),
-		    dice_target = COALESCE(?, dice_target),
+		    commands = COALESCE(?, commands),
 		    updated_at = ?
 		WHERE id = ?`,
-		ptrArg(settings.TurnRule), ptrArg(settings.ScenePrompt), ptrArg(settings.FacilitatorID), ptrArg(settings.StateSheet), ptrArg(settings.DiceTarget),
+		ptrArg(settings.TurnRule), ptrArg(settings.ScenePrompt), ptrArg(settings.FacilitatorID), ptrArg(settings.StateSheet), commands,
 		util.NowISO(), chatID)
 	if err != nil {
 		return nil, err

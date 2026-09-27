@@ -3,6 +3,7 @@ import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   api,
   CHAT_STATE_SHEET_MAX_CHARS,
+  ChatCommands,
   ChatRecord,
   DICE_TARGET_MAX,
   Participant,
@@ -322,15 +323,30 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     }
   }
 
-  async function saveDiceTarget(diceTarget: number) {
-    setStateErrors((current) => ({ ...current, diceTarget: "" }));
+  // The route replaces the commands whole, so each save sends the chat's
+  // commands with the one change applied.
+  async function saveCommands(commands: ChatCommands) {
+    setStateErrors((current) => ({ ...current, commands: "" }));
     try {
-      const response = await api.updateChatMultiAgentSettings(props.chat.id, { diceTarget });
+      const response = await api.updateChatMultiAgentSettings(props.chat.id, { commands });
       props.onChatChange(response.chat);
     } catch (nextError) {
-      setStateErrors((current) => ({ ...current, diceTarget: errorMessage(nextError, "participants.settingsSaveError") }));
+      setStateErrors((current) => ({ ...current, commands: errorMessage(nextError, "participants.settingsSaveError") }));
       throw nextError;
     }
+  }
+
+  // Switching /roll off drops its settings from the chat, so the target it had
+  // is kept here to come back with it when switched on again in this view.
+  const lastRollTarget = useRef(props.chat.commands.roll?.target ?? 0);
+  if (props.chat.commands.roll) {
+    lastRollTarget.current = props.chat.commands.roll.target;
+  }
+
+  function toggleRoll(enabled: boolean) {
+    const { roll: _dropped, ...others } = props.chat.commands;
+    const next = enabled ? { ...others, roll: { target: lastRollTarget.current } } : others;
+    void saveCommands(next).catch(() => undefined);
   }
 
   async function saveParticipantStateSheet(participantId: string, stateSheet: string) {
@@ -408,8 +424,26 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
           <Stack>
             {/* Keyed on the stored value so a preset applied from outside
                 resets the draft. */}
-            <DiceTargetField key={props.chat.diceTarget} value={props.chat.diceTarget} onSave={saveDiceTarget} />
-            {stateErrors.diceTarget ? <FailureNotice>{stateErrors.diceTarget}</FailureNotice> : null}
+            {/* /roll is switched here, beside its target, rather than with the
+                scene: like the target it is the human's call while the play
+                runs, and the two are one command's settings (design §4.8.7). */}
+            <HintRow>
+              <Checkbox checked={props.chat.commands.roll !== undefined} onChange={toggleRoll}>
+                {t("participants.rollEnabled")}
+              </Checkbox>
+              <Hint
+                name={t("hint.about", { label: t("participants.rollEnabled") })}
+                body={t("participants.rollEnabledHint")}
+              />
+            </HintRow>
+            {props.chat.commands.roll ? (
+              <DiceTargetField
+                key={props.chat.commands.roll.target}
+                value={props.chat.commands.roll.target}
+                onSave={(target) => saveCommands({ ...props.chat.commands, roll: { target } })}
+              />
+            ) : null}
+            {stateErrors.commands ? <FailureNotice>{stateErrors.commands}</FailureNotice> : null}
             {/* Keyed on the stored value so a sheet replaced from outside the
                 field (a preset applied, a save that trimmed it) resets the
                 draft. */}

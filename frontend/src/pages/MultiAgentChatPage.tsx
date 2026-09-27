@@ -681,14 +681,19 @@ export function MultiAgentChatPage() {
   // The composer suggests the command while its name is being typed on the last
   // line, and keeps the format in view while the arguments are (design §4.8.3
   // item 3). There is no dice button: the command is the one way in, for the
-  // human and the models alike.
+  // human and the models alike. A chat that has not enabled /roll reads the line
+  // as text (design §4.8.7), so nothing is suggested there.
+  const roll = state.chat.commands.roll;
+  const rollTarget = roll?.target ?? 0;
   const commandLine = draft.slice(draft.lastIndexOf("\n") + 1).trimStart();
-  const typingCommand = commandLine.startsWith("/") && !/\s/.test(commandLine) && ROLL_KEYWORD.startsWith(commandLine);
-  const writingRoll = commandLine.startsWith(`${ROLL_KEYWORD} `) || commandLine.startsWith(`${ROLL_KEYWORD}\u3000`);
+  const typingCommand =
+    roll !== undefined && commandLine.startsWith("/") && !/\s/.test(commandLine) && ROLL_KEYWORD.startsWith(commandLine);
+  const writingRoll =
+    roll !== undefined && (commandLine.startsWith(`${ROLL_KEYWORD} `) || commandLine.startsWith(`${ROLL_KEYWORD}\u3000`));
   const rollAction = t("multiAgent.rollAction");
   const rollCandidates = [
     `${ROLL_KEYWORD} 1d20+0 ${rollAction}`,
-    `${ROLL_KEYWORD} 1d20+0 ${t("multiAgent.rollTargetKeyword")}${state.chat.diceTarget || 12} ${rollAction}`
+    `${ROLL_KEYWORD} 1d20+0 ${t("multiAgent.rollTargetKeyword")}${rollTarget || 12} ${rollAction}`
   ];
   const speakerText = shownNext
     ? t("multiAgent.speakerNext", { name: shownNext.displayName })
@@ -904,7 +909,7 @@ export function MultiAgentChatPage() {
             {typingCommand || writingRoll ? (
               <MetaText>
                 {t("multiAgent.rollFormat")}
-                {state.chat.diceTarget > 0 ? t("multiAgent.rollFormatDefault", { target: state.chat.diceTarget }) : ""}
+                {rollTarget > 0 ? t("multiAgent.rollFormatDefault", { target: rollTarget }) : ""}
               </MetaText>
             ) : null}
             <ComposerTextarea

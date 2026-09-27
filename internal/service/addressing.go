@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"snzstudio/internal/model"
+	"snzstudio/internal/service/commands"
 )
 
 // addresseeDirective is what a participant is asked to write on the last line
@@ -42,7 +43,7 @@ const minMatchedNameLength = 2
 type storedUtterance struct {
 	content    string
 	addressees []string
-	roll       *rollCommand
+	roll       *commands.Roll
 	// rollErr is set when the last line held a /roll that could not be read. The
 	// line then stays in content; whether that is acceptable is the caller's call
 	// (design §4.8.3 item 2).
@@ -56,10 +57,10 @@ type storedUtterance struct {
 // and what it rolls, in the one order design §4.8.3 item 2 sets for a
 // participant's utterance and a human's intervention alike: (1) the trailing
 // directive is removed and resolved, (2) the last line of what remains is
-// searched for a /roll, which is removed, and (3) only when there was no
-// directive, the last sentence of the body without the command is matched
-// against the roster. speakerID is the participant that wrote the message,
-// empty for the human; a call on oneself is dropped.
+// searched for a command the chat has enabled, which is removed, and (3) only
+// when there was no directive, the last sentence of the body without the
+// command is matched against the roster. speakerID is the participant that
+// wrote the message, empty for the human; a call on oneself is dropped.
 //
 // Why the order: matching names before the command is removed would read the
 // /roll line as the last sentence — "レン、登ってみて" followed by a /roll loses
@@ -73,28 +74,21 @@ type storedUtterance struct {
 // roster included — a call on everyone still lets the ones who have not
 // answered keep their boost after the others have.
 //
-// A line opening with 【ダイス】 is the app's notation, never the speaker's
-// (TASK-63): a result-free one ending the text is rolled in place of a missing
-// /roll, and every other one shaped like a record — a forged result above all —
-// is removed before the name match, so its action names are no call either.
-func prepareUtterance(content, speakerID string, roster []model.Participant) storedUtterance {
+// A chat that has not enabled /roll keeps its /roll and 【ダイス】 lines as the
+// text they are, and the name match reads them like any other (§4.8.7).
+func prepareUtterance(content, speakerID string, roster []model.Participant, enabled model.ChatCommands) storedUtterance {
 	body, names, directive := splitAddresseeDirective(content)
-	withoutCommand, found, roll, rollErr := splitRollCommand(body)
-	if !found {
-		withoutCommand, found, roll = splitDiceMarkerCommand(body)
+	extracted := commands.Extract(body, enabled)
+	utterance := storedUtterance{
+		content:     extracted.Content,
+		roll:        extracted.Roll,
+		rollErr:     extracted.RollErr,
+		removedDice: extracted.RemovedDice,
 	}
-	withoutCommand, removed := stripDiceMarkers(withoutCommand)
-	utterance := storedUtterance{content: withoutCommand, roll: roll, rollErr: rollErr, removedDice: removed}
-	if found && rollErr != nil {
-		utterance.content, _ = stripDiceMarkers(body)
-	}
-	// A /roll kept as text is still no call: its action names are not addressed
-	// to anyone, whether or not the arguments could be read. The same goes for a
-	// 【ダイス】 line kept because its dice could not be read.
 	if directive {
 		utterance.addressees = resolveDirectiveNames(names, speakerID, roster)
 	} else {
-		utterance.addressees = matchNamesInLastSentence(withoutTrailingDiceMarkerLine(withoutCommand), speakerID, roster)
+		utterance.addressees = matchNamesInLastSentence(extracted.CallText, speakerID, roster)
 	}
 	return utterance
 }
