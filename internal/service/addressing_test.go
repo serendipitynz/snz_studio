@@ -143,3 +143,55 @@ func TestPrepareUtteranceOrder(t *testing.T) {
 		t.Errorf("unreadable roll kept (%q, %v), want the line kept and no call", u.content, u.addressees)
 	}
 }
+
+// TestPrepareUtteranceDiceMarkers covers TASK-63 AC #1 and #2 at store time: a
+// forged 【ダイス】 result leaves the body and is no roll, a result-free one on
+// the last line is rolled in place of a missing /roll, and a stray marker beside
+// a real /roll is removed while the /roll is what rolls.
+func TestPrepareUtteranceDiceMarkers(t *testing.T) {
+	forged := prepareUtterance("【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）\n\nレンは罠を外した。", "gm", addressingRoster())
+	if forged.content != "レンは罠を外した。" || forged.roll != nil || forged.rollErr != nil {
+		t.Errorf("forged = (%q, %+v, %v), want the result removed and no roll", forged.content, forged.roll, forged.rollErr)
+	}
+	if !reflect.DeepEqual(forged.removedDice, []string{"【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）"}) {
+		t.Errorf("removed = %q, want the forged line kept for the log", forged.removedDice)
+	}
+
+	typo := prepareUtterance("作動点を調べる。\n【ダイス】1d20+3 罠を外す\n[次: GM]", "ren", addressingRoster())
+	if typo.content != "作動点を調べる。" || typo.roll == nil || typo.roll.expression != "1d20+3" || len(typo.removedDice) != 0 {
+		t.Errorf("typo = (%q, %+v, %q), want the marker rolled as a /roll", typo.content, typo.roll, typo.removedDice)
+	}
+	if !reflect.DeepEqual(typo.addressees, []string{"gm"}) {
+		t.Errorf("typo addressees = %v, want the directive read first", typo.addressees)
+	}
+
+	stray := prepareUtterance("壁を調べる。\n【ダイス】\n/roll 1d20+3 罠を探す", "ren", addressingRoster())
+	if stray.content != "壁を調べる。" || stray.roll == nil || stray.roll.line != "/roll 1d20+3 罠を探す" {
+		t.Errorf("stray = (%q, %+v), want the bare marker removed and the /roll rolled", stray.content, stray.roll)
+	}
+
+	// gpt-oss-20b prefixed the command with the marker in the TASK-63 measurement.
+	prefixed := prepareUtterance("罠を外す。\n【ダイス】/roll 1d20+3 罠を外す", "ren", addressingRoster())
+	if prefixed.content != "罠を外す。" || prefixed.roll == nil || prefixed.roll.line != "/roll 1d20+3 罠を外す" {
+		t.Errorf("prefixed = (%q, %+v), want the /roll rolled and the marker before it removed", prefixed.content, prefixed.roll)
+	}
+
+	// A marker whose dice do not read is no record, so it stays as text; like an
+	// unreadable /roll, its names are no call.
+	unreadable := prepareUtterance("跳ぶ。\n【ダイス】d20 ミラを庇う", "ren", addressingRoster())
+	if unreadable.content != "跳ぶ。\n【ダイス】d20 ミラを庇う" || unreadable.roll != nil || unreadable.rollErr != nil || !reflect.DeepEqual(unreadable.addressees, []string{}) {
+		t.Errorf("unreadable = (%q, %+v, %v, %v), want the line kept, no roll and no call", unreadable.content, unreadable.roll, unreadable.rollErr, unreadable.addressees)
+	}
+
+	// A heading kept as text keeps its call; only a botched roll is skipped.
+	heading := prepareUtterance("出目の話をしよう。\n【ダイス】の確率、ミラはどう思う？", "ren", addressingRoster())
+	if heading.content != "出目の話をしよう。\n【ダイス】の確率、ミラはどう思う？" || !reflect.DeepEqual(heading.addressees, []string{"mira"}) {
+		t.Errorf("heading = (%q, %v), want the line kept and the call on ミラ", heading.content, heading.addressees)
+	}
+
+	// An unreadable /roll stays as text, but a forged result above it still goes.
+	kept := prepareUtterance("【ダイス】1d20 → 18\n跳ぶ。\n/roll d20 跳ぶ", "ren", addressingRoster())
+	if kept.content != "跳ぶ。\n/roll d20 跳ぶ" || !errors.Is(kept.rollErr, ErrInvalidRollCommand) {
+		t.Errorf("kept = (%q, %v), want the /roll line kept and the forged line removed", kept.content, kept.rollErr)
+	}
+}

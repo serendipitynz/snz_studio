@@ -47,6 +47,9 @@ type storedUtterance struct {
 	// line then stays in content; whether that is acceptable is the caller's call
 	// (design §4.8.3 item 2).
 	rollErr error
+	// removedDice is each 【ダイス】 line taken out of the body because the app
+	// did not write it (TASK-63), for the log.
+	removedDice []string
 }
 
 // prepareUtterance fixes, at store time, what a message says, whom it calls on
@@ -69,21 +72,44 @@ type storedUtterance struct {
 // (§4.6.5). Every roster name found in the last sentence counts, the whole
 // roster included — a call on everyone still lets the ones who have not
 // answered keep their boost after the others have.
+//
+// A line opening with 【ダイス】 is the app's notation, never the speaker's
+// (TASK-63): a result-free one ending the text is rolled in place of a missing
+// /roll, and every other one shaped like a record — a forged result above all —
+// is removed before the name match, so its action names are no call either.
 func prepareUtterance(content, speakerID string, roster []model.Participant) storedUtterance {
 	body, names, directive := splitAddresseeDirective(content)
 	withoutCommand, found, roll, rollErr := splitRollCommand(body)
-	utterance := storedUtterance{content: body, roll: roll, rollErr: rollErr}
-	if found && rollErr == nil {
-		utterance.content = withoutCommand
+	if !found {
+		withoutCommand, found, roll = splitDiceMarkerCommand(body)
+	}
+	withoutCommand, removed := stripDiceMarkers(withoutCommand)
+	utterance := storedUtterance{content: withoutCommand, roll: roll, rollErr: rollErr, removedDice: removed}
+	if found && rollErr != nil {
+		utterance.content, _ = stripDiceMarkers(body)
 	}
 	// A /roll kept as text is still no call: its action names are not addressed
-	// to anyone, whether or not the arguments could be read.
+	// to anyone, whether or not the arguments could be read. The same goes for a
+	// 【ダイス】 line kept because its dice could not be read.
 	if directive {
 		utterance.addressees = resolveDirectiveNames(names, speakerID, roster)
 	} else {
-		utterance.addressees = matchNamesInLastSentence(withoutCommand, speakerID, roster)
+		utterance.addressees = matchNamesInLastSentence(withoutTrailingDiceMarkerLine(withoutCommand), speakerID, roster)
 	}
 	return utterance
+}
+
+// emptyError reports an utterance with nothing to store: no body and no roll.
+// It names what emptied the body, so a turn that wrote only a forged 【ダイス】
+// line is not reported as one that wrote only a directive.
+func (u storedUtterance) emptyError(diceRolls []model.DiceRoll) error {
+	if strings.TrimSpace(u.content) != "" || len(diceRolls) > 0 {
+		return nil
+	}
+	if len(u.removedDice) > 0 {
+		return ErrUtteranceOnlyDiceLine
+	}
+	return ErrUtteranceOnlyDirective
 }
 
 // splitAddresseeDirective removes the directive when it ends the utterance, and
