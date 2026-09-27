@@ -16,7 +16,7 @@ import {
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { useConfirm } from "../components/ConfirmDialog";
-import { Dialog, DialogTitle } from "../components/Dialog";
+import { Dialog, DialogActions, DialogBody, DialogForm, DialogHeader, DialogTitle } from "../components/Dialog";
 import { FailureNotice } from "../components/FailureNotice";
 import { DropZoneProgress, FileDropZone } from "../components/FileDropZone";
 import {
@@ -868,15 +868,8 @@ export function ProjectDetailPage() {
 
       {selectedDocument ? (
         <Dialog onClose={() => void closeSelectedDocument()}>
-          <Stack>
-            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <DialogTitle>{selectedDocument.title}</DialogTitle>
-                <Subtle>
-                  {selectedDocument.type} · {t(`category.${selectedDocument.category}`)}
-                  {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
-                </Subtle>
-              </div>
+          <DialogHeader
+            actions={
               <ActionButton
                 type="button"
                 variant="normal"
@@ -885,7 +878,17 @@ export function ProjectDetailPage() {
               >
                 {t("common.close")}
               </ActionButton>
-            </Row>
+            }
+          >
+            <DialogTitle>{selectedDocument.title}</DialogTitle>
+            <Subtle>
+              {selectedDocument.type} · {t(`category.${selectedDocument.category}`)}
+              {selectedDocument.sharedWithAll ? ` · ${t("project.sharedWithAll")}` : ""}
+            </Subtle>
+          </DialogHeader>
+          {/* No footer: the category, the sharing and the image editor each save on
+              their own, so each keeps its button inside its own part of the body. */}
+          <DialogBody>
 
             {errors.document ? <FailureNotice>{errors.document}</FailureNotice> : null}
 
@@ -987,15 +990,14 @@ export function ProjectDetailPage() {
                 </div>
               ) : null}
             </Card>
-          </Stack>
+          </DialogBody>
         </Dialog>
       ) : null}
 
       {isTitleModalOpen ? (
         <Dialog onClose={() => void closeTitleModal()}>
-          <Stack>
-            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <DialogTitle>{t("project.editTitleModal")}</DialogTitle>
+          <DialogHeader
+            actions={
               <ActionButton
                 type="button"
                 variant="normal"
@@ -1004,40 +1006,40 @@ export function ProjectDetailPage() {
               >
                 {t("common.close")}
               </ActionButton>
-            </Row>
-            <Card as="form" onSubmit={handleUpdateProjectTitle}>
-              <Stack>
-                <Field>
-                  {t("project.titleField")}
-                  <Input
-                    value={titleDraft}
-                    onChange={(event) => setTitleDraft(event.target.value)}
-                    placeholder={t("project.titlePlaceholder")}
-                  />
-                </Field>
-                {errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}
-                <Row style={{ justifyContent: "flex-end" }}>
-                  <ActionButton
-                    type="submit"
-                    icon={<CheckIcon />}
-                    busy={isPending("title")}
-                    title={isPending("title") ? t("project.saving") : undefined}
-                    disabledReason={titleDraft.trim() ? undefined : t("project.titleRequired")}
-                  >
-                    {t("project.saveTitle")}
-                  </ActionButton>
-                </Row>
-              </Stack>
-            </Card>
-          </Stack>
+            }
+          >
+            <DialogTitle>{t("project.editTitleModal")}</DialogTitle>
+          </DialogHeader>
+          <DialogForm onSubmit={handleUpdateProjectTitle}>
+            <DialogBody>
+              <Field>
+                {t("project.titleField")}
+                <Input
+                  value={titleDraft}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  placeholder={t("project.titlePlaceholder")}
+                />
+              </Field>
+            </DialogBody>
+            <DialogActions notice={errors.title ? <FailureNotice>{errors.title}</FailureNotice> : null}>
+              <ActionButton
+                type="submit"
+                icon={<CheckIcon />}
+                busy={isPending("title")}
+                title={isPending("title") ? t("project.saving") : undefined}
+                disabledReason={titleDraft.trim() ? undefined : t("project.titleRequired")}
+              >
+                {t("project.saveTitle")}
+              </ActionButton>
+            </DialogActions>
+          </DialogForm>
         </Dialog>
       ) : null}
 
       {isSystemPromptModalOpen ? (
         <Dialog onClose={() => void closeSystemPromptModal()}>
-          <Stack>
-            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <DialogTitle>{t("project.editSystemPromptModal")}</DialogTitle>
+          <DialogHeader
+            actions={
               <ActionButton
                 type="button"
                 variant="normal"
@@ -1046,31 +1048,32 @@ export function ProjectDetailPage() {
               >
                 {t("common.close")}
               </ActionButton>
-            </Row>
-            <Card as="form" onSubmit={handleUpdateProjectSystemPrompt}>
-              <Stack>
-                <Field>
-                  {t("project.systemPromptField")}
-                  <Textarea
-                    value={systemPromptDraft}
-                    onChange={(event) => setSystemPromptDraft(event.target.value)}
-                    placeholder={t("project.systemPromptPlaceholder")}
-                  />
-                </Field>
-                {errors.systemPrompt ? <FailureNotice>{errors.systemPrompt}</FailureNotice> : null}
-                <Row style={{ justifyContent: "flex-end" }}>
-                  <ActionButton
-                    type="submit"
-                    icon={<CheckIcon />}
-                    busy={isPending("systemPrompt")}
-                    title={isPending("systemPrompt") ? t("project.saving") : undefined}
-                  >
-                    {t("project.saveSystemPrompt")}
-                  </ActionButton>
-                </Row>
-              </Stack>
-            </Card>
-          </Stack>
+            }
+          >
+            <DialogTitle>{t("project.editSystemPromptModal")}</DialogTitle>
+          </DialogHeader>
+          <DialogForm onSubmit={handleUpdateProjectSystemPrompt}>
+            <DialogBody>
+              <Field>
+                {t("project.systemPromptField")}
+                <Textarea
+                  value={systemPromptDraft}
+                  onChange={(event) => setSystemPromptDraft(event.target.value)}
+                  placeholder={t("project.systemPromptPlaceholder")}
+                />
+              </Field>
+            </DialogBody>
+            <DialogActions notice={errors.systemPrompt ? <FailureNotice>{errors.systemPrompt}</FailureNotice> : null}>
+              <ActionButton
+                type="submit"
+                icon={<CheckIcon />}
+                busy={isPending("systemPrompt")}
+                title={isPending("systemPrompt") ? t("project.saving") : undefined}
+              >
+                {t("project.saveSystemPrompt")}
+              </ActionButton>
+            </DialogActions>
+          </DialogForm>
         </Dialog>
       ) : null}
 
@@ -1090,10 +1093,9 @@ export function ProjectDetailPage() {
           closing loses nothing and asks nothing (doc-9 §5.7). */}
       {isMemoryModalOpen ? (
         <Dialog onClose={closeMemoryModal}>
-          <Stack>
-            <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
-              <DialogTitle>{t("project.projectMemories")}</DialogTitle>
-              <Row style={{ alignItems: "center", flexWrap: "nowrap" }}>
+          <DialogHeader
+            actions={
+              <>
                 <ActionButton
                   ref={organizeRef}
                   type="button"
@@ -1108,8 +1110,14 @@ export function ProjectDetailPage() {
                 <ActionButton type="button" variant="normal" onClick={closeMemoryModal}>
                   {t("common.close")}
                 </ActionButton>
-              </Row>
-            </Row>
+              </>
+            }
+          >
+            <DialogTitle>{t("project.projectMemories")}</DialogTitle>
+          </DialogHeader>
+          {/* No footer: organizing, applying a plan, adding a memory and the per-memory
+              buttons are separate actions, each placed with what it acts on. */}
+          <DialogBody>
 
             {errors.memoryPlan ? <FailureNotice>{errors.memoryPlan}</FailureNotice> : null}
 
@@ -1255,7 +1263,7 @@ export function ProjectDetailPage() {
                 </Card>
               ))}
             </Grid>
-          </Stack>
+          </DialogBody>
         </Dialog>
       ) : null}
     </>
