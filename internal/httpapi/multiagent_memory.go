@@ -13,6 +13,7 @@ import (
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
+	"snzstudio/internal/service/commands"
 )
 
 // memorySourceMultiAgent is the memories.source value of a memory saved from a
@@ -21,9 +22,11 @@ import (
 const memorySourceMultiAgent = "multi_agent"
 
 // handleGetMessageMemoryDraft returns what the save dialog opens with: the
-// utterance as written and the kind the extraction rules would have given it.
-// The kind is inferred here rather than in the browser so the cue table has one
-// home.
+// utterance as written, its rolls, and the kind the extraction rules would have
+// given it. The kind is inferred here rather than in the browser so the cue
+// table has one home, and from the body alone: a roll's action text could trip
+// a cue, and a roll-only message then falls to episodic, which is what a record
+// of a throw is.
 func (s *Server) handleGetMessageMemoryDraft(w http.ResponseWriter, r *http.Request) {
 	message, _, ok := s.requireMemorySaveableMessage(w, r.PathValue("messageId"))
 	if !ok {
@@ -31,10 +34,29 @@ func (s *Server) handleGetMessageMemoryDraft(w http.ResponseWriter, r *http.Requ
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"draft": map[string]string{
-			"content": message.Content,
+			"content": memoryDraftContent(message),
 			"kind":    service.InferMemoryKind(message.Content),
 		},
 	})
+}
+
+// memoryDraftContent is the body, then one line per roll as the markdown export
+// writes it (design §4.4). The rolls are what a roll-only message said, so the
+// body alone would open that draft empty. They are spelled with 🎲 rather than
+// as the prompt's 【ダイス】 line: a memory reaches every conversation in the
+// project, and in one where /roll is enabled a 【ダイス】 line in the material
+// would read as a roll the app just threw. Recorded rolls are included whether
+// or not /roll is still enabled, as the chip and the prompt keep them.
+func memoryDraftContent(message *model.Message) string {
+	body := strings.TrimSpace(message.Content)
+	if len(message.DiceRolls) == 0 {
+		return body
+	}
+	rolls := make([]string, len(message.DiceRolls))
+	for i, r := range message.DiceRolls {
+		rolls[i] = "🎲 " + commands.DiceRollLine(r)
+	}
+	return strings.TrimSpace(body + "\n\n" + strings.Join(rolls, "\n"))
 }
 
 // handleSaveMessageMemory stores the edited draft as a project memory. It goes

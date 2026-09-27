@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"snzstudio/internal/model"
+	"snzstudio/internal/service/commands"
 )
 
 type listedMemory struct {
@@ -105,6 +108,65 @@ func TestMultiAgentSaveMessageMemory(t *testing.T) {
 		if memory.Source != "multi_agent" {
 			t.Fatalf("listed memory %+v, want source multi_agent", memory)
 		}
+	}
+}
+
+// TestMultiAgentMessageMemoryDraftRolls covers TASK-64 AC #1 and #2: the draft
+// carries the message's rolls after its body, one 🎲 line each as the markdown
+// export writes them, so a roll-only message no longer opens an empty draft.
+// The kind stays inferred from the body alone — both actions below carry a
+// procedural cue that must not decide it — and a recorded roll stays in the
+// draft after /roll is disabled, as it stays on the chip.
+func TestMultiAgentMessageMemoryDraftRolls(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Memory Roll Project")
+	chatID := createMultiAgentChat(t, h, projectID, "")
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"commands": map[string]any{"roll": map[string]any{"target": 12}}}), http.StatusOK)
+
+	postRoll := func(content string) (string, model.DiceRoll) {
+		t.Helper()
+		rec := doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": content})
+		wantStatus(t, rec, http.StatusCreated)
+		var message struct {
+			ID        string           `json:"id"`
+			DiceRolls []model.DiceRoll `json:"diceRolls"`
+		}
+		unmarshalField(t, decodeJSONMap(t, rec), "message", &message)
+		if len(message.DiceRolls) != 1 {
+			t.Fatalf("%q stored rolls %+v, want one", content, message.DiceRolls)
+		}
+		return message.ID, message.DiceRolls[0]
+	}
+	getDraft := func(messageID string) (content, kind string) {
+		t.Helper()
+		rec := doJSON(t, h, "GET", "/api/messages/"+messageID+"/memory-draft", nil)
+		wantStatus(t, rec, http.StatusOK)
+		var draft struct {
+			Content string `json:"content"`
+			Kind    string `json:"kind"`
+		}
+		unmarshalField(t, decodeJSONMap(t, rec), "draft", &draft)
+		return draft.Content, draft.Kind
+	}
+
+	rollOnlyID, roll := postRoll("/roll 2d6 目標7 毎回の成功判定")
+	wantRollOnly := "🎲 " + commands.DiceRollLine(roll)
+	if !strings.Contains(wantRollOnly, "毎回の成功判定 — 2d6 → ") || !strings.Contains(wantRollOnly, "（目標 7、") {
+		t.Fatalf("roll line = %q, want the action, the expression and the target", wantRollOnly)
+	}
+	if content, kind := getDraft(rollOnlyID); content != wantRollOnly || kind != "episodic" {
+		t.Fatalf("roll-only draft = %q (%s), want %q under the default episodic kind", content, kind, wantRollOnly)
+	}
+
+	withBodyID, roll := postRoll("このプロジェクトは Go で構成します。\n/roll 1d20+3 必ず跳ぶ")
+	wantWithBody := "このプロジェクトは Go で構成します。\n\n🎲 " + commands.DiceRollLine(roll)
+	if content, kind := getDraft(withBodyID); content != wantWithBody || kind != "semantic" {
+		t.Fatalf("draft = %q (%s), want %q under the body's semantic kind", content, kind, wantWithBody)
+	}
+
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"commands": map[string]any{}}), http.StatusOK)
+	if content, _ := getDraft(rollOnlyID); content != wantRollOnly {
+		t.Fatalf("draft after disabling /roll = %q, want the recorded roll kept", content)
 	}
 }
 
