@@ -688,7 +688,7 @@ export function MultiAgentChatPage() {
   const rollAction = t("multiAgent.rollAction");
   const rollCandidates = [
     `${ROLL_KEYWORD} 1d20+0 ${rollAction}`,
-    `${ROLL_KEYWORD} 1d20+0 目標${state.chat.diceTarget || 12} ${rollAction}`
+    `${ROLL_KEYWORD} 1d20+0 ${t("multiAgent.rollTargetKeyword")}${state.chat.diceTarget || 12} ${rollAction}`
   ];
   const speakerText = shownNext
     ? t("multiAgent.speakerNext", { name: shownNext.displayName })

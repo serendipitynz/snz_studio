@@ -52,6 +52,13 @@ func TestParseRollCommand(t *testing.T) {
 		{"/roll 1d20 目標 15 跳ぶ", rollCommand{line: "/roll 1d20 目標 15 跳ぶ", expression: "1d20", count: 1, sides: 20, target: 15, action: "跳ぶ"}},
 		{"/roll 1d20+0 見張る", rollCommand{line: "/roll 1d20+0 見張る", expression: "1d20+0", count: 1, sides: 20, action: "見張る"}},
 		{"/roll 20d100+999", rollCommand{line: "/roll 20d100+999", expression: "20d100+999", count: 20, sides: 100, modifier: 999}},
+		// English tables write target; a target of 0 or なし compares nothing.
+		{"/roll 1d20 target15 jump", rollCommand{line: "/roll 1d20 target15 jump", expression: "1d20", count: 1, sides: 20, target: 15, action: "jump"}},
+		{"/roll 1d20 Target: 15 jump", rollCommand{line: "/roll 1d20 Target: 15 jump", expression: "1d20", count: 1, sides: 20, target: 15, action: "jump"}},
+		{"/roll 1d20 targeted strike", rollCommand{line: "/roll 1d20 targeted strike", expression: "1d20", count: 1, sides: 20, action: "targeted strike"}},
+		{"/roll 2d6 目標なし 丁半", rollCommand{line: "/roll 2d6 目標なし 丁半", expression: "2d6", count: 2, sides: 6, noTarget: true, action: "丁半"}},
+		{"/roll 2d6 目標0", rollCommand{line: "/roll 2d6 目標0", expression: "2d6", count: 2, sides: 6, noTarget: true}},
+		{"/roll 2d6 target 0 initiative", rollCommand{line: "/roll 2d6 target 0 initiative", expression: "2d6", count: 2, sides: 6, noTarget: true, action: "initiative"}},
 	}
 	for _, tc := range valid {
 		got, err := parseRollCommand(tc.line)
@@ -73,13 +80,14 @@ func TestParseRollCommand(t *testing.T) {
 		"/roll 1d1",
 		"/roll 1d101",
 		"/roll 1d20+1000",
-		"/roll 1d20 目標0",
 		"/roll 1d20 目標10000",
 		"/roll 1d20 目標",
 		"/roll 1d20 目標 高い",
 		"/roll 1d20 目標12.5 跳ぶ",
 		"/roll 1d20 目標-1 跳ぶ",
 		"/roll 1d20 目標abc 跳ぶ",
+		"/roll 1d20 target12.5 jump",
+		"/roll 1d20 target: high",
 		"/roll 岩棚を渡る",
 	}
 	for _, line := range invalid {
@@ -122,6 +130,10 @@ func TestRollCommandRoll(t *testing.T) {
 	}
 	if r := plain.roll(fixed(3, 5), 0); r.Target != 0 || r.Success != nil {
 		t.Fatalf("roll = %+v, want the total alone with no target", r)
+	}
+	none, _ := parseRollCommand("/roll 2d6 目標なし 丁半")
+	if r := none.roll(fixed(3, 5), 12); r.Target != 0 || r.Success != nil || r.Total != 8 {
+		t.Fatalf("roll = %+v, want 目標なし to record the total alone over the default 12", r)
 	}
 
 	for i := 0; i < 200; i++ {

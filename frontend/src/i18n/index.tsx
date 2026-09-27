@@ -417,10 +417,11 @@ const en = {
   "multiAgent.diceFailure": "failure",
   "multiAgent.commandSuggestions": "Command suggestions",
   "multiAgent.rollAction": "action",
-  "multiAgent.rollFormat": "/roll <dice> [目標<number>] [action] — dice as NdM, NdM+K or NdM-K (N 1–20, M 2–100). The app rolls them; write it on the last line.",
+  "multiAgent.rollTargetKeyword": "target",
+  "multiAgent.rollFormat": "/roll <dice> [target<number>] [action] — dice as NdM, NdM+K or NdM-K (N 1–20, M 2–100); target0 compares nothing. The app rolls them; write it on the last line.",
   // Appended straight after multiAgent.rollFormat, so the separating space is
   // part of the English sentence and absent from the Japanese one.
-  "multiAgent.rollFormatDefault": " Without 目標, the total is compared with the default target {target}.",
+  "multiAgent.rollFormatDefault": " Without a target, the total is compared with the default target {target}.",
   "multiAgent.saveMemory": "Save to memory",
   "multiAgent.saveMemoryTitle": "Save this message as a project memory",
   "multiAgent.saveMemoryFrom": "From: {name}",
@@ -484,7 +485,7 @@ const en = {
   "participants.facilitatorWeightedNote": "The facilitator is not held back for having spoken recently, so it comes back between the others. Without one, everyone is weighed alike.",
   "participants.diceTarget": "Default dice target",
   "participants.diceTargetHint":
-    "The number a /roll without 目標 is compared with: a total at or above it succeeds. 0 compares nothing and records the total alone. Takes effect from the next /roll.",
+    "The number a /roll without a target (target or 目標) is compared with: a total at or above it succeeds. 0 compares nothing and records the total alone, as target0 does for one roll. Takes effect from the next /roll.",
   "participants.diceTargetInvalid": "Enter a whole number from 0 to {max}.",
   "participants.scenePrompt": "Scene",
   "participants.scenePromptPlaceholder": "Topic, scene or world shared by every participant",
@@ -933,7 +934,8 @@ const ja: Record<MessageKey, string> = {
   "multiAgent.diceFailure": "失敗",
   "multiAgent.commandSuggestions": "コマンドの候補",
   "multiAgent.rollAction": "行動",
-  "multiAgent.rollFormat": "/roll <式> [目標<整数>] [行動] — 式は NdM・NdM+K・NdM-K（N は 1〜20、M は 2〜100）。出目はアプリが振ります。最後の行に書いてください。",
+  "multiAgent.rollTargetKeyword": "目標",
+  "multiAgent.rollFormat": "/roll <式> [目標<整数>] [行動] — 式は NdM・NdM+K・NdM-K（N は 1〜20、M は 2〜100）。目標なし（目標0）なら比べません。出目はアプリが振ります。最後の行に書いてください。",
   "multiAgent.rollFormatDefault": "目標を省くと、合計を既定の目標値 {target} と比べます。",
   "multiAgent.saveMemory": "メモリに保存",
   "multiAgent.saveMemoryTitle": "この発言をプロジェクトのメモリに保存",
@@ -995,7 +997,7 @@ const ja: Record<MessageKey, string> = {
   "participants.facilitatorWeightedNote": "進行役は直近に話したことで順番を下げられないので、他の参加者の合間に戻ってきます。未選択なら全員を同じに扱います。",
   "participants.diceTarget": "既定の目標値",
   "participants.diceTargetHint":
-    "目標を書かない /roll の合計と比べる値です。合計がこの値以上なら成功になります。0 なら比べずに合計だけを記録します。次の /roll から反映されます。",
+    "目標を書かない /roll の合計と比べる値です。合計がこの値以上なら成功になります。0 なら比べずに合計だけを記録します（1 回だけ比べないときは /roll に「目標なし」と書きます）。次の /roll から反映されます。",
   "participants.diceTargetInvalid": "0 から {max} までの整数を入れてください。",
   "participants.scenePrompt": "場面設定",
   "participants.scenePromptPlaceholder": "全参加者に共通する論題・シーン・世界観",

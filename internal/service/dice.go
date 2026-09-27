@@ -36,8 +36,16 @@ const (
 // forms, as the addressee directive reads full-width brackets.
 var rollExpression = regexp.MustCompile(`^(\d+)[dD](\d+)(?:([+\-−－＋])(\d+))?$`)
 
-// rollTarget is 目標N written as one field, with an optional colon.
-var rollTarget = regexp.MustCompile(`^目標[:：]?(\d*)$`)
+// rollTarget is the target field: 目標N, or targetN for a table that plays in
+// English, with an optional colon; 目標なし or 0 asks for no comparison.
+var rollTarget = regexp.MustCompile(`^(?i:目標|target)[:：]?(\d*|なし)$`)
+
+// rollTargetField tells a field meant as the target from the action. Any field
+// starting with 目標 is the target, so a malformed one is refused rather than
+// rolled against the default. "target" is an English word an action can start
+// with ("targeted strike"), so it counts only alone or followed by a colon or
+// a digit.
+var rollTargetField = regexp.MustCompile(`^(?:目標|(?i:target)(?:$|[:：\d０-９]))`)
 
 // rollCommand is a /roll read from an utterance, before the dice are thrown.
 type rollCommand struct {
@@ -46,7 +54,8 @@ type rollCommand struct {
 	count      int
 	sides      int
 	modifier   int
-	target     int // 0 when the command names none
+	target     int  // 0 when the command names none
+	noTarget   bool // 目標なし / 目標0: compare nothing, whatever the default
 	action     string
 }
 
@@ -113,30 +122,38 @@ func parseRollCommand(line string) (*rollCommand, error) {
 		return nil, err
 	}
 
-	// A field starting with 目標 is the target, and one that does not read as a
-	// whole number is refused rather than taken for the action: "目標12.5" would
-	// otherwise roll against the default target, which is not what was written.
+	// A target field that does not read as a whole number is refused rather
+	// than taken for the action: "目標12.5" would otherwise roll against the
+	// default target, which is not what was written.
 	field, afterField := nextField(rest)
-	if strings.HasPrefix(field, "目標") {
+	if rollTargetField.MatchString(field) {
 		m := rollTarget.FindStringSubmatch(asciiDigits(field))
 		if m == nil {
-			return nil, fmt.Errorf("%w: 目標 takes a whole number from 1 to %d", ErrInvalidRollCommand, model.DiceTargetMax)
+			return nil, errRollTarget()
 		}
-		digits := m[1]
-		if digits == "" {
+		value := m[1]
+		if value == "" {
 			// 目標 12, with the number as the next field.
-			digits, afterField = nextField(afterField)
-			digits = asciiDigits(digits)
+			value, afterField = nextField(afterField)
+			value = asciiDigits(value)
 		}
-		target, err := strconv.Atoi(digits)
-		if err != nil || target < 1 || target > model.DiceTargetMax {
-			return nil, fmt.Errorf("%w: 目標 takes a whole number from 1 to %d", ErrInvalidRollCommand, model.DiceTargetMax)
+		if value == "なし" || value == "0" {
+			cmd.noTarget = true
+		} else {
+			target, err := strconv.Atoi(value)
+			if err != nil || target < 1 || target > model.DiceTargetMax {
+				return nil, errRollTarget()
+			}
+			cmd.target = target
 		}
-		cmd.target = target
 		rest = afterField
 	}
 	cmd.action = strings.TrimSpace(rest)
 	return cmd, nil
+}
+
+func errRollTarget() error {
+	return fmt.Errorf("%w: 目標 (target) takes a whole number from 1 to %d, or 0 / なし for no comparison", ErrInvalidRollCommand, model.DiceTargetMax)
 }
 
 func (c *rollCommand) readExpression(expression string) error {
@@ -171,7 +188,9 @@ func (c *rollCommand) readExpression(expression string) error {
 
 // roll throws the command's dice. A command without a target of its own is
 // compared against the chat's default, and with neither only the total is
-// recorded (design §4.8.3 item 4).
+// recorded (design §4.8.3 item 4). 目標なし records the total alone even when
+// the chat has a default: a roll whose dice matter rather than a pass or a fail
+// (who goes first, 丁半 read off the total) would otherwise be marked a failure.
 func (c *rollCommand) roll(rollDie func(sides int) int, defaultTarget int) model.DiceRoll {
 	record := model.DiceRoll{
 		Command:    c.line,
@@ -186,7 +205,7 @@ func (c *rollCommand) roll(rollDie func(sides int) int, defaultTarget int) model
 		record.Dice[i] = rollDie(c.sides)
 		record.Total += record.Dice[i]
 	}
-	if record.Target == 0 {
+	if record.Target == 0 && !c.noTarget {
 		record.Target = defaultTarget
 	}
 	if record.Target > 0 {

@@ -106,10 +106,11 @@ A multi-agent conversation has:
   roster names found in the message's last sentence. Your own interventions are matched the same
   way, so "Alice, go on" reaches Alice under `weighted`
 - dice: a `/roll <dice> [目標<n>] [action]` on the last line of a message — a participant's or
-  yours — is rolled by the app when the message is stored (`NdM`, `NdM+K`, `NdM-K`; N 1–20, M 2–100).
-  The command line leaves the stored text and the roll is recorded with the message: the dice, the
-  total, and success when the total reaches the target (the command's `目標n`, else the
-  conversation's default target; with neither, the total alone). A roll is part of the message that
+  yours — is rolled by the app when the message is stored (`NdM`, `NdM+K`, `NdM-K`; N 1–20, M 2–100;
+  `target<n>` is accepted for `目標<n>`). The command line leaves the stored text and the roll is
+  recorded with the message: the dice, the total, and success when the total reaches the target
+  (the command's `目標n`, else the conversation's default target; with neither, or with `目標なし` /
+  `目標0`, the total alone). A roll is part of the message that
   wrote it, not a message of its own, so no turn rule picks differently for it. A `/roll` that cannot
   be read stays in a participant's text and is refused (400) in yours. Where there is also a trailing
   `[次: name]`, the directive is removed first, then the command, and only then are names matched
