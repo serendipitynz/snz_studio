@@ -90,8 +90,8 @@ var diceMarkerResult = regexp.MustCompile(`→|->|⇒|=|＝`)
 
 // splitDiceMarkerCommand reads a result-free 【ダイス】 on the last line as a
 // /roll the speaker meant to write (TASK-63): a player that copied the mapping's
-// shape declared a roll as much as one that wrote the command. The mapping's own
-// order, action first and the dice after "—", is read too. It returns what
+// shape declared a roll as much as one that wrote the command. Across a "—" the
+// dice may stand on either side: the mapping's own order puts the action first. It returns what
 // splitRollCommand does, and found is false both when there is no such marker
 // and when what follows it does not read as a /roll: that line is then removed
 // by stripDiceMarkers like any other, rather than kept as text, because it is
@@ -109,11 +109,18 @@ func splitDiceMarkerCommand(content string) (stripped string, found bool, cmd *r
 	if diceMarkerResult.MatchString(args) {
 		return content, false, nil
 	}
-	if action, dice, ok := strings.Cut(args, "—"); ok {
-		args = strings.TrimSpace(dice) + " " + strings.TrimSpace(action)
+	candidates := []string{args}
+	if before, after, ok := strings.Cut(args, "—"); ok {
+		before, after = strings.TrimSpace(before), strings.TrimSpace(after)
+		candidates = []string{after + " " + before, before + " " + after}
 	}
-	cmd, err := parseRollCommand(rollKeyword + " " + args)
-	if err != nil {
+	for _, candidate := range candidates {
+		if parsed, err := parseRollCommand(rollKeyword + " " + candidate); err == nil {
+			cmd = parsed
+			break
+		}
+	}
+	if cmd == nil {
 		return content, false, nil
 	}
 	cmd.line = written

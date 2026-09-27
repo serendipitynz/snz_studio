@@ -496,12 +496,12 @@ func (s *Server) applyPresetToChat(chatID string, p *preset.MultiAgentPreset) (*
 }
 
 // interventionErrorResponse maps a refused intervention to its status. A /roll
-// that cannot be read and a message left empty once its directive is removed
-// are both the request's own fault, and answering 400 keeps the text in the
+// that cannot be read and a message left empty once its directive or its
+// 【ダイス】 lines are removed are all the request's own fault, and answering 400 keeps the text in the
 // composer where it can be corrected (design §4.8.3 item 2).
 func interventionErrorResponse(err error) (int, string) {
 	switch {
-	case errors.Is(err, service.ErrInvalidRollCommand), errors.Is(err, service.ErrUtteranceOnlyDirective):
+	case errors.Is(err, service.ErrInvalidRollCommand), errors.Is(err, service.ErrUtteranceOnlyDirective), errors.Is(err, service.ErrUtteranceOnlyDiceLine):
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, service.ErrChatNotFound):
 		return http.StatusNotFound, err.Error()

@@ -176,6 +176,7 @@ func TestSplitDiceMarkerCommand(t *testing.T) {
 		{"its own line", "盗賊道具で作動点を調べる。\n【ダイス】1d20+3 罠を外す", "盗賊道具で作動点を調べる。", "1d20+3", "罠を外す"},
 		{"after the body", "作動点を調べる。【ダイス】1d20+3 罠を外す", "作動点を調べる。", "1d20+3", "罠を外す"},
 		{"the mapping's order", "調べる。\n【ダイス】罠を外す — 1d20+3", "調べる。", "1d20+3", "罠を外す"},
+		{"the dice before the dash", "調べる。\n【ダイス】1d20+3 — 罠を外す", "調べる。", "1d20+3", "罠を外す"},
 		{"marker only", "【ダイス】2d6", "", "2d6", ""},
 	}
 	for _, tc := range read {

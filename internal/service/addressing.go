@@ -98,6 +98,19 @@ func prepareUtterance(content, speakerID string, roster []model.Participant) sto
 	return utterance
 }
 
+// emptyError reports an utterance with nothing to store: no body and no roll.
+// It names what emptied the body, so a turn that wrote only a forged 【ダイス】
+// line is not reported as one that wrote only a directive.
+func (u storedUtterance) emptyError(diceRolls []model.DiceRoll) error {
+	if strings.TrimSpace(u.content) != "" || len(diceRolls) > 0 {
+		return nil
+	}
+	if len(u.removedDice) > 0 {
+		return ErrUtteranceOnlyDiceLine
+	}
+	return ErrUtteranceOnlyDirective
+}
+
 // splitAddresseeDirective removes the directive when it ends the utterance, and
 // only then: a directive-shaped text anywhere else is content the model wrote,
 // and stripping it would be the one edit this function can get wrong.

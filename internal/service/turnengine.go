@@ -29,6 +29,11 @@ var (
 	// its directive is removed. A turn finds it after generation, so it reaches
 	// the caller inside an open stream; an intervention is refused with 400.
 	ErrUtteranceOnlyDirective = errors.New("service: the utterance held nothing but its addressee directive")
+	// ErrUtteranceOnlyDiceLine is the same for an utterance left empty once the
+	// 【ダイス】 lines it wrote are removed (TASK-63): storing the line would hand
+	// later speakers a result the app never rolled, and the body is otherwise
+	// empty.
+	ErrUtteranceOnlyDiceLine = errors.New("service: the utterance held nothing but 【ダイス】 lines, which only the app writes")
 )
 
 // TurnHistoryLimit caps how many past messages are mapped into a turn's prompt
@@ -301,8 +306,8 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 		log.Printf("[turn] 【ダイス】 line removed chatId=%s participantId=%s line=%q", chatID, speaker.ID, line)
 	}
 	diceRolls := e.throwDice(utterance, chat)
-	if strings.TrimSpace(utterance.content) == "" && len(diceRolls) == 0 {
-		return nil, ErrUtteranceOnlyDirective
+	if err := utterance.emptyError(diceRolls); err != nil {
+		return nil, err
 	}
 
 	// The message is written once, after the stream completes, rather than being
@@ -339,7 +344,8 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 // never reaches A under the weighted rule. A /roll that cannot be read is
 // refused with ErrInvalidRollCommand, so the human can correct it where it was
 // typed, and a message left with nothing once its directive is removed with
-// ErrUtteranceOnlyDirective.
+// ErrUtteranceOnlyDirective (ErrUtteranceOnlyDiceLine when what emptied it was a
+// 【ダイス】 line).
 //
 // It takes the chat's message-write lock, which is what keeps it from landing
 // inside a preset apply that has already found the conversation empty; a turn
@@ -363,9 +369,12 @@ func (e *TurnEngine) StoreHumanMessage(chatID, content string) (*model.Message, 
 		if utterance.rollErr != nil {
 			return utterance.rollErr
 		}
+		for _, line := range utterance.removedDice {
+			log.Printf("[turn] 【ダイス】 line removed chatId=%s from=human line=%q", chatID, line)
+		}
 		diceRolls := e.throwDice(utterance, chat)
-		if strings.TrimSpace(utterance.content) == "" && len(diceRolls) == 0 {
-			return ErrUtteranceOnlyDirective
+		if err := utterance.emptyError(diceRolls); err != nil {
+			return err
 		}
 		message, err = e.chats.AddMessage(repository.AddMessageInput{
 			ChatID:  chatID,
