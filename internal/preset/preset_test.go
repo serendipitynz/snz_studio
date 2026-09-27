@@ -247,7 +247,7 @@ func TestPresetDiceTarget(t *testing.T) {
 	if trpg.DiceTarget != 12 {
 		t.Errorf("trpg-table diceTarget = %d, want 12", trpg.DiceTarget)
 	}
-	if !strings.Contains(trpg.ScenePrompt, "/roll 1d20+修正 行動") || strings.Contains(trpg.ScenePrompt, "ダイスは使いません") {
+	if !strings.Contains(trpg.ScenePrompt, "/roll 1d20+修正 行動の要約") || strings.Contains(trpg.ScenePrompt, "ダイスは使いません") {
 		t.Errorf("trpg-table scene does not carry the /roll rule:\n%s", trpg.ScenePrompt)
 	}
 }
