@@ -6,11 +6,6 @@ import (
 	"snzstudio/internal/model"
 )
 
-// untitledChatTitle stands in for an empty chat title, which a preset cannot
-// carry. It is the markdown export's heading for the same case, so both files
-// exported from one chat name it alike.
-const untitledChatTitle = "無題のチャット"
-
 // FromChat builds the preset that recreates the chat's current line-up: its
 // settings, its state sheets and its roster in roster order, endpoints and
 // models included (TASK-62). roster must be the chat's current roster
@@ -24,8 +19,9 @@ const untitledChatTitle = "無題のチャット"
 // being exported as a file that would then fail to load.
 func FromChat(chat *model.Chat, roster []model.Participant) (*MultiAgentPreset, error) {
 	title := strings.TrimSpace(chat.Title)
+	// A preset cannot carry an empty title (Validate refuses one).
 	if title == "" {
-		title = untitledChatTitle
+		title = model.UntitledChatTitle
 	}
 	commands := chat.Commands
 	if commands.Roll != nil {
