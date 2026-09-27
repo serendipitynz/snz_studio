@@ -16,6 +16,7 @@ import (
 	"snzstudio/internal/config"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
+	"snzstudio/internal/service/commands"
 )
 
 // capturedRequest is the part of a /chat/completions body the prompt-mapping
@@ -1184,7 +1185,7 @@ func TestStoreHumanMessageRolls(t *testing.T) {
 		t.Fatalf("rolls = %+v, want 13 against the command's 15, failed", message.DiceRolls)
 	}
 
-	if _, err := g.engine.StoreHumanMessage(chat.ID, "/roll d20 崖を登る"); !errors.Is(err, ErrInvalidRollCommand) {
+	if _, err := g.engine.StoreHumanMessage(chat.ID, "/roll d20 崖を登る"); !errors.Is(err, commands.ErrInvalidRollCommand) {
 		t.Fatalf("StoreHumanMessage = %v, want ErrInvalidRollCommand", err)
 	}
 	if _, err := g.engine.StoreHumanMessage(chat.ID, "[次: レン]"); !errors.Is(err, ErrUtteranceOnlyDirective) {

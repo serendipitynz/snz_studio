@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"snzstudio/internal/model"
+	"snzstudio/internal/service/commands"
 )
 
 // addresseeDirective is what a participant is asked to write on the last line
@@ -42,7 +43,7 @@ const minMatchedNameLength = 2
 type storedUtterance struct {
 	content    string
 	addressees []string
-	roll       *rollCommand
+	roll       *commands.Roll
 	// rollErr is set when the last line held a /roll that could not be read. The
 	// line then stays in content; whether that is acceptable is the caller's call
 	// (design §4.8.3 item 2).
@@ -79,22 +80,17 @@ type storedUtterance struct {
 // is removed before the name match, so its action names are no call either.
 func prepareUtterance(content, speakerID string, roster []model.Participant) storedUtterance {
 	body, names, directive := splitAddresseeDirective(content)
-	withoutCommand, found, roll, rollErr := splitRollCommand(body)
-	if !found {
-		withoutCommand, found, roll = splitDiceMarkerCommand(body)
+	extracted := commands.Extract(body)
+	utterance := storedUtterance{
+		content:     extracted.Content,
+		roll:        extracted.Roll,
+		rollErr:     extracted.RollErr,
+		removedDice: extracted.RemovedDice,
 	}
-	withoutCommand, removed := stripDiceMarkers(withoutCommand)
-	utterance := storedUtterance{content: withoutCommand, roll: roll, rollErr: rollErr, removedDice: removed}
-	if found && rollErr != nil {
-		utterance.content, _ = stripDiceMarkers(body)
-	}
-	// A /roll kept as text is still no call: its action names are not addressed
-	// to anyone, whether or not the arguments could be read. The same goes for a
-	// 【ダイス】 line kept because its dice could not be read.
 	if directive {
 		utterance.addressees = resolveDirectiveNames(names, speakerID, roster)
 	} else {
-		utterance.addressees = matchNamesInLastSentence(withoutTrailingDiceMarkerLine(withoutCommand), speakerID, roster)
+		utterance.addressees = matchNamesInLastSentence(extracted.CallText, speakerID, roster)
 	}
 	return utterance
 }

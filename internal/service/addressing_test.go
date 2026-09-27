@@ -6,7 +6,14 @@ import (
 	"testing"
 
 	"snzstudio/internal/model"
+	"snzstudio/internal/service/commands"
 )
+
+// thrown is the utterance's roll thrown with every die a 1, so a test can read
+// what was parsed through the record the chip shows.
+func thrown(u storedUtterance) model.DiceRoll {
+	return u.roll.Throw(func(int) int { return 1 }, 0)
+}
 
 func addressingRoster() []model.Participant {
 	return []model.Participant{
@@ -128,16 +135,16 @@ func TestPrepareUtteranceOrder(t *testing.T) {
 		if u.rollErr != nil || u.roll == nil {
 			t.Fatalf("%s: roll = %v, %v, want %s read", tc.name, u.roll, u.rollErr, tc.wantRoll)
 		}
-		if u.content != tc.wantBody || !reflect.DeepEqual(u.addressees, tc.want) || u.roll.expression != tc.wantRoll {
-			t.Errorf("%s: prepareUtterance = (%q, %v, %s), want (%q, %v, %s)", tc.name, u.content, u.addressees, u.roll.expression, tc.wantBody, tc.want, tc.wantRoll)
+		if u.content != tc.wantBody || !reflect.DeepEqual(u.addressees, tc.want) || thrown(u).Expression != tc.wantRoll {
+			t.Errorf("%s: prepareUtterance = (%q, %v, %s), want (%q, %v, %s)", tc.name, u.content, u.addressees, thrown(u).Expression, tc.wantBody, tc.want, tc.wantRoll)
 		}
 	}
 
 	// A /roll that cannot be read stays in the body, and its action names are
 	// still no call.
 	u := prepareUtterance("跳ぶ。\n/roll d20 ミラを庇う", "ren", addressingRoster())
-	if !errors.Is(u.rollErr, ErrInvalidRollCommand) || u.roll != nil {
-		t.Fatalf("unreadable roll = %v, %v, want ErrInvalidRollCommand", u.roll, u.rollErr)
+	if !errors.Is(u.rollErr, commands.ErrInvalidRollCommand) || u.roll != nil {
+		t.Fatalf("unreadable roll = %v, %v, want commands.ErrInvalidRollCommand", u.roll, u.rollErr)
 	}
 	if u.content != "跳ぶ。\n/roll d20 ミラを庇う" || !reflect.DeepEqual(u.addressees, []string{}) {
 		t.Errorf("unreadable roll kept (%q, %v), want the line kept and no call", u.content, u.addressees)
@@ -158,7 +165,7 @@ func TestPrepareUtteranceDiceMarkers(t *testing.T) {
 	}
 
 	typo := prepareUtterance("作動点を調べる。\n【ダイス】1d20+3 罠を外す\n[次: GM]", "ren", addressingRoster())
-	if typo.content != "作動点を調べる。" || typo.roll == nil || typo.roll.expression != "1d20+3" || len(typo.removedDice) != 0 {
+	if typo.content != "作動点を調べる。" || typo.roll == nil || thrown(typo).Expression != "1d20+3" || len(typo.removedDice) != 0 {
 		t.Errorf("typo = (%q, %+v, %q), want the marker rolled as a /roll", typo.content, typo.roll, typo.removedDice)
 	}
 	if !reflect.DeepEqual(typo.addressees, []string{"gm"}) {
@@ -166,13 +173,13 @@ func TestPrepareUtteranceDiceMarkers(t *testing.T) {
 	}
 
 	stray := prepareUtterance("壁を調べる。\n【ダイス】\n/roll 1d20+3 罠を探す", "ren", addressingRoster())
-	if stray.content != "壁を調べる。" || stray.roll == nil || stray.roll.line != "/roll 1d20+3 罠を探す" {
+	if stray.content != "壁を調べる。" || stray.roll == nil || thrown(stray).Command != "/roll 1d20+3 罠を探す" {
 		t.Errorf("stray = (%q, %+v), want the bare marker removed and the /roll rolled", stray.content, stray.roll)
 	}
 
 	// gpt-oss-20b prefixed the command with the marker in the TASK-63 measurement.
 	prefixed := prepareUtterance("罠を外す。\n【ダイス】/roll 1d20+3 罠を外す", "ren", addressingRoster())
-	if prefixed.content != "罠を外す。" || prefixed.roll == nil || prefixed.roll.line != "/roll 1d20+3 罠を外す" {
+	if prefixed.content != "罠を外す。" || prefixed.roll == nil || thrown(prefixed).Command != "/roll 1d20+3 罠を外す" {
 		t.Errorf("prefixed = (%q, %+v), want the /roll rolled and the marker before it removed", prefixed.content, prefixed.roll)
 	}
 
@@ -191,7 +198,7 @@ func TestPrepareUtteranceDiceMarkers(t *testing.T) {
 
 	// An unreadable /roll stays as text, but a forged result above it still goes.
 	kept := prepareUtterance("【ダイス】1d20 → 18\n跳ぶ。\n/roll d20 跳ぶ", "ren", addressingRoster())
-	if kept.content != "跳ぶ。\n/roll d20 跳ぶ" || !errors.Is(kept.rollErr, ErrInvalidRollCommand) {
+	if kept.content != "跳ぶ。\n/roll d20 跳ぶ" || !errors.Is(kept.rollErr, commands.ErrInvalidRollCommand) {
 		t.Errorf("kept = (%q, %v), want the /roll line kept and the forged line removed", kept.content, kept.rollErr)
 	}
 }

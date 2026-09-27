@@ -1,4 +1,4 @@
-package service
+package commands
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ import (
 // human's intervention is refused for it (400); a participant's utterance keeps
 // the line as text, because failing the turn would stop an auto-advancing
 // conversation (design §4.8.3 item 2).
-var ErrInvalidRollCommand = errors.New("service: the /roll command could not be read")
+var ErrInvalidRollCommand = errors.New("commands: the /roll command could not be read")
 
 const rollKeyword = "/roll"
 
@@ -47,8 +47,8 @@ var rollTarget = regexp.MustCompile(`^(?i:目標|target)[:：]?(\d*|なし)$`)
 // a digit.
 var rollTargetField = regexp.MustCompile(`^(?:目標|(?i:target)(?:$|[:：\d０-９]))`)
 
-// rollCommand is a /roll read from an utterance, before the dice are thrown.
-type rollCommand struct {
+// Roll is a /roll read from an utterance, before the dice are thrown.
+type Roll struct {
 	line       string
 	expression string
 	count      int
@@ -64,7 +64,7 @@ type rollCommand struct {
 // content with the command removed and whether one was there; cmd is nil and
 // err wraps ErrInvalidRollCommand when it was there but could not be read, and
 // the caller decides whether the line stays (design §4.8.3 item 2).
-func splitRollCommand(content string) (stripped string, found bool, cmd *rollCommand, err error) {
+func splitRollCommand(content string) (stripped string, found bool, cmd *Roll, err error) {
 	trimmed := strings.TrimRight(content, " \t\r\n")
 	lineStart := strings.LastIndex(trimmed, "\n") + 1
 	at := rollKeywordIndex(trimmed[lineStart:])
@@ -75,137 +75,6 @@ func splitRollCommand(content string) (stripped string, found bool, cmd *rollCom
 	stripped = strings.TrimRight(trimmed[:at], " \t\r\n　")
 	cmd, err = parseRollCommand(trimmed[at:])
 	return stripped, true, cmd, err
-}
-
-// diceMarker opens the line the prompt adds for each roll (design §4.8.3 item
-// 2). It is the app's notation: a speaker that writes one itself is either
-// forging a result or imitating the command, and the app cannot tell its own
-// record from such a line once both sit in the transcript.
-const diceMarker = "【ダイス】"
-
-// diceMarkerArrow is the mapping's "→" and the total's "=", which only a
-// written result carries.
-var diceMarkerArrow = regexp.MustCompile(`→|->|⇒|=|＝`)
-
-// diceMarkerOutcome is an outcome word. gpt-oss-20b forged "【ダイス】15 成功"
-// with no arrow or equals sign (TASK-63), but the word is also ordinary in an
-// action ("交渉を成功させる") and in a heading, so diceMarkerHasResult reads it
-// as a result only beside a number that is not a roll.
-var diceMarkerOutcome = regexp.MustCompile(`成功|失敗`)
-
-// diceLikeToken is dice written as a field, readable or not ("1d20", "d20").
-var diceLikeToken = regexp.MustCompile(`(?:^|\s)[0-9０-９]*[dDｄＤ][0-9０-９]+`)
-
-// diceMarkerHasResult reports marker arguments that carry a written result: an
-// arrow or an equals sign, or an outcome word with a number when the arguments
-// do not read as a /roll. A forged line is never rolled; a mistyped roll whose
-// action happens to say 成功 still is.
-func diceMarkerHasResult(args string) bool {
-	if diceMarkerArrow.MatchString(args) {
-		return true
-	}
-	return diceMarkerOutcome.MatchString(args) &&
-		strings.ContainsAny(asciiDigits(args), "0123456789") &&
-		readDiceMarkerRoll(args) == nil
-}
-
-// diceMarkerArgs returns what follows a 【ダイス】 that opens the line. Only the
-// start of a line counts: that is where the app writes it, and where every one
-// the TASK-63 measurement saw stood (95 of 95). One inside a sentence is
-// somebody writing about dice, which a general conversation may well do.
-func diceMarkerArgs(line string) (string, bool) {
-	trimmed := strings.TrimLeft(line, " \t　")
-	if !strings.HasPrefix(trimmed, diceMarker) {
-		return "", false
-	}
-	return strings.TrimSpace(trimmed[len(diceMarker):]), true
-}
-
-// readDiceMarkerRoll reads a marker line's arguments as the /roll they stand
-// for. Across a "—" the dice may stand on either side: the mapping's own order
-// puts the action first.
-func readDiceMarkerRoll(args string) *rollCommand {
-	candidates := []string{args}
-	if before, after, ok := strings.Cut(args, "—"); ok {
-		before, after = strings.TrimSpace(before), strings.TrimSpace(after)
-		candidates = []string{after + " " + before, before + " " + after}
-	}
-	for _, candidate := range candidates {
-		if cmd, err := parseRollCommand(rollKeyword + " " + candidate); err == nil {
-			return cmd
-		}
-	}
-	return nil
-}
-
-// isDiceRecordLine reports a line shaped like the app's record or a copy of
-// it: a 【ダイス】 opening the line with nothing after it, a result, or dice
-// that read as a /roll. Anything else after the marker — a heading such as
-// "【ダイス】の確率について" — is text somebody wrote and stays (owner's ruling,
-// TASK-63): it carries no result a later speaker could take for a roll.
-func isDiceRecordLine(line string) bool {
-	args, ok := diceMarkerArgs(line)
-	if !ok {
-		return false
-	}
-	return args == "" || diceMarkerHasResult(args) || readDiceMarkerRoll(args) != nil
-}
-
-// splitDiceMarkerCommand reads a result-free 【ダイス】 line ending the text as
-// a /roll the speaker meant to write (TASK-63): a player that copied the
-// mapping's shape declared a roll as much as one that wrote the command. It
-// returns what splitRollCommand does; found is false when the last line is no
-// such line, and then stripDiceMarkers decides whether it stays.
-func splitDiceMarkerCommand(content string) (stripped string, found bool, cmd *rollCommand) {
-	trimmed := strings.TrimRight(content, " \t\r\n")
-	lineStart := strings.LastIndex(trimmed, "\n") + 1
-	args, ok := diceMarkerArgs(trimmed[lineStart:])
-	if !ok || diceMarkerHasResult(args) {
-		return content, false, nil
-	}
-	if cmd = readDiceMarkerRoll(args); cmd == nil {
-		return content, false, nil
-	}
-	cmd.line = strings.TrimSpace(trimmed[lineStart:])
-	return strings.TrimRight(trimmed[:lineStart], " \t\r\n　"), true, cmd
-}
-
-// stripDiceMarkers removes the lines isDiceRecordLine reports and returns them
-// for the log. Only the app writes such a line (TASK-63): left in the body, a
-// forged "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）" would reach every later
-// speaker as a result the app never rolled.
-func stripDiceMarkers(content string) (string, []string) {
-	if !strings.Contains(content, diceMarker) {
-		return content, nil
-	}
-	var removed []string
-	lines := strings.Split(content, "\n")
-	kept := lines[:0]
-	for _, line := range lines {
-		if isDiceRecordLine(line) {
-			removed = append(removed, strings.TrimSpace(line))
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if removed == nil {
-		return content, nil
-	}
-	return strings.Trim(strings.Join(kept, "\n"), "\r\n"), removed
-}
-
-// withoutTrailingDiceMarkerLine drops a last line that opens with 【ダイス】 and
-// writes dice that could not be read. The name match skips it for the reason it
-// skips an unreadable /roll: "【ダイス】d20 ミラを庇う" is a botched roll, not a
-// call on ミラ. A heading kept as text ("【ダイス】の確率、ミラはどう思う？") has
-// no dice and keeps its call.
-func withoutTrailingDiceMarkerLine(content string) string {
-	trimmed := strings.TrimRight(content, " \t\r\n")
-	lineStart := strings.LastIndex(trimmed, "\n") + 1
-	if args, ok := diceMarkerArgs(trimmed[lineStart:]); !ok || !diceLikeToken.MatchString(args) {
-		return content
-	}
-	return trimmed[:lineStart]
 }
 
 // rollKeywordIndex finds /roll as a word of its own: at the start of the line or
@@ -243,8 +112,8 @@ func startsWithSpace(s string) bool {
 
 // parseRollCommand reads `/roll <式> [目標<整数>] [行動]`. The arguments come in
 // that fixed order and nothing else is understood (design §4.8.3 item 4).
-func parseRollCommand(line string) (*rollCommand, error) {
-	cmd := &rollCommand{line: strings.TrimSpace(line)}
+func parseRollCommand(line string) (*Roll, error) {
+	cmd := &Roll{line: strings.TrimSpace(line)}
 	expression, rest := nextField(line[len(rollKeyword):])
 	if expression == "" {
 		return nil, fmt.Errorf("%w: write the dice after /roll, as in /roll 1d20+3", ErrInvalidRollCommand)
@@ -287,7 +156,7 @@ func errRollTarget() error {
 	return fmt.Errorf("%w: 目標 (target) takes a whole number from 1 to %d, or 0 / なし for no comparison", ErrInvalidRollCommand, model.DiceTargetMax)
 }
 
-func (c *rollCommand) readExpression(expression string) error {
+func (c *Roll) readExpression(expression string) error {
 	m := rollExpression.FindStringSubmatch(expression)
 	if m == nil {
 		return fmt.Errorf("%w: the dice must look like NdM, NdM+K or NdM-K", ErrInvalidRollCommand)
@@ -317,12 +186,12 @@ func (c *rollCommand) readExpression(expression string) error {
 	return nil
 }
 
-// roll throws the command's dice. A command without a target of its own is
+// Throw throws the command's dice. A command without a target of its own is
 // compared against the chat's default, and with neither only the total is
 // recorded (design §4.8.3 item 4). 目標なし records the total alone even when
 // the chat has a default: a roll whose dice matter rather than a pass or a fail
 // (who goes first, 丁半 read off the total) would otherwise be marked a failure.
-func (c *rollCommand) roll(rollDie func(sides int) int, defaultTarget int) model.DiceRoll {
+func (c *Roll) Throw(rollDie func(sides int) int, defaultTarget int) model.DiceRoll {
 	record := model.DiceRoll{
 		Command:    c.line,
 		Expression: c.expression,
@@ -346,17 +215,17 @@ func (c *rollCommand) roll(rollDie func(sides int) int, defaultTarget int) model
 	return record
 }
 
-// rollDie is the app's own die. Fairness here means the value cannot be chosen
+// RollDie is the app's own die. Fairness here means the value cannot be chosen
 // to suit the story, not that it cannot be predicted, so math/rand/v2 serves and
 // no seed is kept (design §4.8.3 item 1).
-func rollDie(sides int) int {
+func RollDie(sides int) int {
 	return rand.IntN(sides) + 1
 }
 
-// diceRollLine is one roll as the transcript reads it:
+// DiceRollLine is one roll as the transcript reads it:
 // "岩棚を渡る — 1d20+3 → 4+3 = 7（目標 12、失敗）". The prompt prefixes it with
 // 【ダイス】 (design §4.8.3 item 2) and the markdown export with the chip's die.
-func diceRollLine(r model.DiceRoll) string {
+func DiceRollLine(r model.DiceRoll) string {
 	var b strings.Builder
 	if r.Action != "" {
 		b.WriteString(r.Action + " — ")

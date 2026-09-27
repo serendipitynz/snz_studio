@@ -10,6 +10,7 @@ import (
 	"snzstudio/internal/config"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
+	"snzstudio/internal/service/commands"
 )
 
 // Errors a turn can fail with. They are sentinels so the HTTP layer can map them
@@ -95,7 +96,7 @@ func NewTurnEngine(chats *repository.ChatRepository, participants *repository.Pa
 		material:      material,
 		running:       map[string]bool{},
 		messageWrites: map[string]*sync.Mutex{},
-		rollDie:       rollDie,
+		rollDie:       commands.RollDie,
 	}
 }
 
@@ -397,7 +398,7 @@ func (e *TurnEngine) throwDice(utterance storedUtterance, chat *model.Chat) []mo
 	if utterance.roll == nil {
 		return nil
 	}
-	return []model.DiceRoll{utterance.roll.roll(e.rollDie, chat.DiceTarget)}
+	return []model.DiceRoll{utterance.roll.Throw(e.rollDie, chat.DiceTarget)}
 }
 
 // assembleMaterial never fails the turn: a broken document or memory search
@@ -684,7 +685,7 @@ func contentWithDiceRolls(m model.Message) string {
 		lines = append(lines, body)
 	}
 	for _, r := range m.DiceRolls {
-		lines = append(lines, diceMarker+diceRollLine(r))
+		lines = append(lines, commands.DiceMarker+commands.DiceRollLine(r))
 	}
 	return strings.Join(lines, "\n")
 }
