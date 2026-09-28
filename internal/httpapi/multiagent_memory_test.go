@@ -170,6 +170,58 @@ func TestMultiAgentMessageMemoryDraftRolls(t *testing.T) {
 	}
 }
 
+// TestMultiAgentInterventionEffects covers TASK-36 on the intervention routes:
+// the effect reaches the sheet and the response carries the chat and the roster
+// as they are after it, the memory draft carries the effect as a 📝 line, and
+// an effect command that cannot be read is 400 on both routes.
+func TestMultiAgentInterventionEffects(t *testing.T) {
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Effect Project")
+	chatID := createMultiAgentChat(t, h, projectID, "")
+	rec := doJSON(t, h, "POST", "/api/chats/"+chatID+"/participants", map[string]any{"displayName": "レン (斥候)", "stateSheet": "HP: 7/10"})
+	wantStatus(t, rec, http.StatusCreated)
+	wantStatus(t, doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{
+		"commands":   map[string]any{"add": map[string]any{}, "use": map[string]any{}, "set": map[string]any{}},
+		"stateSheet": "場所: 入口",
+	}), http.StatusOK)
+
+	rec = doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": "奥へ進む。\n/set 共通 場所 第二坑道"})
+	wantStatus(t, rec, http.StatusCreated)
+	var response struct {
+		Message struct {
+			ID           string              `json:"id"`
+			StateEffects []model.StateEffect `json:"stateEffects"`
+		} `json:"message"`
+		Chat         model.Chat          `json:"chat"`
+		Participants []model.Participant `json:"participants"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Chat.StateSheet != "場所: 第二坑道" || len(response.Message.StateEffects) != 1 || !response.Message.StateEffects[0].Applied {
+		t.Fatalf("response = %+v, want the place set and the chat read after it", response)
+	}
+
+	rec = doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": "/add レン HP -3"})
+	wantStatus(t, rec, http.StatusCreated)
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Participants) != 1 || response.Participants[0].StateSheet != "HP: 4/10" {
+		t.Fatalf("participants = %+v, want レン's sheet as the effect left it", response.Participants)
+	}
+	draft := doJSON(t, h, "GET", "/api/messages/"+response.Message.ID+"/memory-draft", nil)
+	wantStatus(t, draft, http.StatusOK)
+	if body := draft.Body.String(); !strings.Contains(body, "📝 レン (斥候) HP -3: 7/10 → 4/10") {
+		t.Fatalf("draft = %s, want the effect as a 📝 line", body)
+	}
+
+	for _, route := range []string{"/messages", "/messages/stream"} {
+		rec := doJSON(t, h, "POST", "/api/chats/"+chatID+route, map[string]any{"content": "/add ガルド HP -3"})
+		wantStatus(t, rec, http.StatusBadRequest)
+	}
+}
+
 // TestMultiAgentSaveMessageMemoryRefusals covers AC #4 on the server side and
 // the chat-kind guard: a temporary multi-agent chat refuses both the draft and
 // the save with 409, and a single-assistant message is refused with 400 since

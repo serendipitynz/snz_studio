@@ -167,26 +167,45 @@ func writeTranscript(b *strings.Builder, participants []model.Participant, messa
 		if strings.TrimSpace(body) != "" {
 			b.WriteString(body)
 			b.WriteString("\n")
-		} else if len(m.DiceRolls) == 0 {
+		} else if len(m.DiceRolls) == 0 && len(m.StateEffects) == 0 {
 			b.WriteString("（空の発言）\n")
 		}
-		writeDiceRolls(b, m.DiceRolls, strings.TrimSpace(body) != "")
+		writeCommandRecords(b, m, strings.TrimSpace(body) != "")
 	}
 }
 
-// writeDiceRolls writes the rolls the app threw for a message, set apart from
-// the body as a quote so a reader away from the app can tell them from what the
-// speaker wrote, as the chip does on screen (design §4.8.3 item 3).
-func writeDiceRolls(b *strings.Builder, rolls []model.DiceRoll, afterBody bool) {
-	if len(rolls) == 0 {
+// writeCommandRecords writes the rolls the app threw and the effects it applied
+// for a message, set apart from the body as a quote so a reader away from the
+// app can tell them from what the speaker wrote, as the chips do on screen
+// (design §4.8.3 item 3, §4.8.8).
+func writeCommandRecords(b *strings.Builder, m model.Message, afterBody bool) {
+	lines := CommandRecordLines(m)
+	if len(lines) == 0 {
 		return
 	}
 	if afterBody {
 		b.WriteString("\n")
 	}
-	for _, r := range rolls {
-		b.WriteString("> 🎲 " + singleLine(commands.DiceRollLine(r)) + "\n")
+	for _, line := range lines {
+		b.WriteString("> " + singleLine(line) + "\n")
 	}
+}
+
+// CommandRecordLines is a message's rolls and effects as a reader outside the
+// prompt sees them — the markdown export and the memory draft (design §4.4) —
+// with 🎲 and 📝 rather than the prompt's 【ダイス】 and 【効果】: a memory
+// reaches every conversation in the project, and in one with the command
+// enabled a bracketed line in the material would read as a record the app just
+// made.
+func CommandRecordLines(m model.Message) []string {
+	lines := make([]string, 0, len(m.DiceRolls)+len(m.StateEffects))
+	for _, r := range m.DiceRolls {
+		lines = append(lines, "🎲 "+commands.DiceRollLine(r))
+	}
+	for _, r := range m.StateEffects {
+		lines = append(lines, "📝 "+commands.EffectLine(r))
+	}
+	return lines
 }
 
 func participantsByID(participants []model.Participant) map[string]model.Participant {

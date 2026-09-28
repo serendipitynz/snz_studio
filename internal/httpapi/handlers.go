@@ -1094,15 +1094,17 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			fail(w, err)
 			return
 		}
-		chat, err = s.chats.GetChat(chatID)
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		if chat == nil {
-			writeError(w, http.StatusNotFound, "chat not found")
-			return
-		}
+	}
+	// Re-read in both kinds: an intervention's effect command (design §4.8.8)
+	// changes the shared state sheet as a reply changes updated_at.
+	chat, err = s.chats.GetChat(chatID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if chat == nil {
+		writeError(w, http.StatusNotFound, "chat not found")
+		return
 	}
 	summary, err := s.chats.GetSummary(chatID)
 	if err != nil {
@@ -1114,12 +1116,23 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	response := map[string]any{
 		"message":  assistantMessage,
 		"chat":     chat,
 		"summary":  summary,
 		"messages": messages,
-	})
+	}
+	// A participant's state sheet can have changed too, so the multi-agent
+	// response carries the roster as a turn's done frame does.
+	if chat.Kind == model.ChatKindMultiAgent {
+		participants, err := s.participants.ListAll(chatID)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		response["participants"] = participants
+	}
+	writeJSON(w, http.StatusCreated, response)
 }
 
 func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request) {

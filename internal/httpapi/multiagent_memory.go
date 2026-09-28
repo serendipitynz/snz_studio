@@ -13,7 +13,6 @@ import (
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
-	"snzstudio/internal/service/commands"
 )
 
 // memorySourceMultiAgent is the memories.source value of a memory saved from a
@@ -40,23 +39,20 @@ func (s *Server) handleGetMessageMemoryDraft(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-// memoryDraftContent is the body, then one line per roll as the markdown export
-// writes it (design §4.4). The rolls are what a roll-only message said, so the
-// body alone would open that draft empty. They are spelled with 🎲 rather than
-// as the prompt's 【ダイス】 line: a memory reaches every conversation in the
-// project, and in one where /roll is enabled a 【ダイス】 line in the material
-// would read as a roll the app just threw. Recorded rolls are included whether
-// or not /roll is still enabled, as the chip and the prompt keep them.
+// memoryDraftContent is the body, then one line per roll and per effect as
+// the markdown export writes them (design §4.4). They are what a command-only
+// message said, so the body alone would open that draft empty. They are
+// spelled with 🎲 and 📝 rather than as the prompt's 【ダイス】 and 【効果】
+// lines (service.CommandRecordLines). Recorded rolls and effects are included
+// whether or not their command is still enabled, as the chips and the prompt
+// keep them.
 func memoryDraftContent(message *model.Message) string {
 	body := strings.TrimSpace(message.Content)
-	if len(message.DiceRolls) == 0 {
+	records := service.CommandRecordLines(*message)
+	if len(records) == 0 {
 		return body
 	}
-	rolls := make([]string, len(message.DiceRolls))
-	for i, r := range message.DiceRolls {
-		rolls[i] = "🎲 " + commands.DiceRollLine(r)
-	}
-	return strings.TrimSpace(body + "\n\n" + strings.Join(rolls, "\n"))
+	return strings.TrimSpace(body + "\n\n" + strings.Join(records, "\n"))
 }
 
 // handleSaveMessageMemory stores the edited draft as a project memory. It goes
