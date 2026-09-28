@@ -1,10 +1,10 @@
 ---
 id: TASK-36
 title: '多人数会話: アクションの効果で状態項目をアプリが更新する (set / add)'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-22 08:37'
-updated_date: '2026-09-28 09:56'
+updated_date: '2026-09-28 10:28'
 labels: []
 milestone: m-1
 dependencies:
