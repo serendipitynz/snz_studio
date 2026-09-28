@@ -56,9 +56,9 @@ func (s *SummaryService) DraftConclusion(messages []model.Message, participants 
 	spoke := map[string]bool{}
 	chars := 0
 	for _, m := range messages {
-		// The rolls go in with the body, as the speakers read them: an outcome
-		// the conversation turned on is part of what it concluded.
-		content := contentWithDiceRolls(m)
+		// The rolls and effects go in with the body, as the speakers read them:
+		// an outcome the conversation turned on is part of what it concluded.
+		content := contentWithRecords(m)
 		if m.Role == "system" || content == "" {
 			continue
 		}

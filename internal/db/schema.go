@@ -422,6 +422,17 @@ var migrations = []migration{
 			ALTER TABLE chats DROP COLUMN dice_target;
 		`,
 	},
+	{
+		// state_effects records what a message's effect command (/add, /use,
+		// /set) did to a state sheet, or why it did nothing, as a JSON array
+		// ('[]' = none) (design §4.8.8, TASK-36). A column of its own rather than
+		// more elements in dice_rolls: an utterance runs one command, so the two
+		// never share a message, and dice_rolls keeps meaning what it says.
+		id: "019_state_effects",
+		sql: `
+			ALTER TABLE messages ADD COLUMN state_effects TEXT NOT NULL DEFAULT '[]';
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in
