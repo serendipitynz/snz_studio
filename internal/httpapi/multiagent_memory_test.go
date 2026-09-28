@@ -220,6 +220,12 @@ func TestMultiAgentInterventionEffects(t *testing.T) {
 		rec := doJSON(t, h, "POST", "/api/chats/"+chatID+route, map[string]any{"content": "/add ガルド HP -3"})
 		wantStatus(t, rec, http.StatusBadRequest)
 	}
+
+	stream := doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages/stream", map[string]any{"content": "/add レン HP -1"})
+	wantStatus(t, stream, http.StatusOK)
+	if body := stream.Body.String(); !strings.Contains(body, `"stateSheet":"HP: 3/10"`) {
+		t.Fatalf("stream done = %s, want the roster with the sheet as the effect left it", body)
+	}
 }
 
 // TestMultiAgentSaveMessageMemoryRefusals covers AC #4 on the server side and

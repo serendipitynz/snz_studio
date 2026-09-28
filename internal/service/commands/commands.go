@@ -141,14 +141,17 @@ func effectAbove(body string, enabled model.ChatCommands, roster []model.Partici
 	for start := 0; start < lastLine; {
 		lineEnd := start + strings.Index(trimmed[start:], "\n")
 		line := strings.TrimRight(trimmed[start:lineEnd], " \t\r")
+		// The leftmost command on the line is the one read, as on the last
+		// line; another one right of it is part of its arguments.
+		keyword, at := "", -1
 		for _, candidate := range enabledKeywords(enabled) {
-			if candidate == rollKeyword {
-				continue
+			if i := keywordIndex(line, candidate); candidate != rollKeyword && i >= 0 && (at < 0 || i < at) {
+				keyword, at = candidate, i
 			}
-			if i := keywordIndex(line, candidate); i >= 0 {
-				if _, err := parseEffect(line[i:], candidate, roster); err == nil {
-					return candidate, start + i, start + len(line)
-				}
+		}
+		if at >= 0 {
+			if _, err := parseEffect(line[at:], keyword, roster); err == nil {
+				return keyword, start + at, start + len(line)
 			}
 		}
 		start = lineEnd + 1

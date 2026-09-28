@@ -20,8 +20,11 @@ var ErrInvalidEffectCommand = errors.New("commands: the effect command could not
 
 // EffectMarker opens the line the prompt adds for each effect (design §4.8.8),
 // as DiceMarker does for each roll. Unlike 【ダイス】 it is not removed when a
-// model writes it: no imitation of it has been observed, and §4.8.7 leaves
-// such a list to be drawn from what is seen.
+// model writes it. Imitation was measured — game masters wrote their own
+// 【効果】 lines while the bundled rules named the notation — and dropping the
+// word from those rules brought it to none, so stripping waits until forgery
+// is seen despite that (§4.8.7 draws such lists from what is observed). A
+// scene prompt of the user's own that names 【効果】 can bring it back.
 const EffectMarker = "【効果】"
 
 // SharedOwner is how an effect command names the chat's shared state sheet as
@@ -215,10 +218,9 @@ func (e *Effect) Apply(sheet string, rollDie func(sides int) int) (string, model
 	if strings.TrimSpace(sheet) != "" {
 		lines = strings.Split(strings.TrimSpace(sheet), "\n")
 	}
-	index, valueStart := findItem(lines, e.item)
+	index, prefix, value := findItem(lines, e.item)
 	if index >= 0 {
-		before := strings.TrimSpace(lines[index][valueStart:])
-		record.Before = &before
+		record.Before = &value
 	}
 	notApplied := func(reason string) (string, model.StateEffect) {
 		record.Reason = reason
@@ -248,7 +250,7 @@ func (e *Effect) Apply(sheet string, rollDie func(sides int) int) (string, model
 		after = strconv.Itoa(number+record.Delta) + remainder
 	}
 	if index >= 0 {
-		lines[index] = lines[index][:valueStart] + after
+		lines[index] = prefix + after
 	}
 
 	updated := strings.Join(lines, "\n")
@@ -284,10 +286,11 @@ func (e *Effect) throwDice(rollDie func(sides int) int) (dice []int, modifier, d
 }
 
 // findItem finds the item's line: the first whose text before its first colon
-// is the item name, case folded. valueStart is where the value begins, after
-// the colon and the spaces that follow it; a line with nothing after its colon
-// gets a space there, so the value written into it is set apart.
-func findItem(lines []string, item string) (index, valueStart int) {
+// is the item name, case folded. prefix is the line up to where its value
+// begins, the colon and the spaces after it included — with a space added when
+// nothing follows the colon, so a value written after it is set apart — and
+// value is the value, trimmed.
+func findItem(lines []string, item string) (index int, prefix, value string) {
 	for i, line := range lines {
 		cut := strings.IndexAny(line, ":：")
 		if cut < 0 || !strings.EqualFold(strings.TrimSpace(line[:cut]), item) {
@@ -295,14 +298,13 @@ func findItem(lines []string, item string) (index, valueStart int) {
 		}
 		_, size := utf8.DecodeRuneInString(line[cut:])
 		start := cut + size
-		value := strings.TrimLeftFunc(line[start:], unicode.IsSpace)
-		if value == "" {
-			lines[i] = line[:start] + " "
-			return i, start + 1
+		rest := strings.TrimLeftFunc(line[start:], unicode.IsSpace)
+		if rest == "" {
+			return i, line[:start] + " ", ""
 		}
-		return i, len(line) - len(value)
+		return i, line[:len(line)-len(rest)], strings.TrimSpace(rest)
 	}
-	return -1, 0
+	return -1, "", ""
 }
 
 // leadingInteger splits a value into its leading whole number and the rest:
@@ -365,7 +367,14 @@ func EffectLine(r model.StateEffect) string {
 	if !r.Applied {
 		return fmt.Sprintf("%s %s — 適用されず（%s）", subject, change, effectReason(r))
 	}
-	return fmt.Sprintf("%s %s: %s → %s", subject, change, *r.Before, r.After)
+	// Apply never records an applied add or use without a line, but a record
+	// is read back from the database, and one edited by hand must not stop
+	// every later turn from building its prompt.
+	before := ""
+	if r.Before != nil {
+		before = *r.Before
+	}
+	return fmt.Sprintf("%s %s: %s → %s", subject, change, before, r.After)
 }
 
 // effectAmount is "-3" for a whole number, and "-1d6+1（3+1 = 4）" for dice,

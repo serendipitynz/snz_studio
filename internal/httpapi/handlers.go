@@ -1209,11 +1209,22 @@ func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request)
 		_ = sse.Event("error", map[string]string{"message": err.Error()})
 		return
 	}
-	_ = sse.Event("done", map[string]any{
+	done := map[string]any{
 		"chat":     chat,
 		"messages": messages,
 		"summary":  summary,
-	})
+	}
+	// As on the non-streaming route: an intervention's effect command can have
+	// changed a participant's state sheet (design §4.8.8).
+	if isMultiAgent {
+		participants, err := s.participants.ListAll(chatID)
+		if err != nil {
+			_ = sse.Event("error", map[string]string{"message": err.Error()})
+			return
+		}
+		done["participants"] = participants
+	}
+	_ = sse.Event("done", done)
 }
 
 // --- Messages / review -------------------------------------------------------

@@ -224,6 +224,8 @@ func TestEffectLine(t *testing.T) {
 		"レン メモ → 長文 — 適用されず（状態が 200 字を超える）": {Kind: "set", Owner: "レン", ParticipantID: "ren", Item: "メモ", Value: "長文", Reason: model.EffectOverLimit},
 		"ミラ HP +2d6（3+4 = 7）: 3/14 → 10/14": {Kind: "add", Owner: "ミラ", Item: "HP", Expression: "+2d6", Dice: []int{3, 4}, Delta: 7, Before: strPtr("3/14"), After: "10/14", Applied: true},
 	}
+	// A record edited by hand in the database must not panic the prompt build.
+	cases["レン HP -3:  → 4/10"] = model.StateEffect{Kind: "add", Owner: "レン", Item: "HP", Delta: -3, After: "4/10", Applied: true}
 	for want, r := range cases {
 		if got := EffectLine(r); got != want {
 			t.Errorf("EffectLine(%+v) = %q, want %q", r, got, want)
@@ -264,6 +266,7 @@ func TestExtractEffectLineAbove(t *testing.T) {
 		{"first of two", "/use レン たいまつ\n灯す。\n/use ミラ 包帯\n巻く。",
 			"灯す。\n/use ミラ 包帯\n巻く。", "/use レン たいまつ", false},
 		{"no /roll above the last line", "/roll 1d20\n跳ぶ。", "/roll 1d20\n跳ぶ。", "", false},
+		{"leftmost on its line", "/set 共通 メモ /add レン HP -3\n続く。", "続く。", "/set 共通 メモ /add レン HP -3", false},
 	}
 	for _, tc := range cases {
 		got := Extract(tc.body, both, effectRoster)
