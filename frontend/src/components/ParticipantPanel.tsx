@@ -23,7 +23,7 @@ import { GuardedSelect } from "./GuardedSelect";
 import { Hint, HintedField, HintRow } from "./Hint";
 import { CheckIcon, DownloadIcon, MoveDownIcon, MoveUpIcon, SparklesIcon, TrashIcon, UserPlusIcon } from "./icons";
 import { PresetChoice, PresetPicker } from "./PresetPicker";
-import { useLanguage } from "../i18n";
+import { MessageKey, useLanguage } from "../i18n";
 import {
   Badge,
   Card,
@@ -82,6 +82,14 @@ interface EndpointProbe {
 }
 
 type MoveDirection = -1 | 1;
+
+const EFFECT_COMMANDS = ["add", "use", "set"] as const;
+type EffectCommand = (typeof EFFECT_COMMANDS)[number];
+const EFFECT_LABELS: Record<EffectCommand, MessageKey> = {
+  add: "participants.addEnabled",
+  use: "participants.useEnabled",
+  set: "participants.setEnabled"
+};
 
 // ParticipantPanel is the organisation panel of docs/multi-agent-chat-design.md
 // §6: the participant CRUD with its endpoint check and model picker, plus the
@@ -377,6 +385,11 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
     void saveCommands(next).catch(() => undefined);
   }
 
+  function toggleEffect(name: EffectCommand, enabled: boolean) {
+    const { [name]: _dropped, ...others } = props.chat.commands;
+    void saveCommands(enabled ? { ...others, [name]: {} } : others).catch(() => undefined);
+  }
+
   async function saveParticipantStateSheet(participantId: string, stateSheet: string) {
     setStateErrors((current) => ({ ...current, [participantId]: "" }));
     try {
@@ -497,6 +510,22 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
                 onSave={(target) => saveCommands({ ...props.chat.commands, roll: { target } })}
               />
             ) : null}
+            {/* The effect commands sit with /roll: they are switched while the
+                play runs, and what they change is the sheets right below
+                (design §4.8.8). One hint covers the three. */}
+            {EFFECT_COMMANDS.map((name, index) => (
+              <HintRow key={name}>
+                <Checkbox
+                  checked={props.chat.commands[name] !== undefined}
+                  onChange={(enabled) => toggleEffect(name, enabled)}
+                >
+                  {t(EFFECT_LABELS[name])}
+                </Checkbox>
+                {index === 0 ? (
+                  <Hint name={t("hint.about", { label: t(EFFECT_LABELS[name]) })} body={t("participants.effectsHint")} />
+                ) : null}
+              </HintRow>
+            ))}
             {stateErrors.commands ? <FailureNotice>{stateErrors.commands}</FailureNotice> : null}
             {/* Keyed on the stored value so a sheet replaced from outside the
                 field (a preset applied, a save that trimmed it) resets the
