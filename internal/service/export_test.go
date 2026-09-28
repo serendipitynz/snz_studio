@@ -261,3 +261,21 @@ func TestBuildChatMarkdownDiceRolls(t *testing.T) {
 		t.Errorf("a roll-only message is not exported as its roll\n--- got ---\n%s", got)
 	}
 }
+
+// TestBuildChatMarkdownStateEffects covers the effects the export quotes after
+// the body with 📝 (design §4.8.8), a not-applied one with its reason, and an
+// effect-only message as its line alone.
+func TestBuildChatMarkdownStateEffects(t *testing.T) {
+	project, chat, participants, messages := exportFixture()
+	before := "7/10"
+	messages[1].StateEffects = []model.StateEffect{{Kind: "add", Owner: "レン", Item: "HP", Delta: -3, Before: &before, After: "4/10", Applied: true}}
+	messages = append(messages, model.Message{ID: "m4", ChatID: "c1", Role: "user", StateEffects: []model.StateEffect{{Kind: "use", Owner: "レン", Item: "たいまつ", Delta: -1, Reason: model.EffectMissingItem}}})
+
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+	if !strings.Contains(got, "まず前期の数字を見ましょう。\n\n> 📝 レン HP -3: 7/10 → 4/10\n") {
+		t.Errorf("markdown does not quote the effect after the body\n--- got ---\n%s", got)
+	}
+	if !strings.Contains(got, "### ユーザー\n\n> 📝 レン たいまつ -1 — 適用されず（たいまつの行が無い）\n") || strings.Contains(got, "（空の発言）") {
+		t.Errorf("an effect-only message is not exported as its effect\n--- got ---\n%s", got)
+	}
+}

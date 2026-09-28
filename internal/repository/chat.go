@@ -23,7 +23,7 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 
 const (
 	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, commands, created_at, updated_at`
-	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls`
+	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls, state_effects`
 	summaryColumns = `chat_id, summary, updated_at`
 	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
 )
@@ -54,8 +54,9 @@ func scanMessage(s scanner) (model.Message, error) {
 		participantID sql.NullString
 		addressees    string
 		diceRolls     string
+		stateEffects  string
 	)
-	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName, &participantID, &addressees, &diceRolls); err != nil {
+	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName, &participantID, &addressees, &diceRolls, &stateEffects); err != nil {
 		return m, err
 	}
 	if err := json.Unmarshal([]byte(addressees), &m.AddressedParticipantIDs); err != nil {
@@ -63,6 +64,9 @@ func scanMessage(s scanner) (model.Message, error) {
 	}
 	if err := json.Unmarshal([]byte(diceRolls), &m.DiceRolls); err != nil {
 		return m, fmt.Errorf("message %s: dice_rolls: %w", m.ID, err)
+	}
+	if err := json.Unmarshal([]byte(stateEffects), &m.StateEffects); err != nil {
+		return m, fmt.Errorf("message %s: state_effects: %w", m.ID, err)
 	}
 	m.ResponseMs = int64Ptr(respMs)
 	m.OutputTokens = int64Ptr(outTok)
@@ -304,7 +308,7 @@ func (r *ChatRepository) DeleteChat(chatID string) (*model.Chat, error) {
 // for a multi-agent participant's turn; AddressedParticipantIDs only for a
 // multi-agent message that called on someone (nil stores as no call);
 // DiceRolls only for a multi-agent message that carried a /roll (nil stores as
-// none).
+// none); StateEffect only for one that carried an effect command.
 type AddMessageInput struct {
 	ChatID          string
 	Role            string
@@ -317,6 +321,17 @@ type AddMessageInput struct {
 
 	AddressedParticipantIDs []string
 	DiceRolls               []model.DiceRoll
+	StateEffect             *StateEffectInput
+}
+
+// StateEffectInput is an effect command to apply to a state sheet as the
+// message is stored (design §4.8.8). ParticipantID is the sheet's owner, empty
+// for the chat's shared sheet. Apply is handed the sheet as it stands inside
+// the transaction and returns the sheet to store with the record of what
+// happened; the sheet is written only when the record says it was applied.
+type StateEffectInput struct {
+	ParticipantID string
+	Apply         func(sheet string) (string, model.StateEffect)
 }
 
 // AddMessage inserts a message and bumps the chat's updated_at. Mirrors addMessage.
@@ -351,6 +366,7 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 	if m.DiceRolls == nil {
 		m.DiceRolls = []model.DiceRoll{}
 	}
+	m.StateEffects = []model.StateEffect{}
 	addressees, err := json.Marshal(m.AddressedParticipantIDs)
 	if err != nil {
 		return model.Message{}, err
@@ -365,11 +381,22 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 		return model.Message{}, err
 	}
 	defer tx.Rollback()
+	if input.StateEffect != nil {
+		effect, err := applyStateEffect(tx, m.ChatID, *input.StateEffect)
+		if err != nil {
+			return model.Message{}, err
+		}
+		m.StateEffects = []model.StateEffect{effect}
+	}
+	stateEffects, err := json.Marshal(m.StateEffects)
+	if err != nil {
+		return model.Message{}, err
+	}
 	if _, err := tx.Exec(`
-		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls, state_effects)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatID, m.Role, m.Content, m.CreatedAt,
-		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID), string(addressees), string(diceRolls)); err != nil {
+		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID), string(addressees), string(diceRolls), string(stateEffects)); err != nil {
 		return model.Message{}, err
 	}
 	if err := insertReferences(tx, m.ID, references); err != nil {
@@ -382,6 +409,35 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 		return model.Message{}, err
 	}
 	return m, nil
+}
+
+// applyStateEffect reads the owner's sheet, applies the effect and writes the
+// sheet back, inside the transaction that stores the message: the effect is
+// judged against the sheet as it is when it lands, a human's edit since the
+// turn began included (design §4.8.4), and an effect is never on the sheet
+// without the message that records it.
+func applyStateEffect(tx *sql.Tx, chatID string, input StateEffectInput) (model.StateEffect, error) {
+	read, write := "SELECT state_sheet FROM chats WHERE id = ?", "UPDATE chats SET state_sheet = ? WHERE id = ?"
+	owner := chatID
+	if input.ParticipantID != "" {
+		read, write = "SELECT state_sheet FROM participants WHERE id = ? AND chat_id = ?", "UPDATE participants SET state_sheet = ? WHERE id = ?"
+		owner = input.ParticipantID
+	}
+	args := []any{owner}
+	if input.ParticipantID != "" {
+		args = append(args, chatID)
+	}
+	var sheet string
+	if err := tx.QueryRow(read, args...).Scan(&sheet); err != nil {
+		return model.StateEffect{}, fmt.Errorf("state effect: read the sheet: %w", err)
+	}
+	updated, effect := input.Apply(sheet)
+	if effect.Applied {
+		if _, err := tx.Exec(write, strings.TrimSpace(updated), owner); err != nil {
+			return model.StateEffect{}, err
+		}
+	}
+	return effect, nil
 }
 
 // UpdateMessageContent overwrites a message's content (used during streaming),

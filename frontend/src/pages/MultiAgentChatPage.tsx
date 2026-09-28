@@ -30,9 +30,11 @@ import {
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { MessageReferences } from "../components/MessageReferences";
 import { ParticipantPanel } from "../components/ParticipantPanel";
+import { StateEffectChips } from "../components/StateEffectChips";
 import { useSideRegion } from "../components/useSideRegion";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { MessageKey, useLanguage } from "../i18n";
+import { CommandCandidate, commandSuggestions } from "./commandSuggestions";
 import { snzTokens } from "../styles/themes/snz-tokens";
 import {
   Badge,
@@ -138,9 +140,6 @@ const SPEAKER_SPINNER_STYLE = {
   display: "inline-flex",
   pointerEvents: "none"
 } as const;
-
-// The one slash command the composer suggests (design §4.8.3 item 3).
-const ROLL_KEYWORD = "/roll";
 
 // The 24px bare icon buttons of a message's action row, shared with the copy button.
 const MESSAGE_ACTION_STYLE = { width: 24, height: 24, border: "none", background: "transparent", padding: 0 } as const;
@@ -459,6 +458,10 @@ export function MultiAgentChatPage() {
     try {
       const response = await api.sendMessage(chatId, content);
       setState((current) => (current ? { ...current, chat: response.chat, messages: response.messages } : current));
+      // An effect command can have changed a participant's state sheet.
+      if (response.participants) {
+        setParticipants(response.participants);
+      }
       setDraft("");
       // An intervention can change who follows the running turn (the facilitator
       // answers it), so the pick that turn announced no longer holds.
@@ -471,10 +474,12 @@ export function MultiAgentChatPage() {
     }
   }
 
-  // A candidate replaces the command being typed on the last line, and the action
-  // word is selected so what is typed next replaces it.
-  function insertRollCandidate(candidate: string, action: string) {
-    const next = draft.slice(0, draft.lastIndexOf("\n") + 1) + candidate;
+  // A candidate replaces the command being typed on the last line, and its first
+  // word to fill in (a roll's action, an effect's owner) is selected so what is
+  // typed next replaces it.
+  function insertCommandCandidate(candidate: CommandCandidate) {
+    const lineStart = draft.lastIndexOf("\n") + 1;
+    const next = draft.slice(0, lineStart) + candidate.text;
     setDraft(next);
     window.requestAnimationFrame(() => {
       const node = composerRef.current;
@@ -482,7 +487,7 @@ export function MultiAgentChatPage() {
         return;
       }
       node.focus();
-      node.setSelectionRange(next.length - action.length, next.length);
+      node.setSelectionRange(lineStart + candidate.select.start, lineStart + candidate.select.end);
     });
   }
 
@@ -678,23 +683,11 @@ export function MultiAgentChatPage() {
     : null;
   const shownNext = current(turnRunning ? runningSpeaker?.next : manualRule ? null : nextSpeaker);
   const speakerIsCurrent = turnRunning && !shownNext;
-  // The composer suggests the command while its name is being typed on the last
-  // line, and keeps the format in view while the arguments are (design §4.8.3
-  // item 3). There is no dice button: the command is the one way in, for the
-  // human and the models alike. A chat that has not enabled /roll reads the line
-  // as text (design §4.8.7), so nothing is suggested there.
-  const roll = state.chat.commands.roll;
-  const rollTarget = roll?.target ?? 0;
-  const commandLine = draft.slice(draft.lastIndexOf("\n") + 1).trimStart();
-  const typingCommand =
-    roll !== undefined && commandLine.startsWith("/") && !/\s/.test(commandLine) && ROLL_KEYWORD.startsWith(commandLine);
-  const writingRoll =
-    roll !== undefined && (commandLine.startsWith(`${ROLL_KEYWORD} `) || commandLine.startsWith(`${ROLL_KEYWORD}\u3000`));
-  const rollAction = t("multiAgent.rollAction");
-  const rollCandidates = [
-    `${ROLL_KEYWORD} 1d20+0 ${rollAction}`,
-    `${ROLL_KEYWORD} 1d20+0 ${t("multiAgent.rollTargetKeyword")}${rollTarget || 12} ${rollAction}`
-  ];
+  // The composer suggests the chat's commands while a name is being typed on the
+  // last line, and keeps the format in view while the arguments are (design
+  // §4.8.3 item 3). There is no dice or state button: the command is the one way
+  // in, for the human and the models alike.
+  const suggestions = commandSuggestions(draft, state.chat.commands, t);
   const speakerText = shownNext
     ? t("multiAgent.speakerNext", { name: shownNext.displayName })
     : speakingNow
@@ -782,13 +775,14 @@ export function MultiAgentChatPage() {
                       <strong style={{ overflowWrap: "anywhere" }}>{speakerLabel(message)}</strong>
                       <MetaText style={{ whiteSpace: "nowrap" }}>{message.modelName ?? ""}</MetaText>
                     </Row>
-                    {/* A roll-only message has no body to draw; its chip stands alone. */}
+                    {/* A command-only message has no body to draw; its chip stands alone. */}
                     {!message.content ? null : message.role === "assistant" ? (
                       <MarkdownPreview source={message.content} />
                     ) : (
                       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{message.content}</div>
                     )}
                     <DiceRollChips rolls={message.diceRolls ?? []} />
+                    <StateEffectChips effects={message.stateEffects ?? []} />
                     <MessageReferences references={message.references} />
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
                       <CopyMessageButton
@@ -891,27 +885,24 @@ export function MultiAgentChatPage() {
             {interveneError ? <FailureNotice>{interveneError}</FailureNotice> : null}
             {facilitatorMissing ? <MetaText>{t("multiAgent.facilitatorMissing")}</MetaText> : null}
             {memorySavedTitle ? <MetaText>{t("multiAgent.saveMemorySaved", { title: memorySavedTitle })}</MetaText> : null}
-            {typingCommand ? (
+            {suggestions.candidates.length > 0 ? (
               <Row role="group" aria-label={t("multiAgent.commandSuggestions")} style={{ gap: 4 }}>
-                {rollCandidates.map((candidate) => (
+                {suggestions.candidates.map((candidate) => (
                   <ActionButton
-                    key={candidate}
+                    key={candidate.text}
                     type="button"
                     variant="normal"
-                    onClick={() => insertRollCandidate(candidate, rollAction)}
+                    onClick={() => insertCommandCandidate(candidate)}
                     style={ROW_BUTTON_STYLE}
                   >
-                    <code>{candidate}</code>
+                    <code>{candidate.text}</code>
                   </ActionButton>
                 ))}
               </Row>
             ) : null}
-            {typingCommand || writingRoll ? (
-              <MetaText>
-                {t("multiAgent.rollFormat")}
-                {rollTarget > 0 ? t("multiAgent.rollFormatDefault", { target: rollTarget }) : ""}
-              </MetaText>
-            ) : null}
+            {suggestions.formats.map((format) => (
+              <MetaText key={format}>{format}</MetaText>
+            ))}
             <ComposerTextarea
               ref={composerRef}
               value={draft}

@@ -415,6 +415,14 @@ const en = {
   "multiAgent.diceOutcome": "target {target}, {outcome}",
   "multiAgent.diceSuccess": "success",
   "multiAgent.diceFailure": "failure",
+  "multiAgent.stateEffect": "State changed by the app:",
+  "multiAgent.stateEffectRefused": "Effect the app did not apply:",
+  "multiAgent.effectNotApplied": "not applied ({reason})",
+  "multiAgent.effectNoValue": "(none)",
+  "multiAgent.effectMissingItem": "no {item} line",
+  "multiAgent.effectNotInteger": "{item} does not start with a number",
+  "multiAgent.effectNotPositive": "{item} is below 1",
+  "multiAgent.effectOverLimit": "the state would pass {limit} characters",
   "multiAgent.commandSuggestions": "Command suggestions",
   "multiAgent.rollAction": "action",
   "multiAgent.rollTargetKeyword": "target",
@@ -422,6 +430,15 @@ const en = {
   // Appended straight after multiAgent.rollFormat, so the separating space is
   // part of the English sentence and absent from the Japanese one.
   "multiAgent.rollFormatDefault": " Without a target, the total is compared with the default target {target}.",
+  "multiAgent.effectOwner": "owner",
+  "multiAgent.effectItem": "item",
+  "multiAgent.effectValue": "value",
+  "multiAgent.addFormat":
+    "/add <owner> <item> <±number or dice> — the owner is a participant's name or 共通 (the shared state). Adds to the number the item's value starts with; dice such as -1d6 are rolled by the app. Write it on the last line.",
+  "multiAgent.useFormat":
+    "/use <owner> <item> — takes 1 from the number the item's value starts with, and is not applied when that is below 1. Write it on the last line.",
+  "multiAgent.setFormat":
+    "/set <owner> <item> <value> — replaces the item's value, or adds the line when there is none. Write it on the last line.",
   "multiAgent.saveMemory": "Save to memory",
   "multiAgent.saveMemoryTitle": "Save this message as a project memory",
   "multiAgent.saveMemoryFrom": "From: {name}",
@@ -486,6 +503,11 @@ const en = {
   "participants.rollEnabled": "Roll dice with /roll",
   "participants.rollEnabledHint":
     "When on, the app rolls a /roll written on the last line of a message and treats lines starting with 【ダイス】 as its own notation. When off, both stay in the message as written. Rolls already recorded stay. Takes effect from the next message.",
+  "participants.addEnabled": "Add to a number with /add",
+  "participants.useEnabled": "Use one up with /use",
+  "participants.setEnabled": "Replace a value with /set",
+  "participants.effectsHint":
+    "When on, the app applies the command written on the last line of a message to the state below — 共通 or a participant's name says whose — and shows what it did under the message, an effect it did not apply included, with why. When off, the line stays in the message as written. Takes effect from the next message.",
   "participants.diceTarget": "Default dice target",
   "participants.diceTargetHint":
     "The number a /roll without a target (target or 目標) is compared with: a total at or above it succeeds. 0 compares nothing and records the total alone, as target0 does for one roll. Takes effect from the next /roll.",
@@ -940,11 +962,26 @@ const ja: Record<MessageKey, string> = {
   "multiAgent.diceOutcome": "目標 {target} {outcome}",
   "multiAgent.diceSuccess": "成功",
   "multiAgent.diceFailure": "失敗",
+  "multiAgent.stateEffect": "アプリが当てた効果:",
+  "multiAgent.stateEffectRefused": "アプリが当てなかった効果:",
+  "multiAgent.effectNotApplied": "適用されず（{reason}）",
+  "multiAgent.effectNoValue": "（無し）",
+  "multiAgent.effectMissingItem": "{item}の行が無い",
+  "multiAgent.effectNotInteger": "{item}の値が整数で始まらない",
+  "multiAgent.effectNotPositive": "{item}が 1 未満",
+  "multiAgent.effectOverLimit": "状態が {limit} 字を超える",
   "multiAgent.commandSuggestions": "コマンドの候補",
   "multiAgent.rollAction": "行動",
   "multiAgent.rollTargetKeyword": "目標",
   "multiAgent.rollFormat": "/roll <式> [目標<整数>] [行動] — 式は NdM・NdM+K・NdM-K（N は 1〜20、M は 2〜100）。目標なし（目標0）なら比べません。出目はアプリが振ります。最後の行に書いてください。",
   "multiAgent.rollFormatDefault": "目標を省くと、合計を既定の目標値 {target} と比べます。",
+  "multiAgent.effectOwner": "持ち主",
+  "multiAgent.effectItem": "項目",
+  "multiAgent.effectValue": "値",
+  "multiAgent.addFormat":
+    "/add <持ち主> <項目名> <±整数 または 式> — 持ち主は参加者の名前か「共通」。項目の値の先頭の整数に加減します。-1d6 のような式はアプリが振ります。最後の行に書いてください。",
+  "multiAgent.useFormat": "/use <持ち主> <項目名> — 項目の値の先頭の整数から 1 を引きます。1 未満なら適用しません。最後の行に書いてください。",
+  "multiAgent.setFormat": "/set <持ち主> <項目名> <値> — 項目の値を置き換えます。行が無ければ足します。最後の行に書いてください。",
   "multiAgent.saveMemory": "メモリに保存",
   "multiAgent.saveMemoryTitle": "この発言をプロジェクトのメモリに保存",
   "multiAgent.saveMemoryFrom": "発言者: {name}",
@@ -1006,6 +1043,11 @@ const ja: Record<MessageKey, string> = {
   "participants.rollEnabled": "/roll でダイスを振る",
   "participants.rollEnabledHint":
     "オンにすると、発言の最後の行の /roll をアプリが振り、【ダイス】で始まる行をアプリの記法として扱います。オフなら、どちらも書かれたとおりの本文として残ります。記録済みの判定は残ります。次の発言から反映されます。",
+  "participants.addEnabled": "/add で値を加減する",
+  "participants.useEnabled": "/use で 1 つ使う",
+  "participants.setEnabled": "/set で値を置き換える",
+  "participants.effectsHint":
+    "オンにすると、発言の最後の行のコマンドを、アプリが下の状態に当てます（「共通」か参加者の名前で、どの状態かを指します）。当てた結果は発言の下に出し、当てなかった効果もその理由とともに出します。オフなら、その行は書かれたとおりの本文として残ります。次の発言から反映されます。",
   "participants.diceTarget": "既定の目標値",
   "participants.diceTargetHint":
     "目標を書かない /roll の合計と比べる値です。合計がこの値以上なら成功になります。0 なら比べずに合計だけを記録します（1 回だけ比べないときは /roll に「目標なし」と書きます）。次の /roll から反映されます。",

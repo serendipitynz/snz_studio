@@ -108,11 +108,20 @@ type Chat struct {
 
 // ChatCommands is a chat's commands as the JSON the chat, the API and a preset
 // share: command name → that command's settings, a present key enabling the
-// command (design §4.8.7). A nil field is a command the chat does not use; an
-// effect command (TASK-36) is added as another field.
+// command (design §4.8.7). A nil field is a command the chat does not use.
 type ChatCommands struct {
 	Roll *RollSettings `json:"roll,omitempty"`
+	// The effect commands (design §4.8.8) have no settings; each is enabled on
+	// its own, so a table can let the models /set the place without letting them
+	// /add to anyone's HP.
+	Add *EffectSettings `json:"add,omitempty"`
+	Use *EffectSettings `json:"use,omitempty"`
+	Set *EffectSettings `json:"set,omitempty"`
 }
+
+// EffectSettings is an effect command's settings, of which there are none yet:
+// the key being present is what enables the command.
+type EffectSettings struct{}
 
 // RollSettings is /roll's settings. Target is the default a /roll without
 // 目標N is compared against; 0 compares nothing and records the total alone
@@ -141,8 +150,21 @@ func (c *ChatCommands) UnmarshalJSON(raw []byte) error {
 			if err := unmarshalSettings(value, c.Roll); err != nil {
 				return fmt.Errorf("%w: commands.roll: %v", ErrInvalidCommands, err)
 			}
+		case "add", "use", "set":
+			settings := &EffectSettings{}
+			if err := unmarshalSettings(value, settings); err != nil {
+				return fmt.Errorf("%w: commands.%s: %v", ErrInvalidCommands, name, err)
+			}
+			switch name {
+			case "add":
+				c.Add = settings
+			case "use":
+				c.Use = settings
+			default:
+				c.Set = settings
+			}
 		default:
-			return fmt.Errorf("%w: unknown command %q (known: roll)", ErrInvalidCommands, name)
+			return fmt.Errorf("%w: unknown command %q (known: roll, add, use, set)", ErrInvalidCommands, name)
 		}
 	}
 	return nil
@@ -182,6 +204,10 @@ type RecentChat struct {
 // DiceRolls is what the message's /roll threw, fixed when it was stored with the
 // command line taken out of Content (design §4.8.3 item 2). It is empty, never
 // nil, for a message that rolled nothing.
+//
+// StateEffects is what the message's effect command did to a state sheet, or
+// why it did nothing, fixed when it was stored (design §4.8.8). It is empty,
+// never nil, for a message that carried no effect command.
 type Message struct {
 	ID              string   `json:"id"`
 	ChatID          string   `json:"chatId"`
@@ -194,8 +220,9 @@ type Message struct {
 	ModelName       *string  `json:"modelName"`
 	ParticipantID   *string  `json:"participantId"`
 
-	AddressedParticipantIDs []string   `json:"addressedParticipantIds"`
-	DiceRolls               []DiceRoll `json:"diceRolls"`
+	AddressedParticipantIDs []string      `json:"addressedParticipantIds"`
+	DiceRolls               []DiceRoll    `json:"diceRolls"`
+	StateEffects            []StateEffect `json:"stateEffects"`
 }
 
 // DiceRoll is one /roll the app threw for a message (design §4.8.1 判定の記録).
@@ -210,6 +237,38 @@ type DiceRoll struct {
 	Target     int    `json:"target"`
 	Success    *bool  `json:"success"`
 }
+
+// StateEffect is one effect command's outcome on a state sheet (design §4.8.8
+// 効果の記録). Kind is the command: add, use or set. ParticipantID is empty for
+// the chat's shared sheet, and Owner is 共通 or the participant's display name
+// as it stood. Delta is what add and use changed the leading number by, with
+// Expression, Dice and Modifier set when add rolled it. Before is nil when the
+// sheet had no line for the item. An effect that was not applied left the
+// sheet as it was, has no After, and says why in Reason.
+type StateEffect struct {
+	Command       string  `json:"command"`
+	Kind          string  `json:"kind"`
+	Owner         string  `json:"owner"`
+	ParticipantID string  `json:"participantId"`
+	Item          string  `json:"item"`
+	Delta         int     `json:"delta"`
+	Expression    string  `json:"expression,omitempty"`
+	Dice          []int   `json:"dice,omitempty"`
+	Modifier      int     `json:"modifier,omitempty"`
+	Value         string  `json:"value,omitempty"`
+	Before        *string `json:"before"`
+	After         string  `json:"after"`
+	Applied       bool    `json:"applied"`
+	Reason        string  `json:"reason,omitempty"`
+}
+
+// Why an effect was not applied (design §4.8.8).
+const (
+	EffectMissingItem = "missing_item" // add / use: the owner's sheet has no line for the item
+	EffectNotInteger  = "not_integer"  // add / use: the value does not start with a whole number
+	EffectNotPositive = "not_positive" // use: the leading number is below 1
+	EffectOverLimit   = "over_limit"   // the sheet would exceed its limit
+)
 
 // DiceTargetMax bounds a target, whether a /roll names it or the chat holds it
 // as the default. The highest total a /roll can reach is 20d100+999, so a

@@ -77,27 +77,31 @@ func splitRollCommand(content string) (stripped string, found bool, cmd *Roll, e
 	return stripped, true, cmd, err
 }
 
-// rollKeywordIndex finds /roll as a word of its own: at the start of the line or
-// after a space or a non-ASCII character (a sentence ending in 。 runs straight
-// into it), and followed by a space or the end. A path or URL containing /roll
-// is left alone.
 func rollKeywordIndex(line string) int {
+	return keywordIndex(line, rollKeyword)
+}
+
+// keywordIndex finds a command keyword as a word of its own: at the start of
+// the line or after a space or a non-ASCII character (a sentence ending in 。
+// runs straight into it), and followed by a space or the end. A path or URL
+// containing /roll is left alone.
+func keywordIndex(line, keyword string) int {
 	offset := 0
 	for {
-		i := strings.Index(line[offset:], rollKeyword)
+		i := strings.Index(line[offset:], keyword)
 		if i < 0 {
 			return -1
 		}
 		i += offset
-		after := i + len(rollKeyword)
-		if rollBoundaryBefore(line[:i]) && (after == len(line) || startsWithSpace(line[after:])) {
+		after := i + len(keyword)
+		if keywordBoundaryBefore(line[:i]) && (after == len(line) || startsWithSpace(line[after:])) {
 			return i
 		}
 		offset = after
 	}
 }
 
-func rollBoundaryBefore(before string) bool {
+func keywordBoundaryBefore(before string) bool {
 	if before == "" {
 		return true
 	}

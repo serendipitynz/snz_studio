@@ -25,7 +25,9 @@ filesystem** — a standalone desktop app you install and launch.
     letting whoever was called on — or has been quiet longest — speak next (`weighted`)
   - A scene prompt (topic, setting, world) shared by every participant
   - For tabletop RPGs: state sheets (place, HP, inventory) every participant reads, and `/roll`
-    dice the app rolls and checks against a target when a participant or you write the command
+    dice the app rolls and checks against a target when a participant or you write the command, and
+    `/add`, `/use` and `/set` effect commands the app applies to the state sheets (nothing is used
+    that the sheet shows none of; each command is described in `docs/multi-agent-commands.md`)
   - 25 bundled presets (debate, improv theatre, a TRPG table and others) to start from, plus
     your own presets loaded from JSON files (format: `docs/multi-agent-presets.md`)
   - A spectator view that advances one turn at a time or runs automatically, and lets you speak

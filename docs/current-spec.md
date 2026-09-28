@@ -105,18 +105,21 @@ A multi-agent conversation has:
   `[次: name]` line a participant writes under `weighted` (removed from the stored text), or else the
   roster names found in the message's last sentence. Your own interventions are matched the same
   way, so "Alice, go on" reaches Alice under `weighted`
-- dice: in a conversation that enables `/roll` (the inspector's state section, or a preset's
-  `commands`), a `/roll <dice> [目標<n>] [action]` on the last line of a message — a participant's or
-  yours — is rolled by the app when the message is stored (`NdM`, `NdM+K`, `NdM-K`; N 1–20, M 2–100;
-  `target<n>` is accepted for `目標<n>`). The command line leaves the stored text and the roll is
-  recorded with the message: the dice, the total, and success when the total reaches the target
-  (the command's `目標n`, else the conversation's default target; with neither, or with `目標なし` /
-  `目標0`, the total alone). A roll is part of the message that
-  wrote it, not a message of its own, so no turn rule picks differently for it. A `/roll` that cannot
-  be read stays in a participant's text and is refused (400) in yours. Where there is also a trailing
-  `[次: name]`, the directive is removed first, then the command, and only then are names matched.
-  A conversation that has not enabled `/roll` keeps `/roll` and 【ダイス】 lines as the text they are.
-  A conversation created without a preset enables none
+- slash commands: a command the conversation enables (the inspector's state section, or a preset's
+  `commands`) written on the last line of a message — a participant's or yours — is run by the app
+  when the message is stored — one per message; a readable effect command further up is read too
+  when the last line has none. `/roll <dice> [目標<n>] [action]` rolls the dice and compares the total
+  with the target, recording the dice, the total and the outcome. The effect commands
+  `/add <owner> <item> <±n|dice>`, `/use <owner> <item>` and `/set <owner> <item> <value>` change a
+  line of the owner's state sheet (`共通` for the shared one, or a participant's name) and record the
+  value before and after, or, for an effect a precondition or the limit kept from applying, why — a
+  `/use` of something the sheet shows none of is not applied. The command line leaves the stored text
+  and the record is part of the message that wrote it, so no turn rule picks differently for it. A
+  command that cannot be read stays in a participant's text and is refused (400) in yours. Where there
+  is also a trailing `[次: name]`, the directive is removed first, then the command, and only then are
+  names matched. A command the conversation has not enabled stays as the text it is; a conversation
+  created without a preset enables none. Each command's format, preconditions, settings and records
+  are in [multi-agent-commands.md](multi-agent-commands.md) (Japanese)
 - scene: text prefixed to every participant's system prompt (topic, setting, world)
 
 The roster is the set of participants still on the conversation. Removing a participant is a soft
@@ -205,7 +208,8 @@ A turn:
    description, matched document passages, matched memories; see below) + scene + role prompt + role
    reminder; history mapped to `assistant` for the participant's own past messages and `user` for
    everyone else's, prefixed with the speaker's display name, and a message's rolls follow its body
-   as `【ダイス】action — 1d20+3 → 4+3 = 7（目標 12、失敗）` lines; the prompt ends on the message this
+   as `【ダイス】action — 1d20+3 → 4+3 = 7（目標 12、失敗）` lines, then its effects as
+   `【効果】レン たいまつ -1: 2 → 1` lines (`— 適用されず（reason）` for one not applied); the prompt ends on the message this
    participant has to answer
 5. streams the utterance and stores it as an `assistant` message carrying `participant_id`, together
    with the references the project material was built from (one transaction)
@@ -469,9 +473,11 @@ Center:
   - above the field, lines shown only when there is something to say: a failed turn, conclusion or
     intervention, (facilitator-alternating rule) no facilitator on the roster, a memory saved
 - a message's rolls as chips under its body (the die figure, the action, the dice and total, and the
-  target with success or failure; neutral with no target), told apart from what the speaker wrote
-- typing `/` on the composer's last line offers the `/roll` forms, and the format stays shown while
-  the arguments are typed, where the conversation enables `/roll`. There is no dice button
+  target with success or failure; neutral with no target), and its effects as chips in the same
+  place (a pencil figure, the owner, the item, the value before and after; red with the reason for an
+  effect not applied), both told apart from what the speaker wrote
+- typing `/` on the composer's last line offers the forms of the commands the conversation enables,
+  and the format stays shown while the arguments are typed. There is no dice or state button
 - save to memory on each utterance; disabled in a temporary chat, with the reason on the button
 
 Right pane:
@@ -485,7 +491,8 @@ Right pane:
   - preset: shown only while the conversation has no messages; collapsed by default
   - state: the shared state sheet and one per roster participant (labelled "state of <display
     name>" with the name in bold, in roster order; the character counter sits at the label row's
-    end and the save is right-aligned), headed by the "Roll dice with /roll" checkbox and, while it is on, the default dice target (0–9999, 0 for none).
+    end and the save is right-aligned), headed by the "Roll dice with /roll" checkbox and, while it is on, the default dice target (0–9999, 0 for none),
+    then the "/add", "/use" and "/set" checkboxes. A sheet an effect command changes is updated in place.
     Folded before the conversation starts, open after. Editable and savable while a turn or the
     auto-advance runs
   - conversation settings: turn rule, the facilitator (shown for the facilitator-alternating and

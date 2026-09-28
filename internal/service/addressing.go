@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"snzstudio/internal/model"
+	"snzstudio/internal/repository"
 	"snzstudio/internal/service/commands"
 )
 
@@ -39,7 +40,8 @@ var nameAnnotation = regexp.MustCompile(`\s*[(（][^()（）]*[)）]\s*$`)
 const minMatchedNameLength = 2
 
 // storedUtterance is what an utterance becomes at store time: the body with its
-// control syntax taken out, whom it calls on, and the /roll it carries.
+// control syntax taken out, whom it calls on, and the /roll or effect command
+// it carries.
 type storedUtterance struct {
 	content    string
 	addressees []string
@@ -48,6 +50,10 @@ type storedUtterance struct {
 	// line then stays in content; whether that is acceptable is the caller's call
 	// (design §4.8.3 item 2).
 	rollErr error
+	effect  *commands.Effect
+	// effectErr is set, as rollErr is, when the last line held an effect
+	// command that could not be read (design §4.8.8).
+	effectErr error
 	// removedDice is each 【ダイス】 line taken out of the body because the app
 	// did not write it (TASK-63), for the log.
 	removedDice []string
@@ -57,7 +63,8 @@ type storedUtterance struct {
 // and what it rolls, in the one order design §4.8.3 item 2 sets for a
 // participant's utterance and a human's intervention alike: (1) the trailing
 // directive is removed and resolved, (2) the last line of what remains is
-// searched for a command the chat has enabled, which is removed, and (3) only
+// searched for a command the chat has enabled — failing that, the lines above
+// it for a readable effect command (§4.8.8) — which is removed, and (3) only
 // when there was no directive, the last sentence of the body without the
 // command is matched against the roster. speakerID is the participant that
 // wrote the message, empty for the human; a call on oneself is dropped.
@@ -75,14 +82,18 @@ type storedUtterance struct {
 // answered keep their boost after the others have.
 //
 // A chat that has not enabled /roll keeps its /roll and 【ダイス】 lines as the
-// text they are, and the name match reads them like any other (§4.8.7).
+// text they are, and the name match reads them like any other (§4.8.7); the
+// same goes for each effect command. An effect command's owner is looked up on
+// the same roster, so a name in it is no call either.
 func prepareUtterance(content, speakerID string, roster []model.Participant, enabled model.ChatCommands) storedUtterance {
 	body, names, directive := splitAddresseeDirective(content)
-	extracted := commands.Extract(body, enabled)
+	extracted := commands.Extract(body, enabled, roster)
 	utterance := storedUtterance{
 		content:     extracted.Content,
 		roll:        extracted.Roll,
 		rollErr:     extracted.RollErr,
+		effect:      extracted.Effect,
+		effectErr:   extracted.EffectErr,
 		removedDice: extracted.RemovedDice,
 	}
 	if directive {
@@ -93,11 +104,11 @@ func prepareUtterance(content, speakerID string, roster []model.Participant, ena
 	return utterance
 }
 
-// emptyError reports an utterance with nothing to store: no body and no roll.
-// It names what emptied the body, so a turn that wrote only a forged 【ダイス】
-// line is not reported as one that wrote only a directive.
+// emptyError reports an utterance with nothing to store: no body, no roll and
+// no effect command. It names what emptied the body, so a turn that wrote only
+// a forged 【ダイス】 line is not reported as one that wrote only a directive.
 func (u storedUtterance) emptyError(diceRolls []model.DiceRoll) error {
-	if strings.TrimSpace(u.content) != "" || len(diceRolls) > 0 {
+	if strings.TrimSpace(u.content) != "" || len(diceRolls) > 0 || u.effect != nil {
 		return nil
 	}
 	if len(u.removedDice) > 0 {
@@ -201,6 +212,30 @@ func lastSentence(content string) string {
 		text = text[loc[len(loc)-1][1]:]
 	}
 	return strings.TrimSpace(text)
+}
+
+// commandErr is the command on the last line that could not be read, if any.
+func (u storedUtterance) commandErr() error {
+	if u.rollErr != nil {
+		return u.rollErr
+	}
+	return u.effectErr
+}
+
+// stateEffect is the utterance's effect command as the message store applies
+// it, nil when it carried none. The dice of an /add are thrown with rollDie,
+// inside the store, once the sheet shows the effect can apply.
+func (u storedUtterance) stateEffect(rollDie func(sides int) int) *repository.StateEffectInput {
+	if u.effect == nil {
+		return nil
+	}
+	effect := u.effect
+	return &repository.StateEffectInput{
+		ParticipantID: effect.ParticipantID(),
+		Apply: func(sheet string) (string, model.StateEffect) {
+			return effect.Apply(sheet, rollDie)
+		},
+	}
 }
 
 func appendUnique(ids []string, id string) []string {

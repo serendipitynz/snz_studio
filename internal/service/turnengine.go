@@ -299,8 +299,8 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	// transcript. A /roll that cannot be read stays in the body rather than
 	// failing the turn, which would stop an auto-advancing conversation (§4.8.3).
 	utterance := prepareUtterance(result.Content, speaker.ID, onRoster(knownSpeakers), chat.Commands)
-	if utterance.rollErr != nil {
-		log.Printf("[turn] /roll kept as text chatId=%s participantId=%s reason=%v", chatID, speaker.ID, utterance.rollErr)
+	if err := utterance.commandErr(); err != nil {
+		log.Printf("[turn] command kept as text chatId=%s participantId=%s reason=%v", chatID, speaker.ID, err)
 	}
 	for _, line := range utterance.removedDice {
 		log.Printf("[turn] 【ダイス】 line removed chatId=%s participantId=%s line=%q", chatID, speaker.ID, line)
@@ -329,6 +329,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 
 		AddressedParticipantIDs: utterance.addressees,
 		DiceRolls:               diceRolls,
+		StateEffect:             utterance.stateEffect(e.rollDie),
 	}, referenceInputs(material.References))
 	if err != nil {
 		return nil, err
@@ -339,11 +340,11 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 // StoreHumanMessage records the human's intervention in a multi-agent chat: the
 // message, whom it calls on and what it rolls, with none of the memory
 // extraction, retrieval or summary work a single-assistant turn does (design
-// §4.4). The call and the roll are fixed here, at store time, for the same
-// reasons a turn's are (§4.6.5, §4.8.3): without the call "A, tell us more"
-// never reaches A under the weighted rule. A /roll that cannot be read is
-// refused with ErrInvalidRollCommand, so the human can correct it where it was
-// typed, and a message left with nothing once its directive is removed with
+// §4.4). The call, the roll and the effect are fixed here, at store time, for
+// the same reasons a turn's are (§4.6.5, §4.8.3): without the call "A, tell us
+// more" never reaches A under the weighted rule. A /roll or an effect command
+// that cannot be read is refused with ErrInvalidRollCommand or
+// ErrInvalidEffectCommand, so the human can correct it where it was typed, and a message left with nothing once its directive is removed with
 // ErrUtteranceOnlyDirective (ErrUtteranceOnlyDiceLine when what emptied it was a
 // 【ダイス】 line).
 //
@@ -366,8 +367,8 @@ func (e *TurnEngine) StoreHumanMessage(chatID, content string) (*model.Message, 
 			return err
 		}
 		utterance := prepareUtterance(content, "", roster, chat.Commands)
-		if utterance.rollErr != nil {
-			return utterance.rollErr
+		if err := utterance.commandErr(); err != nil {
+			return err
 		}
 		for _, line := range utterance.removedDice {
 			log.Printf("[turn] 【ダイス】 line removed chatId=%s from=human line=%q", chatID, line)
@@ -383,6 +384,7 @@ func (e *TurnEngine) StoreHumanMessage(chatID, content string) (*model.Message, 
 
 			AddressedParticipantIDs: utterance.addressees,
 			DiceRolls:               diceRolls,
+			StateEffect:             utterance.stateEffect(e.rollDie),
 		})
 		return err
 	})
@@ -662,7 +664,7 @@ func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, 
 	labels := speakerLabels(participants)
 	mapped := make([]model.Message, 0, len(messages))
 	for _, m := range messages {
-		content := contentWithDiceRolls(m)
+		content := contentWithRecords(m)
 		if content == "" {
 			continue
 		}
@@ -675,18 +677,25 @@ func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, 
 	return lastN(mapped, TurnHistoryLimit)
 }
 
-// contentWithDiceRolls is the message as a speaker reads it: the body, then one
-// 【ダイス】 line per roll (design §4.8.3 item 2). The outcome is spelled out
-// rather than left to the total, because a game master handed the total alone
-// narrated a failure as a success in 3 of 10 trials (§4.8.2 reading 3). A
-// message that only rolled is the line alone; empty means nothing to map.
-func contentWithDiceRolls(m model.Message) string {
-	lines := make([]string, 0, len(m.DiceRolls)+1)
+// contentWithRecords is the message as a speaker reads it: the body, then one
+// 【ダイス】 line per roll (design §4.8.3 item 2) and one 【効果】 line per
+// effect (§4.8.8). The outcome is spelled out rather than left to the total,
+// because a game master handed the total alone narrated a failure as a success
+// in 3 of 10 trials (§4.8.2 reading 3). An effect that was not applied is
+// spelled out too, with why: the sheet in the prompt loses to what was just
+// declared (§4.7.2 reading 2), so without the line a torch that was not there
+// is lit all the same. A message that only ran a command is its lines alone;
+// empty means nothing to map.
+func contentWithRecords(m model.Message) string {
+	lines := make([]string, 0, len(m.DiceRolls)+len(m.StateEffects)+1)
 	if body := strings.TrimSpace(m.Content); body != "" {
 		lines = append(lines, body)
 	}
 	for _, r := range m.DiceRolls {
 		lines = append(lines, commands.DiceMarker+commands.DiceRollLine(r))
+	}
+	for _, r := range m.StateEffects {
+		lines = append(lines, commands.EffectMarker+commands.EffectLine(r))
 	}
 	return strings.Join(lines, "\n")
 }

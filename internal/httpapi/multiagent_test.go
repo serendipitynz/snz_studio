@@ -1111,7 +1111,7 @@ func TestMultiAgentCommands(t *testing.T) {
 		{rollAgainst(10000), "commands.roll.target must be a whole number from 0 to 9999"},
 		{rollAgainst(12.5), "commands.roll"},
 		{map[string]any{"roll": map[string]any{"target": "12"}}, "commands.roll"},
-		{map[string]any{"add": map[string]any{}}, "unknown command"},
+		{map[string]any{"attack": map[string]any{}}, "unknown command"},
 		{"roll", "commands must be an object"},
 	} {
 		rec := doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"commands": bad.commands})
@@ -1135,13 +1135,17 @@ func TestMultiAgentCommands(t *testing.T) {
 		ID string `json:"id"`
 	}
 	unmarshalField(t, decodeJSONMap(t, rec), "chat", &created)
-	if got := readCommands(created.ID); !reflect.DeepEqual(got, rollAgainst(12)) {
-		t.Fatalf("trpg-table chat commands = %v, want roll against 12", got)
+	trpgCommands := rollAgainst(12)
+	for _, name := range []string{"add", "use", "set"} {
+		trpgCommands[name] = map[string]any{}
+	}
+	if got := readCommands(created.ID); !reflect.DeepEqual(got, trpgCommands) {
+		t.Fatalf("trpg-table chat commands = %v, want roll against 12 and the effect commands", got)
 	}
 	emptyID := createEmptyMultiAgentChat(t, h, projectID, "")
 	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+emptyID+"/preset", map[string]any{"presetId": "trpg-table"}), http.StatusOK)
-	if got := readCommands(emptyID); !reflect.DeepEqual(got, rollAgainst(12)) {
-		t.Fatalf("applied trpg-table commands = %v, want roll against 12", got)
+	if got := readCommands(emptyID); !reflect.DeepEqual(got, trpgCommands) {
+		t.Fatalf("applied trpg-table commands = %v, want roll against 12 and the effect commands", got)
 	}
 	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+emptyID+"/preset", map[string]any{"presetId": "debate"}), http.StatusOK)
 	if got := readCommands(emptyID); !reflect.DeepEqual(got, map[string]any{}) {
