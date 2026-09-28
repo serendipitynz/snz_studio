@@ -90,9 +90,13 @@ export interface ChatRecord {
 
 // ChatCommands mirrors the Go model.ChatCommands: command name → its settings, a
 // present key enabling the command. roll.target is what a /roll without 目標 is
-// compared with; 0 compares nothing (design §4.8.3).
+// compared with; 0 compares nothing (design §4.8.3). The effect commands have no
+// settings (design §4.8.8).
 export interface ChatCommands {
   roll?: { target: number };
+  add?: Record<string, never>;
+  use?: Record<string, never>;
+  set?: Record<string, never>;
 }
 
 export interface RecentChat extends ChatRecord {
@@ -216,6 +220,9 @@ export interface MessageRecord {
   // The /roll the message carried, thrown by the app when it was stored; the
   // command line itself is no longer in content (design §4.8.3).
   diceRolls: DiceRoll[];
+  // What the message's effect command did to a state sheet, or why it did
+  // nothing (design §4.8.8).
+  stateEffects: StateEffect[];
   references: AssistantReference[];
 }
 
@@ -230,6 +237,26 @@ export interface DiceRoll {
   total: number;
   target: number;
   success: boolean | null;
+}
+
+// StateEffect mirrors the Go model.StateEffect. participantId is empty for the
+// shared sheet; before is null when the sheet had no line for the item; an
+// effect that was not applied has no after and says why in reason.
+export interface StateEffect {
+  command: string;
+  kind: "add" | "use" | "set";
+  owner: string;
+  participantId: string;
+  item: string;
+  delta: number;
+  expression?: string;
+  dice?: number[];
+  modifier?: number;
+  value?: string;
+  before: string | null;
+  after: string;
+  applied: boolean;
+  reason?: "missing_item" | "not_integer" | "not_positive" | "over_limit";
 }
 
 export interface WorkspaceConfiguration {
@@ -519,11 +546,16 @@ export const api = {
       method: "POST"
     }),
   sendMessage: (chatId: string, content: string) =>
-    request<{ chat: ChatRecord; messages: MessageRecord[]; summary: ChatSummary | null }>(`/api/chats/${chatId}/messages`, {
+    // participants comes with a multi-agent chat: an effect command can change a
+    // participant's state sheet (design §4.8.8).
+    request<{ chat: ChatRecord; messages: MessageRecord[]; summary: ChatSummary | null; participants?: Participant[] }>(
+      `/api/chats/${chatId}/messages`,
+      {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content })
-    }),
+      }
+    ),
   updateChatMultiAgentSettings: (
     chatId: string,
     input: { turnRule?: TurnRule; scenePrompt?: string; facilitatorId?: string; stateSheet?: string; commands?: ChatCommands }

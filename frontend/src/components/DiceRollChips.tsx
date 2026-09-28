@@ -2,6 +2,7 @@ import { DiceRoll, MessageRecord } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
 import { Row, StateBadge, VisuallyHidden } from "../styles/ui";
 import { DiceIcon } from "./icons";
+import { stateEffectText } from "./StateEffectChips";
 
 // The chip is a state badge rather than message text so the numbers read as the
 // app's, not as something the speaker wrote (design §4.8.3 item 3). The tone
@@ -38,12 +39,15 @@ export function DiceRollChips({ rolls }: { rolls: DiceRoll[] }) {
 type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 // messageCopyText is what copying a multi-agent message puts on the clipboard:
-// the body, then one line per roll as its chip reads. The rolls are part of what
-// the message said — a roll-only message has no body at all — so copying the
-// body alone would lose them.
+// the body, then one line per roll and per effect as their chips read. They are
+// part of what the message said — a command-only message has no body at all —
+// so copying the body alone would lose them.
 export function messageCopyText(message: MessageRecord, t: Translate): string {
-  const rolls = (message.diceRolls ?? []).map((roll) => `🎲 ${diceRollText(roll, t)}`);
-  return [message.content, rolls.join("\n")].filter(Boolean).join("\n\n");
+  const records = [
+    ...(message.diceRolls ?? []).map((roll) => `🎲 ${diceRollText(roll, t)}`),
+    ...(message.stateEffects ?? []).map((effect) => `📝 ${stateEffectText(effect, t)}`)
+  ];
+  return [message.content, records.join("\n")].filter(Boolean).join("\n\n");
 }
 
 // "岩棚を渡る 1d20+3 → 4+3 = 7 / 目標 12 失敗": the breakdown the prompt's
