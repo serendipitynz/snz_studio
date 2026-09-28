@@ -298,7 +298,7 @@ func TestPresetCommands(t *testing.T) {
 		"roll.target above 9999": `"commands": {"roll": {"target": 10000}}, `,
 		"roll.target fractional": `"commands": {"roll": {"target": 12.5}}, `,
 		"both forms":             `"commands": {"roll": {"target": 12}}, "diceTarget": 12, `,
-		"an unknown command":     `"commands": {"add": {}}, `,
+		"an unknown command":     `"commands": {"attack": {}}, `,
 		"commands not an object": `"commands": ["roll"], `,
 	} {
 		if _, err := parse(fields); !errors.Is(err, ErrInvalid) {

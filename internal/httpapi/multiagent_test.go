@@ -1111,7 +1111,7 @@ func TestMultiAgentCommands(t *testing.T) {
 		{rollAgainst(10000), "commands.roll.target must be a whole number from 0 to 9999"},
 		{rollAgainst(12.5), "commands.roll"},
 		{map[string]any{"roll": map[string]any{"target": "12"}}, "commands.roll"},
-		{map[string]any{"add": map[string]any{}}, "unknown command"},
+		{map[string]any{"attack": map[string]any{}}, "unknown command"},
 		{"roll", "commands must be an object"},
 	} {
 		rec := doJSON(t, h, "PATCH", "/api/chats/"+chatID, map[string]any{"commands": bad.commands})
