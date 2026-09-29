@@ -64,6 +64,7 @@ func TestAuthTokenGatesAPIAndFiles(t *testing.T) {
 		{"api with correct token", apiRequest(testAuthToken), http.StatusOK},
 		{"files without token", fileRequest(""), http.StatusUnauthorized},
 		{"files with wrong token", fileRequest("wrong-token"), http.StatusUnauthorized},
+		{"files with token prefix", fileRequest(testAuthToken[:len(testAuthToken)-1]), http.StatusUnauthorized},
 		{"files with correct token", fileRequest(testAuthToken), http.StatusOK},
 	}
 	for _, tc := range cases {
@@ -114,10 +115,12 @@ func TestAuthTokenLetsOnlyPreflightThrough(t *testing.T) {
 
 	// Every other method without a token is refused, including the ones a
 	// browser can send cross-origin without a preflight.
-	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
-		rec := serve(h, httptest.NewRequest(method, "/api/projects", nil))
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("%s /api/projects without token status = %d, want %d", method, rec.Code, http.StatusUnauthorized)
+	for _, target := range []string{"/api/projects", "/files/" + upload} {
+		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+			rec := serve(h, httptest.NewRequest(method, target, nil))
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("%s %s without token status = %d, want %d", method, target, rec.Code, http.StatusUnauthorized)
+			}
 		}
 	}
 }
