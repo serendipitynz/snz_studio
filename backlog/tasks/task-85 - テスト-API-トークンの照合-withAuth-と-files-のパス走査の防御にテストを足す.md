@@ -1,10 +1,10 @@
 ---
 id: TASK-85
 title: 'テスト: API トークンの照合 (withAuth) と /files のパス走査の防御にテストを足す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-09-29 21:02'
+updated_date: '2026-09-30 02:17'
 labels:
   - security
 dependencies: []
