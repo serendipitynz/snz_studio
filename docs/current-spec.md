@@ -371,7 +371,8 @@ Persisted in:
 
 - `data/app-config.json`
 
-`.env` acts as the initial/default source, but saved app config overrides it.
+Environment variables (`LLM_BASE_URL` and the rest) are the initial/default source, and saved app config overrides them. The app does not read a `.env` file.
+`LLM_API_KEY` cannot be set from the UI and is attached only to requests whose scheme, host and port match the default endpoint (README "Where the API key is sent").
 
 The settings modal (Settings in the left sidebar) has three sections: appearance, language and connection.
 Appearance and language apply as they are chosen and are stored in localStorage. Only the connection settings

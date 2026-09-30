@@ -134,9 +134,10 @@ pnpm dev
 - This is `scripts/wails.mjs dev` (it passes go.mod's `toolchain` as `GOTOOLCHAIN` and runs
   `wails dev`). A bare `wails dev` also starts, but then your local Go is used as-is and the
   caveat under "Requirements" applies.
-- Development data is created under `./data` (relative to the cwd). `.env` (optional;
-  `cp .env.example .env`) can override defaults such as `LLM_BASE_URL`, but normally you configure
-  these from `Configuration` in the UI.
+- Development data is created under `./data` (relative to the cwd). Endpoints and models are
+  normally changed from the settings in the UI.
+- The app does not read a `.env` file. Defaults such as `LLM_BASE_URL`, and `LLM_API_KEY`, which the
+  UI cannot set, are passed as environment variables (see "LLM connection" for how).
 - Developing against the browser directly (`localhost:5173`) has been dropped, because non-GET
   requests do not reach the API. Use `pnpm dev`.
 
@@ -223,7 +224,9 @@ SNZ_MIGRATE_FROM="/path/to/old/data" "build/bin/SNZ Studio.app/Contents/MacOS/SN
 
 ## LLM connection
 
-An OpenAI-compatible API is assumed. The main `.env` settings are:
+An OpenAI-compatible API is assumed. The values below override the defaults when passed as
+environment variables. The app does not read a `.env` file, so writing them into a `.env` copied
+from `.env.example` has no effect on its own (see "Passing environment variables" below).
 
 - `LLM_BASE_URL`
 - `LLM_MODEL`
@@ -263,12 +266,48 @@ logging minimal and emits no verbose traces.
 
 Endpoints, models, `LLM Response Format` and the review endpoint / model can be updated from
 the settings (the sidebar's gear button, or `Open settings` on the Dashboard). Values saved from the UI are stored in `app-config.json` under the
-app's data directory, take precedence over `.env`, and apply immediately. For thinking-style models
+app's data directory, take precedence over environment variables, and apply immediately. For thinking-style models
 such as `llm-jp-4-8b-thinking`, choosing `LLM-jp Thinking` strips the internal reasoning / tagged
 response and shows only the final answer.
 
 The app itself works even when no local LLM is running. Chat replies then fall back to a canned
 message, which is still useful for checking which references were selected.
+
+### Passing environment variables
+
+`pnpm dev` hands the environment of the shell it starts from to the Go side. To keep the values in a
+`.env` copied from `.env.example`, load it into the shell before starting (`.env` is gitignored):
+
+```bash
+set -a; . ./.env; set +a; pnpm dev
+```
+
+Opening the packaged `SNZ Studio.app` from Finder or the Dock passes no shell environment. When you
+need `LLM_API_KEY`, start the executable from a terminal instead:
+
+```bash
+set -a; . ./.env; set +a; "/Applications/SNZ Studio.app/Contents/MacOS/SNZ Studio"
+```
+
+On Windows, set the variable in PowerShell (for example `$env:LLM_API_KEY = "..."`) and start
+`pnpm dev` or `SNZ Studio.exe` from that same PowerShell.
+
+Writing the key into the command (`LLM_API_KEY=... pnpm dev`) also works, but leaves it in the shell
+history.
+
+### Where the API key is sent
+
+`LLM_API_KEY` is attached only to requests whose scheme, host and port match the default endpoint
+(`LLM_BASE_URL`, or the endpoint saved in the settings). The review endpoint, the image description
+endpoint, a multi-agent participant's own endpoint and the endpoint the settings screen lists models
+from get no key when they differ from it. This keeps the key from going to endpoints written into a
+preset file somebody else sent you. There is no per-participant key, so a participant that needs a
+keyed API has to use the default endpoint's scheme, host and port.
+
+`EMBEDDING_API_KEY` is attached as-is to the external embedding endpoint (`EMBEDDING_MODE=external`).
+When it is empty or unset, `LLM_API_KEY` is borrowed under the same rule: only when the embedding
+endpoint has the default endpoint's scheme, host and port. The bundled embedding (`internal`) never
+receives either key.
 
 ## Implementation approach
 

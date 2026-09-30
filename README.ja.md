@@ -127,8 +127,9 @@ pnpm dev
 - 中身は `scripts/wails.mjs dev`（go.mod の `toolchain` を `GOTOOLCHAIN` に指定して `wails dev`）
   です。素の `wails dev` でも起動はしますが、その場合は手元の Go がそのまま使われるため、
   上の「必要なツール」の注意が当てはまります。
-- 開発時のデータは `./data`（cwd 相対）に作成されます。`.env`（任意・`cp .env.example .env`）で
-  `LLM_BASE_URL` などの既定値を上書きできますが、通常は UI の `Configuration` から設定します。
+- 開発時のデータは `./data`（cwd 相対）に作成されます。接続先やモデルは、通常は UI の設定から変えます。
+- アプリは `.env` ファイルを読みません。`LLM_BASE_URL` などの既定値や、UI から設定できない
+  `LLM_API_KEY` は、環境変数として渡します（渡し方は「LLM 接続」）。
 - ブラウザ直開き（`localhost:5173`）での開発は廃止しました（API への非 GET が届かないため）。開発は
   `pnpm dev` を使ってください。
 
@@ -206,7 +207,9 @@ SNZ_MIGRATE_FROM="/path/to/old/data" "build/bin/SNZ Studio.app/Contents/MacOS/SN
 
 ## LLM 接続
 
-OpenAI 互換 API を前提にしています。`.env` の主な設定は以下です。
+OpenAI 互換 API を前提にしています。次の値を環境変数で渡すと、既定値を上書きできます。アプリは `.env`
+ファイルを読まないので、`.env.example` を写した `.env` に書いただけでは反映されません (渡し方は下の
+「環境変数の渡し方」)。
 
 - `LLM_BASE_URL`
 - `LLM_MODEL`
@@ -241,10 +244,43 @@ embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未
 `DEBUG_CHAT_FLOW` / `DEBUG_RETRIEVAL` は互換のため受け付けますが、Go 版はログを最小限に保つ方針のため
 verbose トレースは出力しません。
 
-設定 (サイドバーの歯車ボタン、または Dashboard の「設定を開く」) から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値はアプリのデータディレクトリの `app-config.json` に保存され、`.env` より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
+設定 (サイドバーの歯車ボタン、または Dashboard の「設定を開く」) から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値はアプリのデータディレクトリの `app-config.json` に保存され、環境変数より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
 
 ローカル LLM が起動していない場合でも、アプリ自体は動作します。  
 その場合 chat 返答は fallback 文面になり、どの参照が選ばれたかの確認に使えます。
+
+### 環境変数の渡し方
+
+`pnpm dev` では、起動するシェルの環境変数がそのまま Go 側に渡ります。`.env.example` を写した `.env` に
+まとめて書くなら、シェルに読み込んでから起動します (`.env` は `.gitignore` 済みです)。
+
+```bash
+set -a; . ./.env; set +a; pnpm dev
+```
+
+配布版の `SNZ Studio.app` を Finder や Dock から開くと、シェルの環境変数は渡りません。`LLM_API_KEY` が
+要るときは、ターミナルから実行ファイルを直接起動します。
+
+```bash
+set -a; . ./.env; set +a; "/Applications/SNZ Studio.app/Contents/MacOS/SNZ Studio"
+```
+
+Windows では、PowerShell で `$env:LLM_API_KEY = "..."` のように設定してから、同じ PowerShell から
+`pnpm dev` か `SNZ Studio.exe` を起動します。
+
+`LLM_API_KEY=... pnpm dev` のようにコマンドへ直接書いても渡せますが、キーがシェルの履歴に残ります。
+
+### API キーが送られる範囲
+
+`LLM_API_KEY` は、既定の接続先 (`LLM_BASE_URL`、または設定で保存した接続先) とスキーム・ホスト・ポートが
+同じ送信先にだけ付けます。review 用の接続先、画像説明の接続先、多人数会話の参加者ごとの接続先、設定画面で
+モデル一覧を取る接続先がそれと違えば、キーは付きません。他人から受け取ったプリセットファイルに書かれた
+接続先へキーが送られないようにするためです。参加者ごとのキーは設定できないので、キーが要る API を参加者に
+使うときは、既定の接続先と同じスキーム・ホスト・ポートにしてください。
+
+`EMBEDDING_API_KEY` は外部の埋め込み接続先 (`EMBEDDING_MODE=external`) にそのまま付けます。空か未設定の
+ときは `LLM_API_KEY` を借りますが、上と同じ規則で、埋め込みの接続先が既定の接続先と同じスキーム・ホスト・
+ポートのときだけです。内蔵の埋め込み (`internal`) には、どちらのキーも送りません。
 
 ## 実装方針
 
