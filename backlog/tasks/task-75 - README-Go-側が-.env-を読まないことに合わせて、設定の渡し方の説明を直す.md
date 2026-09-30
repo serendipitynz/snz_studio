@@ -1,10 +1,10 @@
 ---
 id: TASK-75
 title: 'README: Go 側が .env を読まないことに合わせて、設定の渡し方の説明を直す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-09-30 03:17'
+updated_date: '2026-09-30 03:29'
 labels: []
 dependencies: []
 references:

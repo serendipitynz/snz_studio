@@ -1,10 +1,10 @@
 ---
 id: TASK-70
 title: 'LLM: LLM_API_KEY を、既定の接続先以外 (参加者・レビュー・モデル一覧の取得先) へ送らないようにする'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-09-30 03:22'
+updated_date: '2026-09-30 03:29'
 labels:
   - security
 dependencies: []
