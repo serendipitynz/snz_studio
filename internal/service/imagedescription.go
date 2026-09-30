@@ -64,7 +64,7 @@ type ImageDescriptionService struct {
 // NewImageDescriptionService builds an ImageDescriptionService. Deadlines come
 // from the request context, as in LLMClient.
 func NewImageDescriptionService(cfg *config.Config) *ImageDescriptionService {
-	return &ImageDescriptionService{cfg: cfg, http: &http.Client{}}
+	return &ImageDescriptionService{cfg: cfg, http: newKeyedHTTPClient()}
 }
 
 // Enabled reports whether an image description model is configured.

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -66,4 +67,24 @@ func setBearer(req *http.Request, apiKey string) {
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
+}
+
+// newKeyedHTTPClient builds the http.Client for requests that may carry an API
+// key. net/http keeps Authorization across a redirect to the same hostname on
+// another port or scheme, and to its subdomains — wider than the origin the key
+// was checked against — so a redirect that leaves the first request's origin
+// drops it.
+func newKeyedHTTPClient() *http.Client {
+	return &http.Client{CheckRedirect: keepAuthWithinOrigin}
+}
+
+func keepAuthWithinOrigin(req *http.Request, via []*http.Request) error {
+	// Mirrors net/http's default limit, which a custom CheckRedirect replaces.
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if !sameOrigin(via[0].URL, req.URL) {
+		req.Header.Del("Authorization")
+	}
+	return nil
 }

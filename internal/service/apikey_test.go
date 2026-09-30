@@ -23,12 +23,21 @@ type keyServer struct {
 }
 
 func newKeyServer(t *testing.T) *keyServer {
+	return newInterceptingKeyServer(t, nil)
+}
+
+// newInterceptingKeyServer records every request, then lets intercept answer it
+// first (returning true) before the endpoint replies below.
+func newInterceptingKeyServer(t *testing.T, intercept func(http.ResponseWriter, *http.Request) bool) *keyServer {
 	t.Helper()
 	ks := &keyServer{}
 	ks.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ks.mu.Lock()
 		ks.auth = append(ks.auth, r.Header.Get("Authorization"))
 		ks.mu.Unlock()
+		if intercept != nil && intercept(w, r) {
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/chat/completions") && strings.Contains(string(body), `"stream":true`):
@@ -226,4 +235,51 @@ func TestSameOrigin(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The two httptest servers share the hostname 127.0.0.1 and differ by port, which
+// is the case net/http's own redirect rule lets Authorization through.
+func TestKeyDroppedOnRedirectToAnotherOrigin(t *testing.T) {
+	other := newKeyServer(t)
+	home := newInterceptingKeyServer(t, func(w http.ResponseWriter, r *http.Request) bool {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusTemporaryRedirect)
+		return true
+	})
+
+	settings := keySettings(home.URL)
+	settings.EmbeddingBaseURL = home.URL + "/v1"
+	settings.EmbeddingModel = "e"
+	cfg := testConfig(settings)
+	client := NewLLMClient(cfg)
+
+	if _, err := client.ListModels(""); err != nil {
+		t.Fatalf("list models: %v", err)
+	}
+	if _, err := client.CreateChatCompletion(ChatCompletionInput{UserInput: "hi"}); err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if _, err := NewImageDescriptionService(cfg).DescribeImage(context.Background(), pngBytes); err != nil {
+		t.Fatalf("describe image: %v", err)
+	}
+	if got := NewEmbeddingClient(cfg).CreateEmbedding("text"); got == nil {
+		t.Fatal("CreateEmbedding returned nil")
+	}
+	wantAuth(t, "first hop", home.take(), "Bearer llm-secret")
+	wantAuth(t, "after redirect", other.take(), "")
+}
+
+func TestKeyKeptOnRedirectWithinOrigin(t *testing.T) {
+	home := newInterceptingKeyServer(t, func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/v1/models" {
+			return false
+		}
+		http.Redirect(w, r, "/v1/moved/models", http.StatusTemporaryRedirect)
+		return true
+	})
+
+	client := NewLLMClient(testConfig(keySettings(home.URL)))
+	if _, err := client.ListModels(""); err != nil {
+		t.Fatalf("list models: %v", err)
+	}
+	wantAuth(t, "same-origin redirect", home.take(), "Bearer llm-secret")
 }

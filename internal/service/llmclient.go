@@ -61,7 +61,7 @@ type LLMClient struct {
 // per-request deadlines are enforced through the request context (a sliding
 // deadline for streaming).
 func NewLLMClient(cfg *config.Config) *LLMClient {
-	return &LLMClient{cfg: cfg, http: &http.Client{}}
+	return &LLMClient{cfg: cfg, http: newKeyedHTTPClient()}
 }
 
 var (

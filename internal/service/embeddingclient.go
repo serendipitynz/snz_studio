@@ -41,7 +41,7 @@ func NewEmbeddingClient(cfg *config.Config) *EmbeddingClient {
 	s := cfg.Get()
 	return &EmbeddingClient{
 		cfg:      cfg,
-		http:     &http.Client{},
+		http:     newKeyedHTTPClient(),
 		disabled: strings.TrimSpace(s.EmbeddingModel) == "",
 	}
 }
