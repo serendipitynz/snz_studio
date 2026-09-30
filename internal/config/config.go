@@ -50,8 +50,11 @@ type Editable struct {
 // flags) that are sourced from the environment and never persisted.
 type Settings struct {
 	Editable
-	LLMAPIKey          string
-	LLMTimeoutMs       int
+	LLMAPIKey    string
+	LLMTimeoutMs int
+	// EmbeddingAPIKey holds EMBEDDING_API_KEY only. The LLM_API_KEY fallback is
+	// applied per request (service.embeddingAPIKeyFor) so that it follows the LLM
+	// key's origin rule instead of reaching whatever the embedding endpoint is.
 	EmbeddingAPIKey    string
 	EmbeddingTimeoutMs int
 	// ImageDescriptionTimeoutMs is separate from LLMTimeoutMs because a local
@@ -166,7 +169,7 @@ func Defaults() Settings {
 		},
 		LLMAPIKey:                 getenv("LLM_API_KEY", ""),
 		LLMTimeoutMs:              llmTimeout,
-		EmbeddingAPIKey:           firstNonEmptyEnv("", "EMBEDDING_API_KEY", "LLM_API_KEY"),
+		EmbeddingAPIKey:           getenv("EMBEDDING_API_KEY", ""),
 		EmbeddingTimeoutMs:        parseIntEnv(firstNonEmptyEnv("", "EMBEDDING_TIMEOUT_MS", "LLM_TIMEOUT_MS"), 60000),
 		ImageDescriptionTimeoutMs: parseIntEnv(getenv("IMAGE_DESCRIPTION_TIMEOUT_MS", ""), DefaultImageDescriptionTimeoutMs),
 		DebugChatFlow:             parseBoolFlag(getenv("DEBUG_CHAT_FLOW", "")),

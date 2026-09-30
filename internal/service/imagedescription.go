@@ -144,9 +144,7 @@ func (s *ImageDescriptionService) DescribeImage(ctx context.Context, image []byt
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if settings.LLMAPIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+settings.LLMAPIKey)
-	}
+	setBearer(req, llmAPIKeyFor(settings, req.URL))
 
 	resp, err := s.http.Do(req)
 	if err != nil {

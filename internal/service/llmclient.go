@@ -163,10 +163,8 @@ func buildMessages(input ChatCompletionInput, format string) []chatMessage {
 	return msgs
 }
 
-func (c *LLMClient) authHeader(req *http.Request, apiKey string) {
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
+func (c *LLMClient) authHeader(req *http.Request, s config.Settings) {
+	setBearer(req, llmAPIKeyFor(s, req.URL))
 }
 
 func respOK(resp *http.Response) bool {
@@ -207,7 +205,7 @@ func (c *LLMClient) CreateChatCompletion(input ChatCompletionInput) (*ChatComple
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	c.authHeader(req, s.LLMAPIKey)
+	c.authHeader(req, s)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -299,7 +297,7 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	c.authHeader(req, s.LLMAPIKey)
+	c.authHeader(req, s)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -512,7 +510,7 @@ func (c *LLMClient) ListModels(baseURL string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.authHeader(req, s.LLMAPIKey)
+	c.authHeader(req, s)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
@@ -536,7 +534,7 @@ func (c *LLMClient) ListAvailableModels(baseURL string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.authHeader(req, s.LLMAPIKey)
+	c.authHeader(req, s)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
@@ -582,7 +580,7 @@ func (c *LLMClient) EnsureModelLoaded(modelKey, baseURL string) bool {
 	if err != nil {
 		return false
 	}
-	c.authHeader(listReq, s.LLMAPIKey)
+	c.authHeader(listReq, s)
 	listResp, err := c.http.Do(listReq)
 	if err != nil {
 		return false
@@ -630,7 +628,7 @@ func (c *LLMClient) EnsureModelLoaded(modelKey, baseURL string) bool {
 		return false
 	}
 	loadReq.Header.Set("Content-Type", "application/json")
-	c.authHeader(loadReq, s.LLMAPIKey)
+	c.authHeader(loadReq, s)
 	loadResp, err := c.http.Do(loadReq)
 	if err != nil {
 		return false
