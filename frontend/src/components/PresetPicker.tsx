@@ -1,3 +1,4 @@
+import styled from "@emotion/styled";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, MultiAgentPreset, MultiAgentPresetSelection } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
@@ -13,6 +14,14 @@ import { FileIcon } from "./icons";
 const IMPORTED_PRESET_CHOICE = "__file__";
 
 const GROUP_ORDER = ["discussion", "drama", "hosted", "pair"];
+
+const EndpointList = styled.ul`
+  margin: 4px 0 0;
+  padding-left: 20px;
+  color: ${({ theme }) => theme.muted};
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+`;
 
 // The bundled list is fixed for the life of the process, so it is fetched once
 // and kept here rather than per mount: the picker is mounted and unmounted as
@@ -89,6 +98,7 @@ export function PresetPicker(props: PresetPickerProps) {
   }, [presets]);
 
   const selected = choice === IMPORTED_PRESET_CHOICE ? imported : presets.find((preset) => preset.id === choice) ?? null;
+  const endpointParticipants = selected?.participants.filter((participant) => participant.baseUrl?.trim()) ?? [];
 
   function groupLabel(group: string): string {
     const key = `preset.group.${group}` as MessageKey;
@@ -163,6 +173,21 @@ export function PresetPicker(props: PresetPickerProps) {
           {selected.description}{" "}
           {t("preset.summary", { count: selected.participants.length, turnRule: selected.turnRule })}
         </Subtle>
+      ) : null}
+      {/* Told before applying because applying does not probe the endpoints: a
+          file written elsewhere decides where these participants' turns send the
+          conversation and project material. */}
+      {endpointParticipants.length > 0 ? (
+        <div>
+          <Subtle style={{ margin: 0 }}>{t("preset.endpoints")}</Subtle>
+          <EndpointList>
+            {endpointParticipants.map((participant, index) => (
+              <li key={index}>
+                {participant.displayName}: <code>{participant.baseUrl?.trim()}</code>
+              </li>
+            ))}
+          </EndpointList>
+        </div>
       ) : null}
       <Row style={{ alignItems: "center", gap: 10 }}>
         {/* One line: wrapped over two, the button read as two actions in the

@@ -490,7 +490,8 @@ workspace-wide configuration として次を持ちます。
 
 - `data/app-config.json`
 
-`.env` は初期値であり、UI 保存後は app config が優先されます。
+環境変数 (`LLM_BASE_URL` など) が初期値で、UI 保存後は app config が優先されます。アプリは `.env` ファイルを読みません。
+`LLM_API_KEY` は UI から設定できず、既定の接続先とスキーム・ホスト・ポートが同じ送信先にだけ付けます (README の「API キーが送られる範囲」)。
 
 設定モーダル (左サイドバーの「設定」) は、外観・言語・接続の3区画を持ちます。
 外観と言語は選んだ時点で効き、localStorage に保存します。接続だけが下書きで、「設定を保存」で送ります。

@@ -64,7 +64,7 @@ type ImageDescriptionService struct {
 // NewImageDescriptionService builds an ImageDescriptionService. Deadlines come
 // from the request context, as in LLMClient.
 func NewImageDescriptionService(cfg *config.Config) *ImageDescriptionService {
-	return &ImageDescriptionService{cfg: cfg, http: &http.Client{}}
+	return &ImageDescriptionService{cfg: cfg, http: newKeyedHTTPClient()}
 }
 
 // Enabled reports whether an image description model is configured.
@@ -144,9 +144,7 @@ func (s *ImageDescriptionService) DescribeImage(ctx context.Context, image []byt
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if settings.LLMAPIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+settings.LLMAPIKey)
-	}
+	setBearer(req, llmAPIKeyFor(settings, req.URL))
 
 	resp, err := s.http.Do(req)
 	if err != nil {

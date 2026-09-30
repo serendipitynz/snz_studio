@@ -14,6 +14,7 @@ func TestDefaultsEnvFallbacks(t *testing.T) {
 	os.Unsetenv("REVIEW_BASE_URL")
 	os.Unsetenv("EMBEDDING_BASE_URL")
 	os.Unsetenv("EMBEDDING_TIMEOUT_MS")
+	os.Unsetenv("EMBEDDING_API_KEY")
 	t.Setenv("LLM_API_KEY", "secret")
 
 	s := Defaults()
@@ -26,8 +27,8 @@ func TestDefaultsEnvFallbacks(t *testing.T) {
 	if s.LLMTimeoutMs != 1234 || s.EmbeddingTimeoutMs != 1234 {
 		t.Fatalf("timeouts = %d / %d, want 1234 (embedding falls back to LLM)", s.LLMTimeoutMs, s.EmbeddingTimeoutMs)
 	}
-	if s.EmbeddingAPIKey != "secret" {
-		t.Fatalf("embedding api key should fall back to LLM key, got %q", s.EmbeddingAPIKey)
+	if s.EmbeddingAPIKey != "" {
+		t.Fatalf("embedding api key = %q, want empty: the LLM key fallback is applied per request", s.EmbeddingAPIKey)
 	}
 	if s.LLMResponseFormat != "standard" {
 		t.Fatalf("default response format = %q, want standard", s.LLMResponseFormat)

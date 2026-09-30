@@ -41,7 +41,7 @@ func NewEmbeddingClient(cfg *config.Config) *EmbeddingClient {
 	s := cfg.Get()
 	return &EmbeddingClient{
 		cfg:      cfg,
-		http:     &http.Client{},
+		http:     newKeyedHTTPClient(),
 		disabled: strings.TrimSpace(s.EmbeddingModel) == "",
 	}
 }
@@ -91,10 +91,8 @@ func (c *EmbeddingClient) ActivePrefixScheme() PrefixScheme {
 	return PrefixScheme{}
 }
 
-func (c *EmbeddingClient) authHeader(req *http.Request, apiKey string) {
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
+func (c *EmbeddingClient) authHeader(req *http.Request, s config.Settings) {
+	setBearer(req, embeddingAPIKeyFor(s, req.URL))
 }
 
 // ListModels mirrors the embedding listModels.
@@ -111,7 +109,7 @@ func (c *EmbeddingClient) ListModels(baseURL string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.authHeader(req, s.EmbeddingAPIKey)
+	c.authHeader(req, s)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
@@ -134,7 +132,7 @@ func (c *EmbeddingClient) ListAvailableModels(baseURL string) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
-	c.authHeader(req, s.EmbeddingAPIKey)
+	c.authHeader(req, s)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
@@ -180,7 +178,7 @@ func (c *EmbeddingClient) EnsureModelLoaded(modelKey, baseURL string) bool {
 	if err != nil {
 		return false
 	}
-	c.authHeader(listReq, s.EmbeddingAPIKey)
+	c.authHeader(listReq, s)
 	listResp, err := c.http.Do(listReq)
 	if err != nil {
 		return false
@@ -228,7 +226,7 @@ func (c *EmbeddingClient) EnsureModelLoaded(modelKey, baseURL string) bool {
 		return false
 	}
 	loadReq.Header.Set("Content-Type", "application/json")
-	c.authHeader(loadReq, s.EmbeddingAPIKey)
+	c.authHeader(loadReq, s)
 	loadResp, err := c.http.Do(loadReq)
 	if err != nil {
 		return false
@@ -297,7 +295,7 @@ func (c *EmbeddingClient) CreateEmbeddings(inputs []string) [][]float64 {
 		return nil
 	}
 	req.Header.Set("Content-Type", "application/json")
-	c.authHeader(req, s.EmbeddingAPIKey)
+	c.authHeader(req, s)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
