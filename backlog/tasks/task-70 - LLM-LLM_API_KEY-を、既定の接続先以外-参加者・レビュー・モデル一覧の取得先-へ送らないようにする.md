@@ -4,7 +4,7 @@ title: 'LLM: LLM_API_KEY を、既定の接続先以外 (参加者・レビュ�
 status: In Review
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-09-30 03:17'
+updated_date: '2026-09-30 03:22'
 labels:
   - security
 dependencies: []
@@ -84,4 +84,10 @@ ordinal: 70000
 - `go test ./...` 全件成功、`pnpm check:client`・`pnpm build:client` 成功。
 - 画面: `pnpm dev` の Wails ブラウザ用サーバー (localhost:34115) で、接続先 2 人・なし 1 人のファイルを読み込ませ、2 人だけが並ぶこと、同梱プリセット (debate) では注記が出ないことを確かめた。4 配色の比は測っていない (既存の Subtle と同じ `theme.muted` を使う)。実窓 (WKWebView) での見え方は未確認。
 - README.md / README.ja.md / .env.example に、キーが送られる範囲を書いた (AC#5)。docs/current-spec(.ja).md の記述も合わせた。
+
+## レビュー 1 回目の修正 (#66、Codex [P2])
+
+- net/http はリダイレクト先のホスト名が同じ (または親ドメイン) なら、ポートやスキームが違っても Authorization を引き継ぐ (`shouldCopyHeaderOnRedirect` を Go 1.27.1 のソースで確認)。最初の要求だけを判定していたので、既定の接続先が別ポートへリダイレクトするとキーが漏れた。
+- LLM・埋め込み・画像説明の http.Client に共通の CheckRedirect (`keepAuthWithinOrigin`) を付け、最初の要求のオリジンを出るホップで Authorization を外す。独自の CheckRedirect は既定の 10 回制限を失うので、同じ制限を持たせた。
+- テスト: 127.0.0.1 の別ポートへ 307 するサーバーで、一覧・補完・画像説明・埋め込みのリダイレクト先にキーが届かないこと、同一オリジン内のリダイレクトでは残ることを確認。CheckRedirect を外すと前者が落ちる。`go test -race` も成功。
 <!-- SECTION:NOTES:END -->
