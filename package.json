@@ -9,7 +9,8 @@
     "build:app": "node scripts/wails.mjs build",
     "dev:client": "vite --config frontend/vite.config.ts",
     "build:client": "vite build --config frontend/vite.config.ts",
-    "check:client": "tsc -p frontend/tsconfig.json --noEmit"
+    "check:client": "tsc -p frontend/tsconfig.json --noEmit",
+    "test:client": "node --test \"frontend/test/**/*.test.ts\""
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

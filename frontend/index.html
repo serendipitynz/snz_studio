@@ -3,6 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The WebView may fetch only from the app itself and the loopback Go server
+      (http://127.0.0.1:<port>, ephemeral in a packaged build), so nothing rendered
+      from documents or LLM output can reach another host. data:/blob: images are
+      the CSS icons and the image-dialog preview; emotion injects <style> tags,
+      hence 'unsafe-inline' for styles only.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:*; object-src 'none'; base-uri 'none'"
+    />
     <title>SNZ Studio</title>
   </head>
   <body>

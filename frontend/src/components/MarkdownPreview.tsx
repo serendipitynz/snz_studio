@@ -1,6 +1,9 @@
 import { useTheme } from "@emotion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { fileSrc } from "../api/client";
+import { useLanguage } from "../i18n";
+import { markdownUploadPath } from "./markdownImage";
 
 interface MarkdownPreviewProps {
   source: string;
@@ -8,6 +11,7 @@ interface MarkdownPreviewProps {
 
 export function MarkdownPreview({ source }: MarkdownPreviewProps) {
   const t = useTheme();
+  const { t: tr } = useLanguage();
   return (
     <div style={{ lineHeight: 1.7, overflowWrap: "anywhere" }}>
       <ReactMarkdown
@@ -39,6 +43,20 @@ export function MarkdownPreview({ source }: MarkdownPreviewProps) {
               {children}
             </a>
           ),
+          img: ({ src, alt }) => {
+            const uploadPath = markdownUploadPath(src);
+            if (uploadPath) {
+              return <img src={fileSrc(uploadPath)} alt={alt ?? ""} style={{ maxWidth: "100%" }} />;
+            }
+            const label = tr("markdown.blockedImage", { label: alt || src || "" });
+            return src ? (
+              <a href={src} target="_blank" rel="noreferrer" style={{ color: t.accent }}>
+                {label}
+              </a>
+            ) : (
+              <span>{label}</span>
+            );
+          },
           table: ({ children }) => (
             <div style={{ overflowX: "auto", marginBottom: 14 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>{children}</table>
