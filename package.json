@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "node scripts/wails.mjs dev",
     "build:app": "node scripts/wails.mjs build",
+    "sidecar": "node scripts/sidecar.mjs",
     "dev:client": "vite --config frontend/vite.config.ts",
     "build:client": "vite build --config frontend/vite.config.ts",
     "check:client": "tsc -p frontend/tsconfig.json --noEmit",
