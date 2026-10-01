@@ -1,10 +1,10 @@
 ---
 id: TASK-69
 title: '表示: Markdown の外部 URL 画像を読み込まないようにし、WebView に CSP を入れる'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-10-01 21:59'
+updated_date: '2026-10-01 22:17'
 labels:
   - security
 dependencies: []
