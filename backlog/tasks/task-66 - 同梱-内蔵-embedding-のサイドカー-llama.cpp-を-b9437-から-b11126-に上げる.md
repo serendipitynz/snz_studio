@@ -1,10 +1,10 @@
 ---
 id: TASK-66
 title: '同梱: 内蔵 embedding のサイドカー llama.cpp を b9437 から b11126 に上げる'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 19:47'
-updated_date: '2026-10-02 19:55'
+updated_date: '2026-10-02 20:08'
 labels: []
 dependencies: []
 references:
@@ -64,7 +64,7 @@ TASK-73 はこの「設定保存のたびに全件を再計算する」挙動を
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 build.yml (macOS / Windows) と build-mac-signed.sh が同梱するサイドカーの版が b11126 になっている
-- [ ] #2 macOS と Windows の両方で、b11126 のサイドカーが既存の GGUF (sha256 2a6cb2d9…) を読み込み、/health と 256 次元の probe を通って内蔵 embedding が ready になる
+- [x] #2 macOS と Windows の両方で、b11126 のサイドカーが既存の GGUF (sha256 2a6cb2d9…) を読み込み、/health と 256 次元の probe を通って内蔵 embedding が ready になる
 - [x] #3 ready になった後の再計算 (RebuildAll) を経て、サンプル文書での意味検索の結果が b9437 のときと比べて明らかに劣化していない
 - [x] #4 THIRD_PARTY_NOTICES.md の同梱バイナリの版と llama.cpp の LICENSE 全文が b11126 のものになっている。GGUF の生成に使った版の記述は b9437 のまま
 - [x] #5 README.md / README.ja.md / docs/local-generation-design.md の同梱版の記述が更新されている
@@ -96,4 +96,8 @@ TASK-73 はこの「設定保存のたびに全件を再計算する」挙動を
 
 ## 未確認 (Windows)
 - AC#2 の Windows 分。CI (workflow_dispatch) の Windows ジョブで b11126 が取得・配置されること、その成果物か実機の pnpm sidecar + pnpm dev で内蔵 embedding が ready になること
+
+## 確認 (Windows、2026-10-03)
+- 実機 (ユーザー確認): pnpm sidecar → pnpm dev で内蔵 embedding が ready (AC#2 の Windows 分)
+- CI (workflow_dispatch、run 37057977503、HEAD 6bd3ffe): Windows ジョブの pnpm sidecar --app が b11126 の win-cpu-x64.zip を取得・照合して build\bin に 30 ファイル (llama-server.exe と DLL 29 個、TASK-67 と同じ構成) を置いた。macOS ジョブも b11126 を .app の Resources に 36 ファイル置いた。両ジョブとも成功
 <!-- SECTION:NOTES:END -->
