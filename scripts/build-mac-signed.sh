@@ -27,7 +27,6 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-snzstudio}"
 APP="build/bin/snz-studio.app"
 DMG="build/bin/SNZ-Studio.dmg"
 ENTITLEMENTS="build/darwin/entitlements.plist"
-WAILS="${WAILS:-$HOME/go/bin/wails}"
 # Bundled embedding sidecar (llama.cpp): scripts/sidecar.mjs pins the release and
 # verifies the archive. SIDECAR_ARCH defaults to arm64 (Apple Silicon); a universal
 # sidecar would require lipo-ing arm64 + amd64 binaries and dylibs (TODO).
@@ -60,7 +59,9 @@ fi
 echo "    Notary profile:   $NOTARY_PROFILE"
 
 echo "==> Building app ($PLATFORM)"
-"$WAILS" build -platform "$PLATFORM" -clean
+# Through scripts/wails.mjs, not a bare `wails`: it pins GOTOOLCHAIN to go.mod's
+# toolchain, without which a newer local Go breaks binding generation.
+node scripts/wails.mjs build -platform "$PLATFORM" -clean
 
 ENT_ARGS=()
 [[ -f "$ENTITLEMENTS" ]] && ENT_ARGS=(--entitlements "$ENTITLEMENTS") && echo "    entitlements: $ENTITLEMENTS"
@@ -114,9 +115,12 @@ done
 codesign --force --options runtime --timestamp \
   "${ENT_ARGS[@]+"${ENT_ARGS[@]}"}" --sign "$DEVELOPER_ID" "$RES/llama-server"
 
-echo "==> Codesigning .app (hardened runtime + secure timestamp)"
-codesign --force --options runtime --timestamp \
-  "${ENT_ARGS[@]+"${ENT_ARGS[@]}"}" --sign "$DEVELOPER_ID" "$APP"
+echo "==> Codesigning .app (hardened runtime + secure timestamp, no entitlements)"
+# The JIT entitlements stay on llama-server only. The Go main binary never needs
+# writable-executable memory, and WKWebView's JavaScript JIT runs in WebKit's own
+# WebContent process, which carries Apple's entitlements rather than ours — so
+# granting them here would only weaken the hardened runtime of the main process.
+codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
 echo "==> Creating .dmg (with a drag-to-install /Applications target)"
