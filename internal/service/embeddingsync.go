@@ -26,6 +26,12 @@ type EmbeddingSyncService struct {
 	idle    *sync.Cond
 	running bool
 	pending corpusPass
+	// rebuildOwed stays set from a rebuild request until a rebuild completes. A
+	// rebuild that fails (the new endpoint is down) leaves the old source's
+	// vectors under a model name that may not have changed, and SyncMissing
+	// cannot tell those from current ones, so gap fills run as rebuilds until
+	// one gets through.
+	rebuildOwed bool
 }
 
 // corpusPass is ordered so that a larger value covers a smaller one: a full
@@ -67,6 +73,11 @@ func (s *EmbeddingSyncService) WaitIdle() {
 func (s *EmbeddingSyncService) schedule(pass corpusPass) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if pass == passRebuild {
+		s.rebuildOwed = true
+	} else if s.rebuildOwed {
+		pass = passRebuild
+	}
 	if pass > s.pending {
 		s.pending = pass
 	}
@@ -91,8 +102,14 @@ func (s *EmbeddingSyncService) drain() {
 
 		switch pass {
 		case passRebuild:
-			if err := s.RebuildAll(); err != nil {
+			complete, err := s.rebuildAll()
+			if err != nil {
 				log.Printf("Embedding rebuild skipped: %v", err)
+			}
+			if complete {
+				s.mu.Lock()
+				s.rebuildOwed = false
+				s.mu.Unlock()
 			}
 		case passMissing:
 			if err := s.SyncMissing(); err != nil {
@@ -143,7 +160,8 @@ func (s *EmbeddingSyncService) SyncDocument(documentID string) error {
 	if err != nil {
 		return err
 	}
-	return s.embedChunks(chunks, model)
+	_, err = s.embedChunks(chunks, model)
+	return err
 }
 
 // SyncMemories mirrors syncMemories(memoryIds).
@@ -156,7 +174,8 @@ func (s *EmbeddingSyncService) SyncMemories(memoryIDs []string) error {
 	if err != nil {
 		return err
 	}
-	return s.embedMemories(memories, model)
+	_, err = s.embedMemories(memories, model)
+	return err
 }
 
 // SyncMissing embeds only the chunks and memories that have no embedding for the
@@ -174,36 +193,51 @@ func (s *EmbeddingSyncService) SyncMissing() error {
 	if err != nil {
 		return err
 	}
-	if err := s.embedChunks(chunks, model); err != nil {
+	if _, err := s.embedChunks(chunks, model); err != nil {
 		return err
 	}
 	memories, err := s.memories.ListMissingEmbedding(model)
 	if err != nil {
 		return err
 	}
-	return s.embedMemories(memories, model)
+	_, err = s.embedMemories(memories, model)
+	return err
 }
 
 // RebuildAll mirrors rebuildAll: re-embed every chunk and memory. Callers outside
 // tests go through RequestRebuild so it never overlaps another corpus pass.
 func (s *EmbeddingSyncService) RebuildAll() error {
+	_, err := s.rebuildAll()
+	return err
+}
+
+// rebuildAll reports whether the rebuild replaced the corpus: it ran, the model
+// held, neither half failed outright, and the endpoint stayed reachable. Inputs the endpoint rejects one by one
+// do not count against it — they would otherwise turn every later gap fill into
+// a full rebuild for good.
+func (s *EmbeddingSyncService) rebuildAll() (bool, error) {
 	if !s.embeddings.IsEnabled() {
-		return nil
+		return false, nil
 	}
 	model := s.embeddings.GetModel()
 
 	chunks, err := s.documents.ListChunksForEmbedding("")
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := s.embedChunks(chunks, model); err != nil {
-		return err
+	chunksDone, err := s.embedChunks(chunks, model)
+	if err != nil {
+		return false, err
 	}
 	memories, err := s.memories.ListForEmbedding(nil)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return s.embedMemories(memories, model)
+	memoriesDone, err := s.embedMemories(memories, model)
+	if err != nil {
+		return false, err
+	}
+	return chunksDone && memoriesDone && s.embeddings.IsEnabled(), nil
 }
 
 // embedChunks embeds chunks and stores the vectors under model, the model that was
@@ -211,9 +245,10 @@ func (s *EmbeddingSyncService) RebuildAll() error {
 // moved on by the time they are ready: they may then come from either model, and
 // one row per chunk means storing them would overwrite whatever the new model's
 // pass stores. The switch that moved the model schedules that pass itself.
-func (s *EmbeddingSyncService) embedChunks(chunks []repository.ChunkForEmbedding, model string) error {
+// It reports whether the vectors were stored (trivially so for no chunks).
+func (s *EmbeddingSyncService) embedChunks(chunks []repository.ChunkForEmbedding, model string) (bool, error) {
 	if len(chunks) == 0 {
-		return nil
+		return true, nil
 	}
 	inputs := make([]string, len(chunks))
 	for i, chunk := range chunks {
@@ -221,15 +256,18 @@ func (s *EmbeddingSyncService) embedChunks(chunks []repository.ChunkForEmbedding
 	}
 	vectors := s.embedInBatches(inputs, model)
 	if vectors == nil || !s.modelStillActive(model) {
-		return nil
+		return false, nil
 	}
-	return s.documents.UpsertChunkEmbeddings(toChunkEmbeddings(chunks, vectors, model))
+	if err := s.documents.UpsertChunkEmbeddings(toChunkEmbeddings(chunks, vectors, model)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // embedMemories is the memory counterpart of embedChunks.
-func (s *EmbeddingSyncService) embedMemories(memories []repository.MemoryForEmbedding, model string) error {
+func (s *EmbeddingSyncService) embedMemories(memories []repository.MemoryForEmbedding, model string) (bool, error) {
 	if len(memories) == 0 {
-		return nil
+		return true, nil
 	}
 	inputs := make([]string, len(memories))
 	for i, memory := range memories {
@@ -237,9 +275,12 @@ func (s *EmbeddingSyncService) embedMemories(memories []repository.MemoryForEmbe
 	}
 	vectors := s.embedInBatches(inputs, model)
 	if vectors == nil || !s.modelStillActive(model) {
-		return nil
+		return false, nil
 	}
-	return s.memories.UpsertMemoryEmbeddings(toMemoryEmbeddings(memories, vectors, model))
+	if err := s.memories.UpsertMemoryEmbeddings(toMemoryEmbeddings(memories, vectors, model)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *EmbeddingSyncService) modelStillActive(model string) bool {

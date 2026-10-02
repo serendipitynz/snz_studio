@@ -150,3 +150,61 @@ func TestEmbeddingSourceChanged(t *testing.T) {
 		}
 	}
 }
+
+// Moving to another endpoint that serves the same model name leaves the old
+// endpoint's vectors looking current to SyncMissing, so a rebuild that failed
+// must still run on a later save once the endpoint answers.
+func TestFailedSourceChangeRebuildRunsOnTheNextSave(t *testing.T) {
+	srv, _ := newExternalEmbeddingServer(t)
+	h := srv.Handler()
+	srv.embeddingSync.RequestRebuild()
+	srv.embeddingSync.WaitIdle()
+
+	var failing atomic.Bool
+	failing.Store(true)
+	var embedded atomic.Int64
+	moved := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			http.NotFound(w, r)
+			return
+		}
+		if failing.Load() {
+			http.Error(w, `{"error":{"message":"loading model"}}`, http.StatusServiceUnavailable)
+			return
+		}
+		var body struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		data := make([]map[string]any, len(body.Input))
+		for i := range body.Input {
+			data[i] = map[string]any{"embedding": []float64{0.1, 0.9}}
+		}
+		embedded.Add(int64(len(body.Input)))
+		writeJSON(w, http.StatusOK, map[string]any{"data": data})
+	}))
+	t.Cleanup(moved.Close)
+
+	saved := srv.cfg.GetEditable()
+	saved.EmbeddingBaseURL = moved.URL + "/v1"
+	wantStatus(t, doJSON(t, h, "PUT", "/api/configuration", configurationBody(saved)), http.StatusOK)
+	srv.embeddingSync.WaitIdle()
+	if got := embedded.Load(); got != 0 {
+		t.Fatalf("the failing endpoint embedded %d inputs", got)
+	}
+
+	failing.Store(false)
+	wantStatus(t, doJSON(t, h, "PUT", "/api/configuration", configurationBody(saved)), http.StatusOK)
+	srv.embeddingSync.WaitIdle()
+	if got := embedded.Load(); got != 2 {
+		t.Fatalf("the save after recovery embedded %d inputs, want 2 (the owed rebuild)", got)
+	}
+
+	// Once the rebuild has gone through, an unchanged save is a gap fill again.
+	embedded.Store(0)
+	wantStatus(t, doJSON(t, h, "PUT", "/api/configuration", configurationBody(saved)), http.StatusOK)
+	srv.embeddingSync.WaitIdle()
+	if got := embedded.Load(); got != 0 {
+		t.Fatalf("an unchanged save after a completed rebuild embedded %d inputs, want 0", got)
+	}
+}
