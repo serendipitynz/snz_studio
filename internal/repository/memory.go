@@ -411,6 +411,11 @@ type MemoryEmbedding struct {
 	Model     string
 }
 
+// DeleteMemoryEmbeddings removes the stored vectors of the given memories.
+func (r *MemoryRepository) DeleteMemoryEmbeddings(memoryIDs []string) error {
+	return deleteByIDs(r.db, "DELETE FROM memory_embeddings WHERE memory_id = ?", memoryIDs)
+}
+
 // UpsertMemoryEmbeddings inserts or replaces memory embeddings. Mirrors
 // upsertMemoryEmbeddings.
 func (r *MemoryRepository) UpsertMemoryEmbeddings(rows []MemoryEmbedding) error {

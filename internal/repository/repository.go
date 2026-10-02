@@ -106,3 +106,22 @@ func inPlaceholders(n int) string {
 	}
 	return string(b)
 }
+
+// deleteByIDs runs a single-id DELETE once per id in one transaction; a loop
+// rather than an IN list keeps a large id set under SQLite's variable limit.
+func deleteByIDs(db *sql.DB, query string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, id := range ids {
+		if _, err := tx.Exec(query, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

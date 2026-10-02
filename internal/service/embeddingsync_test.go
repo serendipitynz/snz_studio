@@ -342,3 +342,125 @@ func TestRebuildDiscardsVectorsWhenTheModelSwitchesMidPass(t *testing.T) {
 		t.Fatalf("chunks missing a new-model embedding: %d (err %v)", len(chunks), err)
 	}
 }
+
+// embedCount reports how many chunks and memories hold a vector for model.
+func embedCount(t *testing.T, documents *repository.DocumentRepository, memories *repository.MemoryRepository, model string) (chunks, mems int) {
+	t.Helper()
+	allChunks, err := documents.ListChunksForEmbedding("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingChunks, err := documents.ListChunksMissingEmbedding(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allMemories, err := memories.ListForEmbedding(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingMemories, err := memories.ListMissingEmbedding(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(allChunks) - len(missingChunks), len(allMemories) - len(missingMemories)
+}
+
+func TestRebuildDropsTheOldVectorOfAnInputThatFails(t *testing.T) {
+	d := newServiceTestDB(t)
+	projects := repository.NewProjectRepository(d)
+	documents := repository.NewDocumentRepository(d)
+	memories := repository.NewMemoryRepository(d)
+	seedSyncCorpus(t, projects, documents, memories)
+
+	// The endpoint behind the same model name changes, and on the rebuild for
+	// that change one chunk fails on its own.
+	var rejectLighthouse atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		data := []map[string]any{}
+		for _, in := range body.Input {
+			if rejectLighthouse.Load() && strings.Contains(in, "灯台") {
+				http.Error(w, "busy", http.StatusServiceUnavailable)
+				return
+			}
+			data = append(data, map[string]any{"embedding": []float64{1, 0, 0}})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	t.Cleanup(srv.Close)
+	sync := NewEmbeddingSyncService(documents, memories, enabledEmbeddingClient(srv.URL, "m"))
+	if err := sync.RebuildAll(); err != nil {
+		t.Fatal(err)
+	}
+
+	rejectLighthouse.Store(true)
+	if err := sync.RebuildAll(); err != nil {
+		t.Fatal(err)
+	}
+	if chunks, mems := embedCount(t, documents, memories, "m"); chunks != 1 || mems != 1 {
+		t.Fatalf("after the partial rebuild %d chunks and %d memories hold a vector, want 1 and 1 (the failed chunk's old vector dropped)", chunks, mems)
+	}
+
+	rejectLighthouse.Store(false)
+	if err := sync.SyncMissing(); err != nil {
+		t.Fatal(err)
+	}
+	if chunks, _ := embedCount(t, documents, memories, "m"); chunks != 2 {
+		t.Fatalf("after the gap fill %d chunks hold a vector, want 2", chunks)
+	}
+}
+
+func TestACompletedRebuildDoesNotSettleOneRequestedWhileItRan(t *testing.T) {
+	d := newServiceTestDB(t)
+	projects := repository.NewProjectRepository(d)
+	documents := repository.NewDocumentRepository(d)
+	memories := repository.NewMemoryRepository(d)
+	seedSyncCorpus(t, projects, documents, memories)
+
+	var calls, embedded atomic.Int64
+	var healthy atomic.Bool
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n == 1 {
+			close(started)
+			<-release
+		}
+		// The first pass (one chunk batch, one memory batch) succeeds; the
+		// endpoint it was asked to move to fails until it comes up.
+		if n > 2 && !healthy.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		var body struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		data := make([]map[string]any, len(body.Input))
+		for i := range body.Input {
+			data[i] = map[string]any{"embedding": []float64{1, 0, 0}}
+		}
+		embedded.Add(int64(len(body.Input)))
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	t.Cleanup(srv.Close)
+	sync := NewEmbeddingSyncService(documents, memories, enabledEmbeddingClient(srv.URL, "m"))
+
+	sync.RequestRebuild()
+	<-started
+	sync.RequestRebuild()
+	close(release)
+	sync.WaitIdle()
+
+	healthy.Store(true)
+	embedded.Store(0)
+	sync.RequestSyncMissing()
+	sync.WaitIdle()
+	if got := embedded.Load(); got != 3 {
+		t.Fatalf("the gap fill after the failed second rebuild embedded %d inputs, want 3 (run as the owed rebuild)", got)
+	}
+}
