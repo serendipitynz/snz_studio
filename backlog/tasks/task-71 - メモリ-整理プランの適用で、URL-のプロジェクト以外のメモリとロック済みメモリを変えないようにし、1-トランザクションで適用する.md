@@ -4,7 +4,7 @@ title: 'メモリ: 整理プランの適用で、URL のプロジェクト以外
 status: In Review
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-10-02 08:25'
+updated_date: '2026-10-02 08:30'
 labels:
   - security
 dependencies: []
@@ -77,4 +77,10 @@ ordinal: 71000
 ## 見ていないもの
 
 - UI からの整理の実操作は確かめていない。フロントは analyze が返したプランをそのまま送り返すだけで、この変更で API の入出力の形は変わっていない。
+
+## レビュー対応 (PR #70 第 1 ラウンド)
+
+- Codex の [P2]: サービス経由では `sanitizePlan` が不正な kind の create を黙って捨てるため、統合プラン (統合先の create + 元メモリの remove) の create だけが落ち、元のメモリが置き換え先のないまま消える。AC #3 はプラン単位の話なので指摘どおりと判断した。
+- 対応として、`sanitizePlan` が 1 件でも変更を落とすプランは `ErrMalformedPlan` で全体を拒否し、HTTP は 400 `plan has a malformed change` を返すようにした。analyze が返すプランは sanitize 済みなので、通常の流れで拒否されることはない。別プロジェクトの ID やロック済みメモリへの変更は、従来どおり拒否せず no-op にしている (AC #1 / #2)。
+- AC #3 の根拠に次を加えた。`TestMemoryOrganizerApplyRejectsMalformedPlan` では、不正 kind の create と remove を組んだプランがエラーになり、メモリが変わらない。`TestMemoryOrganizeFallback` では、HTTP が 400 を返す。拒否の条件を外す変異を入れると、どちらのテストも落ちる。
 <!-- SECTION:NOTES:END -->
