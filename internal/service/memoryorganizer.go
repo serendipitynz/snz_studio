@@ -214,66 +214,16 @@ func (s *MemoryOrganizerService) AnalyzeProject(projectID string) (model.MemoryO
 	return buildFallbackPlan(memories, summaries), nil
 }
 
-// ApplyProjectPlan mirrors applyProjectPlan.
+// ApplyProjectPlan applies a plan the client sends back after AnalyzeProject. The
+// plan is sanitized again because nothing guarantees it is the one analyze
+// returned; the repository then applies it in one transaction, skipping changes
+// to memories outside the project or locked. Embeddings are synced only after the
+// commit, so an embedding failure cannot leave the plan half-applied.
 func (s *MemoryOrganizerService) ApplyProjectPlan(projectID string, plan model.MemoryOrganizationPlan) ([]model.Memory, error) {
-	existingList, err := s.memories.ListByProject(projectID)
+	sanitized := sanitizePlan(plan.Summary, plan.Changes)
+	affectedMemoryIDs, err := s.memories.ApplyOrganization(projectID, sanitized.Changes)
 	if err != nil {
 		return nil, err
-	}
-	existing := make(map[string]model.Memory, len(existingList))
-	for _, memory := range existingList {
-		existing[memory.ID] = memory
-	}
-
-	affectedMemoryIDs := []string{}
-	for _, change := range plan.Changes {
-		var current *model.Memory
-		if change.MemoryID != "" {
-			if m, ok := existing[change.MemoryID]; ok {
-				current = &m
-			}
-		}
-
-		switch {
-		case change.Action == "remove" && change.MemoryID != "":
-			if current != nil && current.Locked {
-				continue
-			}
-			if _, err := s.memories.DeleteMemory(change.MemoryID); err != nil {
-				return nil, err
-			}
-
-		case change.Action == "update" && change.MemoryID != "" && change.Kind != "" && change.Title != "" && change.Content != "":
-			if current != nil && current.Locked {
-				continue
-			}
-			updated, err := s.memories.UpdateMemory(repository.UpdateMemoryInput{
-				MemoryID: change.MemoryID,
-				Kind:     change.Kind,
-				Title:    change.Title,
-				Content:  change.Content,
-			})
-			if err != nil {
-				return nil, err
-			}
-			if updated != nil {
-				affectedMemoryIDs = append(affectedMemoryIDs, updated.ID)
-			}
-
-		case change.Action == "create" && change.Kind != "" && change.Title != "" && change.Content != "":
-			created, err := s.memories.CreateMemory(repository.CreateMemoryInput{
-				ProjectID: projectID,
-				Kind:      change.Kind,
-				Title:     change.Title,
-				Content:   change.Content,
-				Source:    "organized",
-				Locked:    false,
-			})
-			if err != nil {
-				return nil, err
-			}
-			affectedMemoryIDs = append(affectedMemoryIDs, created.ID)
-		}
 	}
 
 	if len(affectedMemoryIDs) > 0 {

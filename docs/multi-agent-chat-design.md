@@ -329,7 +329,7 @@ Go の識別子は `TurnMaterial` / `AssembleTurnMaterial` / `turnMaterial*`、�
   人間が明示するまでは閉じたままにする。`source` は記録された事実であって推定ではないため、
   カテゴリからの導出を退けた上の判断とは矛盾しない。memories の `kind`（semantic / procedural / episodic）は
   内容の種類であって公開範囲ではないので、判断には使わない。
-  **organizer による書き換えは共有を落とす**: `MemoryRepository.UpdateMemory` は `shared_with_all` を 0 に戻す。
+  **organizer による書き換えは共有を落とす**: `MemoryRepository.ApplyOrganization` の update は `shared_with_all` を 0 に戻す。
   **Why**: organizer はロックされていないメモリを、他のメモリ（共有していないものを含む）を畳み込む形で書き換える。
   フラグを残すと、共有メモリが伏せたメモリの内容を抱えて戻り、隠していた相手にそのまま届く。
   落として困るのは人間が 1 クリックで戻せる共有の判断だけで、漏れた側は取り返しがつかない。

@@ -113,12 +113,28 @@ func SharedWithAllDefault(source string) bool {
 
 // CreateMemory inserts a memory and its pre-tokenized FTS row. Mirrors createMemory.
 func (r *MemoryRepository) CreateMemory(input CreateMemoryInput) (model.Memory, error) {
+	m := newMemory(input)
+	tx, err := r.db.Begin()
+	if err != nil {
+		return model.Memory{}, err
+	}
+	defer tx.Rollback()
+	if err := insertMemory(tx, m); err != nil {
+		return model.Memory{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.Memory{}, err
+	}
+	return m, nil
+}
+
+func newMemory(input CreateMemoryInput) model.Memory {
 	source := input.Source
 	if source == "" {
 		source = "manual"
 	}
 	now := util.NowISO()
-	m := model.Memory{
+	return model.Memory{
 		ID:            util.NewID("memory"),
 		ProjectID:     input.ProjectID,
 		Kind:          input.Kind,
@@ -131,91 +147,118 @@ func (r *MemoryRepository) CreateMemory(input CreateMemoryInput) (model.Memory, 
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
+}
 
-	tx, err := r.db.Begin()
-	if err != nil {
-		return model.Memory{}, err
-	}
-	defer tx.Rollback()
+func insertMemory(tx *sql.Tx, m model.Memory) error {
 	if _, err := tx.Exec(`
 		INSERT INTO memories (id, project_id, kind, title, content, source_chat_id, source, locked, shared_with_all, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ProjectID, m.Kind, m.Title, m.Content, ptrArg(m.SourceChatID), m.Source, boolToInt(m.Locked),
 		boolToInt(m.SharedWithAll), m.CreatedAt, m.UpdatedAt); err != nil {
-		return model.Memory{}, err
+		return err
 	}
-	if _, err := tx.Exec(
+	_, err := tx.Exec(
 		"INSERT INTO memories_fts (project_id, memory_id, kind, title, content) VALUES (?, ?, ?, ?, ?)",
-		m.ProjectID, m.ID, search.BuildSearchText(m.Kind), search.BuildSearchText(m.Title), search.BuildSearchText(m.Content)); err != nil {
-		return model.Memory{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return model.Memory{}, err
-	}
-	return m, nil
+		m.ProjectID, m.ID, search.BuildSearchText(m.Kind), search.BuildSearchText(m.Title), search.BuildSearchText(m.Content))
+	return err
 }
 
-// UpdateMemoryInput carries the fields for UpdateMemory. Locked is optional: nil
-// keeps the current value (COALESCE). There is no SharedWithAll field because
-// UpdateMemory always clears it — see below.
-type UpdateMemoryInput struct {
-	MemoryID string
-	Kind     string
-	Title    string
-	Content  string
-	Locked   *bool
-}
-
-// UpdateMemory updates a memory and replaces its FTS row, returning (nil, nil) if
-// the memory does not exist. Mirrors updateMemory.
+// ApplyOrganization applies an organizer plan's changes to one project in a single
+// transaction, returning the IDs of the memories it created or rewrote (the ones
+// whose embeddings are now stale). A failing change rolls back every change before
+// it, so a plan is applied whole or not at all.
 //
-// It also takes the memory out of the common project material. Its only caller is
-// the organizer, which rewrites a memory's content by folding other memories into
-// it — including ones nobody shared. Keeping the flag would let an unlocked
-// shared memory come back holding a withheld one's contents and still reach the
-// speakers it was hiding from (design §4.4). Clearing it loses a sharing decision
-// the human can restore with one click, where the leak cannot be taken back.
-func (r *MemoryRepository) UpdateMemory(input UpdateMemoryInput) (*model.Memory, error) {
-	var projectID string
-	err := r.db.QueryRow("SELECT project_id FROM memories WHERE id = ?", input.MemoryID).Scan(&projectID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	title := strings.TrimSpace(input.Title)
-	content := strings.TrimSpace(input.Content)
-	var lockedArg any
-	if input.Locked != nil {
-		lockedArg = boolToInt(*input.Locked)
-	}
-
+// An update or remove only touches a memory that belongs to projectID and is not
+// locked; any other memoryId is skipped. The conditions sit in the statements
+// themselves rather than in a check beforehand, because the plan comes back from
+// the client and may name any memory — another project's, or one locked since it
+// was analyzed.
+//
+// An update also takes the memory out of the common project material. The
+// organizer rewrites a memory's content by folding other memories into it —
+// including ones nobody shared. Keeping the flag would let an unlocked shared
+// memory come back holding a withheld one's contents and still reach the speakers
+// it was hiding from (design §4.4). Clearing it loses a sharing decision the human
+// can restore with one click, where the leak cannot be taken back.
+func (r *MemoryRepository) ApplyOrganization(projectID string, changes []model.MemoryOrganizationChange) ([]string, error) {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`
-		UPDATE memories
-		SET kind = ?, title = ?, content = ?, locked = COALESCE(?, locked), shared_with_all = 0, updated_at = ?
-		WHERE id = ?`,
-		input.Kind, title, content, lockedArg, util.NowISO(), input.MemoryID); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec("DELETE FROM memories_fts WHERE memory_id = ?", input.MemoryID); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(
-		"INSERT INTO memories_fts (project_id, memory_id, kind, title, content) VALUES (?, ?, ?, ?, ?)",
-		projectID, input.MemoryID, search.BuildSearchText(input.Kind), search.BuildSearchText(title), search.BuildSearchText(content)); err != nil {
-		return nil, err
+
+	affectedIDs := []string{}
+	for _, change := range changes {
+		switch change.Action {
+		case "create":
+			m := newMemory(CreateMemoryInput{
+				ProjectID: projectID,
+				Kind:      change.Kind,
+				Title:     change.Title,
+				Content:   change.Content,
+				Source:    "organized",
+			})
+			if err := insertMemory(tx, m); err != nil {
+				return nil, err
+			}
+			affectedIDs = append(affectedIDs, m.ID)
+
+		case "update":
+			updated, err := rewriteUnlockedMemory(tx, projectID, change)
+			if err != nil {
+				return nil, err
+			}
+			if updated {
+				affectedIDs = append(affectedIDs, change.MemoryID)
+			}
+
+		case "remove":
+			if err := deleteUnlockedMemory(tx, projectID, change.MemoryID); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return r.GetMemory(input.MemoryID)
+	return affectedIDs, nil
+}
+
+func rewriteUnlockedMemory(tx *sql.Tx, projectID string, change model.MemoryOrganizationChange) (bool, error) {
+	title := strings.TrimSpace(change.Title)
+	content := strings.TrimSpace(change.Content)
+	res, err := tx.Exec(`
+		UPDATE memories
+		SET kind = ?, title = ?, content = ?, shared_with_all = 0, updated_at = ?
+		WHERE id = ? AND project_id = ? AND locked = 0`,
+		change.Kind, title, content, util.NowISO(), change.MemoryID, projectID)
+	if err != nil {
+		return false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return false, err
+	}
+	if _, err := tx.Exec("DELETE FROM memories_fts WHERE memory_id = ?", change.MemoryID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(
+		"INSERT INTO memories_fts (project_id, memory_id, kind, title, content) VALUES (?, ?, ?, ?, ?)",
+		projectID, change.MemoryID, search.BuildSearchText(change.Kind), search.BuildSearchText(title), search.BuildSearchText(content)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func deleteUnlockedMemory(tx *sql.Tx, projectID, memoryID string) error {
+	res, err := tx.Exec("DELETE FROM memories WHERE id = ? AND project_id = ? AND locked = 0", memoryID, projectID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return err
+	}
+	_, err = tx.Exec("DELETE FROM memories_fts WHERE memory_id = ?", memoryID)
+	return err
 }
 
 // SetMemoryLocked toggles a memory's locked flag, returning (nil, nil) if the
