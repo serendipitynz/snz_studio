@@ -1,10 +1,10 @@
 ---
 id: TASK-76
 title: 'ドキュメント: アップロードの中身と大きさを確かめ、/files の配信に nosniff と CSP を付ける'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-02 08:54'
+updated_date: '2026-10-02 10:11'
 labels:
   - security
 dependencies: []
@@ -42,7 +42,7 @@ ordinal: 76000
 - [x] #2 保存する拡張子と MIME 型は、サーバーが中身から決める
 - [x] #3 上限を超えるアップロード (画像・テキストとも) が 413 で拒否される。上限値とその理由が記録されている
 - [x] #4 /files の応答に nosniff と CSP が付く。テストがある
-- [ ] #5 既存の画像ドキュメント (png / jpeg / gif / webp) の追加と表示が変わらない
+- [x] #5 既存の画像ドキュメント (png / jpeg / gif / webp) の追加と表示が変わらない
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -76,4 +76,9 @@ ordinal: 76000
 
 ## 挙動の変化 (UI 側は未変更)
 - 画像の入力欄は今も `image/*` を受け付けるため、SVG / HEIC / BMP などは送信したあとにサーバーの 400 で失敗する (以前は保存できていた)。UI の受付形式を 4 形式に絞る対応は別タスクの候補。
+
+## AC5 の確認 (2026-10-02, ユーザーが mac の wails dev で実施)
+- 変更前に保存した画像 (`IMG_8037.jpg`, 2026-09-23 保存) が、nosniff と CSP 付きの配信でも以前どおり WebView に表示された。
+- jpeg を新規に追加し (`/files/077d1591-….jpg`, `image/jpeg`) 表示されることを確認。png / gif / webp はテストで、中身どおりの拡張子と MIME 型で保存され inline で配信されることを確認済み (表示の経路は jpeg と同じ)。
+- SVG の追加は `image must be PNG, JPEG, GIF or WebP` で拒否され、uploads にも文書にも何も残らなかった (AC1 の実アプリでの確認)。
 <!-- SECTION:NOTES:END -->
