@@ -4,7 +4,7 @@ title: '埋め込み: 設定を保存するたびに全件を再計算しない�
 status: In Review
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-10-02 22:21'
+updated_date: '2026-10-02 22:33'
 labels: []
 dependencies: []
 references:
@@ -83,4 +83,7 @@ TASK-66 は、サイドカーの版を上げた後の再計算を「起動時と
 ## 見ていないもの
 - 設定モーダルの新しい区画の 4 配色の比と WebKit での見え方は測っていない。部品は既存の Card / SubsectionTitle / Subtle / ActionButton (normal) / FailureNotice だけで、Chromium の標準配色で表示を確認した
 - 外部モードの起動時の RebuildAll (毎回全件) は変えていない。本タスクの範囲外
+
+## レビュー 1 回目 (Codex, PR #74) への対応
+- [P2] 外部モードで同じモデル名のまま接続先を変え、全件の再計算が失敗すると、旧接続先のベクトルがモデル名で区別できないまま残り、以後の変更なし保存 (SyncMissing) では入れ替わらない。全件の再計算を要求したらその旨 (rebuildOwed) を覚え、再計算が最後まで通るまでは欠けた分の要求も全件の再計算として走らせるようにした。入力ごとの拒否では解除を止めない (拒否される入力が 1 件あるだけで毎回全件に戻るため)。覚えておくのはメモリ上だけで、外部モードは起動時に全件を作り直すので再起動で失われても困らない。テスト TestFailedSourceChangeRebuildRunsOnTheNextSave (解除の条件を外すと失敗することを確認)
 <!-- SECTION:NOTES:END -->
