@@ -24,10 +24,10 @@ var (
 	ErrImageDescriptionEmptyText = errors.New("service: image description endpoint returned no text")
 )
 
-// MaxImageDescriptionBytes caps the image sent for description. Only this path is
-// capped — storing an image has no limit, since it only lands on local disk —
-// because the request carries the image base64-encoded (about 1.33x) inside one
-// JSON body held in memory. Downscaling is not done here but in the UI before
+// MaxImageDescriptionBytes caps the image sent for description. It is tighter
+// than the cap on storing a document (20MB, in httpapi) because the request
+// carries the image base64-encoded (about 1.33x) inside one JSON body held in
+// memory. Downscaling is not done here but in the UI before
 // upload (see ImageDocumentDialog): the runtime measured, LM Studio with Gemma 4,
 // rejects anything much above one megapixel outright instead of resizing it, and
 // the standard library has no WebP decoder or resampler to do it server-side
