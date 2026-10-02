@@ -603,7 +603,19 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Checked before reading anything, so an oversized upload is refused without
+	// buffering it; MaxBytesReader covers a body that declares no length.
+	if r.ContentLength > documentUploadLimit {
+		writeError(w, http.StatusRequestEntityTooLarge, "upload is too large")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, documentUploadLimit)
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "upload is too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -633,14 +645,22 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "image file is required")
 			return
 		}
-		name := uuid.NewString() + filepath.Ext(header.Filename)
+		mt, ext, ok, err := sniffStoredImage(file)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if !ok {
+			writeError(w, http.StatusBadRequest, unsupportedImageUploadMessage)
+			return
+		}
+		name := uuid.NewString() + ext
 		if err := s.saveUpload(file, name); err != nil {
 			fail(w, err)
 			return
 		}
 		public := toPublicFilePath(name)
 		filePath = &public
-		mt := header.Header.Get("Content-Type")
 		mimeType = &mt
 	case hasFile:
 		data, err := io.ReadAll(file)
@@ -1272,6 +1292,7 @@ func (s *Server) fileHandler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		setFileResponseHeaders(w, name)
 		http.ServeFile(w, r, filepath.Join(s.uploadDir, name))
 	})
 }

@@ -24,8 +24,8 @@ import (
 const maxJSONBody = 2 << 20
 
 // maxMultipartMemory is the in-memory threshold for multipart parsing; parts
-// larger than this spill to temporary files. multer kept uploads unbounded, so
-// this only governs buffering, not an upload size cap.
+// larger than this spill to temporary files. It only governs buffering: the
+// upload size cap is documentUploadLimit, which sits below it.
 const maxMultipartMemory = 32 << 20
 
 // Server owns the HTTP API ported from backend/src/index.ts. It holds the fully
