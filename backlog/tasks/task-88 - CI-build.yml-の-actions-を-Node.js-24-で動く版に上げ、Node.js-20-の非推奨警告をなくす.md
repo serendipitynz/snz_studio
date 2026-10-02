@@ -1,10 +1,10 @@
 ---
 id: TASK-88
 title: 'CI: build.yml の actions を Node.js 24 で動く版に上げ、Node.js 20 の非推奨警告をなくす'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-02 20:15'
-updated_date: '2026-10-02 20:30'
+updated_date: '2026-10-02 22:10'
 labels: []
 dependencies: []
 references:
