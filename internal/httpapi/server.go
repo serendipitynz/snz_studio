@@ -126,8 +126,8 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 	}
 
 	// Wire the sidecar lifecycle to config's internal-embedding overlay: when the
-	// sidecar comes up, point embeddings at it (and rebuild once); when it is lost,
-	// clear the overlay so retrieval degrades to FTS-only.
+	// sidecar comes up, point embeddings at it (and fill the missing vectors); when
+	// it is lost, clear the overlay so retrieval degrades to FTS-only.
 	if embedManager != nil {
 		embedManager.SetCallbacks(srv.onEmbeddingReady, srv.onEmbeddingLost)
 	}
@@ -147,12 +147,7 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 func (s *Server) onEmbeddingReady(baseURL, modelID string) {
 	s.cfg.SetInternalEmbedding(strings.TrimRight(baseURL, "/")+"/v1", modelID)
 	s.embedding.RefreshConfiguration()
-
-	go func() {
-		if err := s.embeddingSync.SyncMissing(); err != nil {
-			log.Printf("Embedding sync (internal sidecar ready) skipped: %v", err)
-		}
-	}()
+	s.embeddingSync.RequestSyncMissing()
 }
 
 // onEmbeddingLost clears the internal overlay (sidecar crashed or gave up), leaving
@@ -178,11 +173,7 @@ func (s *Server) RunStartupTasks() {
 		log.Printf("startup: rebuild memory search index: %v", err)
 	}
 	if s.embedding.IsEnabled() {
-		go func() {
-			if err := s.embeddingSync.RebuildAll(); err != nil {
-				log.Printf("Embedding rebuild skipped: %v", err)
-			}
-		}()
+		s.embeddingSync.RequestRebuild()
 	}
 }
 
@@ -201,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/configuration", s.handlePutConfiguration)
 	mux.HandleFunc("POST /api/configuration/models", s.handleListConfigurationModels)
 	mux.HandleFunc("GET /api/embedding/status", s.handleGetEmbeddingStatus)
+	mux.HandleFunc("POST /api/embedding/rebuild", s.handleRebuildEmbeddings)
 
 	// Projects
 	mux.HandleFunc("GET /api/projects", s.handleListProjects)

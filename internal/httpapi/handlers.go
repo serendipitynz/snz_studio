@@ -73,6 +73,7 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	previous := s.cfg.GetEditable()
 	updated, err := s.cfg.UpdateEditable(config.Editable{
 		LLMBaseURL:        llmBaseURL,
 		LLMModel:          llmModel,
@@ -121,18 +122,47 @@ func (s *Server) handlePutConfiguration(w http.ResponseWriter, r *http.Request) 
 	}()
 	wg.Wait()
 
+	// Re-embedding everything only pays off when the vectors would come out
+	// different; an unchanged save still fills the gaps an unreachable endpoint
+	// left. A rebuild while embeddings are off would do nothing, and the sidecar's
+	// ready callback fills the gaps once internal mode comes up.
 	if s.embedding.IsEnabled() {
-		go func() {
-			if err := s.embeddingSync.RebuildAll(); err != nil {
-				log.Printf("Embedding rebuild skipped: %v", err)
-			}
-		}()
+		if embeddingSourceChanged(previous, updated) {
+			s.embeddingSync.RequestRebuild()
+		} else {
+			s.embeddingSync.RequestSyncMissing()
+		}
 	}
 
 	llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected := s.checkConnections(s.cfg.Get())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"configuration": workspaceConfig(updated, llmConnected, reviewConnected, embeddingConnected, imageDescriptionConnected),
 	})
+}
+
+// embeddingSourceChanged reports whether a save changed which model computes the
+// stored vectors. The persisted endpoint and model are inert in internal mode, and
+// the API key is not editable here (EMBEDDING_API_KEY is environment-only).
+func embeddingSourceChanged(before, after config.Editable) bool {
+	if before.EmbeddingMode != after.EmbeddingMode {
+		return true
+	}
+	if after.EmbeddingMode != "external" {
+		return false
+	}
+	return before.EmbeddingBaseURL != after.EmbeddingBaseURL || before.EmbeddingModel != after.EmbeddingModel
+}
+
+// handleRebuildEmbeddings re-embeds the whole corpus with the active model. It is
+// the way to refresh vectors when they would change without any setting changing,
+// e.g. after a sidecar upgrade or a model swapped behind the same external name.
+func (s *Server) handleRebuildEmbeddings(w http.ResponseWriter, _ *http.Request) {
+	if !s.embedding.IsEnabled() {
+		writeError(w, http.StatusConflict, "embeddings are not available")
+		return
+	}
+	s.embeddingSync.RequestRebuild()
+	writeJSON(w, http.StatusAccepted, map[string]bool{"started": true})
 }
 
 func (s *Server) handleListConfigurationModels(w http.ResponseWriter, r *http.Request) {
