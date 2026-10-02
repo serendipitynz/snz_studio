@@ -8,7 +8,7 @@ import { announce } from "./announce";
 import { useConfirm } from "./ConfirmDialog";
 import { Dialog, DialogBody, DialogHeader, DialogTitle } from "./Dialog";
 import { FailureNotice, InfoNotice } from "./FailureNotice";
-import { CheckIcon } from "./icons";
+import { CheckIcon, RotateCwIcon } from "./icons";
 import { Progress } from "./Progress";
 import {
   Card,
@@ -156,6 +156,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [loadingImageDescriptionModels, setLoadingImageDescriptionModels] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildStarted, setRebuildStarted] = useState(false);
+  const [rebuildError, setRebuildError] = useState("");
   // Dismissed for this opening only: the stored value is still unknown, so the
   // note returns the next time the modal opens (snz-design doc-9 §6.4).
   const [unknownChoiceDismissed, setUnknownChoiceDismissed] = useState(false);
@@ -311,6 +314,21 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     }
   }
 
+  async function handleRebuildEmbeddings() {
+    setRebuilding(true);
+    setRebuildStarted(false);
+    setRebuildError("");
+    try {
+      await api.rebuildEmbeddings();
+      setRebuildStarted(true);
+      announce(t("settings.rebuildEmbeddingsStarted"));
+    } catch (nextError) {
+      setRebuildError(nextError instanceof Error ? nextError.message : t("settings.rebuildEmbeddingsError"));
+    } finally {
+      setRebuilding(false);
+    }
+  }
+
   // Only the connection settings are a draft: the theme and the language apply as
   // they are chosen. A modal that is saving cannot close, since the result would
   // land on a screen that no longer shows what it was for (doc-9 §6.6). Unsaved
@@ -334,6 +352,16 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       return;
     }
     onClose();
+  }
+
+  function rebuildDisabledReason(): string | undefined {
+    if (loading) {
+      return t("settings.loadingConfig");
+    }
+    if (connectionDirty) {
+      return t("settings.rebuildNeedsSave");
+    }
+    return undefined;
   }
 
   function saveDisabledReason(): string | undefined {
@@ -622,6 +650,27 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 disabledReason={saveDisabledReason()}
               >
                 {t("settings.save")}
+              </ActionButton>
+            </div>
+          </Stack>
+        </Card>
+
+        <Card>
+          <Stack>
+            <SubsectionTitle>{t("settings.rebuildEmbeddings")}</SubsectionTitle>
+            <Subtle>{t("settings.rebuildEmbeddingsNote")}</Subtle>
+            {rebuildStarted ? <Subtle>{t("settings.rebuildEmbeddingsStarted")}</Subtle> : null}
+            {rebuildError ? <FailureNotice>{rebuildError}</FailureNotice> : null}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <ActionButton
+                type="button"
+                variant="normal"
+                icon={<RotateCwIcon />}
+                busy={rebuilding}
+                disabledReason={rebuildDisabledReason()}
+                onClick={() => void handleRebuildEmbeddings()}
+              >
+                {t("settings.rebuildEmbeddingsAction")}
               </ActionButton>
             </div>
           </Stack>

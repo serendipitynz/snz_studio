@@ -387,6 +387,7 @@ export const api = {
       body: JSON.stringify(input)
     }).then((response) => ({ models: response.models ?? [] })),
   getEmbeddingStatus: () => request<EmbeddingStatus>("/api/embedding/status"),
+  rebuildEmbeddings: () => request<{ started: boolean }>("/api/embedding/rebuild", { method: "POST" }),
   getProjects: () => request<{ projects: Project[] }>("/api/projects"),
   createProject: (input: { title: string; description: string; systemPrompt: string }) =>
     request<{ project: Project }>("/api/projects", {
