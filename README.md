@@ -194,6 +194,12 @@ pnpm sidecar --app    # distribution: places it in the pnpm build:app output (th
 - On macOS, `pnpm dev` launches the app from the `.app` in `build/bin/`. When that `.app` already
   holds a sidecar (after `pnpm sidecar --app` or the signed build), it is used before
   `build/sidecar/`.
+- Stored vectors are not recomputed when the release changes. When a new release may compute
+  different vectors, press "Rebuild" under "Rebuild embeddings" in the settings
+  (`POST /api/embedding/rebuild`) once the internal embedding is ready. Saving the settings rebuilds
+  everything only when the embedding source changes (mode, or the external endpoint or model). The
+  move from `b9437` to `b11126` needed no rebuild: both releases produced bit-identical vectors from
+  the same GGUF.
 
 ### 2. For distribution (macOS: signing + notarization + bundled embedding)
 
