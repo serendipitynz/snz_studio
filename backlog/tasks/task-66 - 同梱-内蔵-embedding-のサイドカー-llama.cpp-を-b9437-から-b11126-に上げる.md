@@ -1,10 +1,10 @@
 ---
 id: TASK-66
 title: '同梱: 内蔵 embedding のサイドカー llama.cpp を b9437 から b11126 に上げる'
-status: To Do
+status: In Review
 assignee: []
 created_date: '2026-09-28 19:47'
-updated_date: '2026-09-28 20:30'
+updated_date: '2026-10-02 19:55'
 labels: []
 dependencies: []
 references:
@@ -63,9 +63,37 @@ TASK-73 はこの「設定保存のたびに全件を再計算する」挙動を
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 build.yml (macOS / Windows) と build-mac-signed.sh が同梱するサイドカーの版が b11126 になっている
+- [x] #1 build.yml (macOS / Windows) と build-mac-signed.sh が同梱するサイドカーの版が b11126 になっている
 - [ ] #2 macOS と Windows の両方で、b11126 のサイドカーが既存の GGUF (sha256 2a6cb2d9…) を読み込み、/health と 256 次元の probe を通って内蔵 embedding が ready になる
-- [ ] #3 ready になった後の再計算 (RebuildAll) を経て、サンプル文書での意味検索の結果が b9437 のときと比べて明らかに劣化していない
-- [ ] #4 THIRD_PARTY_NOTICES.md の同梱バイナリの版と llama.cpp の LICENSE 全文が b11126 のものになっている。GGUF の生成に使った版の記述は b9437 のまま
-- [ ] #5 README.md / README.ja.md / docs/local-generation-design.md の同梱版の記述が更新されている
+- [x] #3 ready になった後の再計算 (RebuildAll) を経て、サンプル文書での意味検索の結果が b9437 のときと比べて明らかに劣化していない
+- [x] #4 THIRD_PARTY_NOTICES.md の同梱バイナリの版と llama.cpp の LICENSE 全文が b11126 のものになっている。GGUF の生成に使った版の記述は b9437 のまま
+- [x] #5 README.md / README.ja.md / docs/local-generation-design.md の同梱版の記述が更新されている
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## 変更
+- TASK-67 以降、サイドカーの版は scripts/sidecar.mjs だけで固定している (build.yml と build-mac-signed.sh はこのスクリプトを呼ぶ)。Description が挙げる build.yml / build-mac-signed.sh の LLAMA_RELEASE はもう無いので、RELEASE と 4 つの sha256 を b11126 に書き換えた
+- sha256 は GitHub の asset digest と、4 アーカイブを自分でダウンロードして計算した値が一致
+- THIRD_PARTY_NOTICES.md: 同梱バイナリの版を b11126 に。b11126 タグの LICENSE は現行の全文 (Copyright (c) 2023-2026 The ggml authors) と完全一致したので本文は変更なし。GGUF の量子化に使った版 (108 行目) は b9437 のまま
+- docs/local-generation-design.md の同梱版を b11126 に。README / README.ja には同梱版の記述が既に無い (TASK-67 で「scripts/sidecar.mjs で固定」に置き換え済み) ので変更なし
+- sidecar.mjs の「ModernBERT を含む (>= b9437)」は最低版の条件なのでそのまま
+
+## 保存済みベクトルの作り直し (着手時の判断)
+- ユーザー判断 (2026-10-03): コードは変えず、作り直しは不要と記録する。版の検出による自動再計算や README の移行手順は入れない
+- 根拠 (macOS arm64、CPU): 同じ GGUF で b9437 と b11126 の llama-server を並べ、サンプル文書 94 チャンクを埋め込んだところ、全要素がビット単位で一致 (要素差の最大 0)。古い版のベクトルが残っても検索結果は変わらない
+- 作り直したい場合は、TASK-73 が入るまでは設定を一度保存すれば RebuildAll が走る
+
+## 確認 (macOS arm64)
+- AC#3: 検証用プログラム (git 管理外の _sandbox/task66) で、実際の embed.Manager / RebuildAll / RetrievalService を使って確認。サンプル文書 11 件を取り込み、b9437 で ready → RebuildAll → 検索 8 本。同じデータで b11126 に差し替えて ready → RebuildAll → 同じ検索。b11126 の再計算前後とも保存ベクトル 108 件が b9437 のものと完全一致し、8 本の検索結果 (文書・スコア・順位) も同一
+- AC#2 (macOS): 同じプログラムで b11126 のとき Manager の状態が ready、dim=256。配布版も pnpm build:app → pnpm sidecar --app → 一時 DATA_DIR で .app を起動し、サイドカーの /health が ok、/v1/embeddings が 256 次元、/props の build_info が b11126-b1ff4ca23、読み込んだ dylib が 0.24.0 系 (b11126) であることを確認
+- go vet / go test ./... / pnpm check:client / pnpm test:client は通過。CI と build-mac-signed.sh (署名・公証) は未実行
+
+## 見つけたこと
+- pnpm build:app は -clean しないので、手元の .app の Resources に前の版の dylib (0.13.1) が残る。読み込まれるのは symlink 先の新しい版だけ。build-mac-signed.sh は -clean 付き、CI は新しい作業ツリーで作るので配布物には入らない
+- b11126 の macOS アーカイブには ggml-metal-tuning / ggml-rpc-server などの実行ファイルが増えているが、sidecar.mjs は llama-server と dylib だけを置くので影響なし
+
+## 未確認 (Windows)
+- AC#2 の Windows 分。CI (workflow_dispatch) の Windows ジョブで b11126 が取得・配置されること、その成果物か実機の pnpm sidecar + pnpm dev で内蔵 embedding が ready になること
+<!-- SECTION:NOTES:END -->
