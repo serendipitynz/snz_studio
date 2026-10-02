@@ -4,7 +4,7 @@ title: '埋め込み: 設定を保存するたびに全件を再計算しない�
 status: In Review
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-10-02 22:33'
+updated_date: '2026-10-02 22:38'
 labels: []
 dependencies: []
 references:
@@ -86,4 +86,9 @@ TASK-66 は、サイドカーの版を上げた後の再計算を「起動時と
 
 ## レビュー 1 回目 (Codex, PR #74) への対応
 - [P2] 外部モードで同じモデル名のまま接続先を変え、全件の再計算が失敗すると、旧接続先のベクトルがモデル名で区別できないまま残り、以後の変更なし保存 (SyncMissing) では入れ替わらない。全件の再計算を要求したらその旨 (rebuildOwed) を覚え、再計算が最後まで通るまでは欠けた分の要求も全件の再計算として走らせるようにした。入力ごとの拒否では解除を止めない (拒否される入力が 1 件あるだけで毎回全件に戻るため)。覚えておくのはメモリ上だけで、外部モードは起動時に全件を作り直すので再起動で失われても困らない。テスト TestFailedSourceChangeRebuildRunsOnTheNextSave (解除の条件を外すと失敗することを確認)
+
+## レビュー 2 回目 (Codex, PR #74) への対応
+- [P2] 一部の入力だけが失敗すると旧接続先のベクトルが残る: 全件の再計算では、ベクトルを得られなかったチャンク・メモリの既存のベクトルを消すようにした (DeleteChunkEmbeddings / DeleteMemoryEmbeddings)。消えた行は欠けとして扱われ、次の SyncMissing で再試行される。拒否され続ける入力も欠けとして再試行されるが 1 件ずつなので軽い。全件の再計算以外 (SyncMissing / SyncDocument / SyncMemories) では消さない。テスト TestRebuildDropsTheOldVectorOfAnInputThatFails
+- [P2] 走行中の再計算の完了が、走行中に来た新しい再計算の要求まで解いてしまう: 完了時に全件の再計算が保留されていれば rebuildOwed を残すようにした。テスト TestACompletedRebuildDoesNotSettleOneRequestedWhileItRan
+- どちらのテストも、修正を外すと失敗することを確認
 <!-- SECTION:NOTES:END -->
