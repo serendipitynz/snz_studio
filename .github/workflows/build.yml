@@ -101,23 +101,15 @@ jobs:
         run: node scripts/wails.mjs build -platform darwin/universal -clean
 
       # Stage the bundled embedding sidecar (llama-server) into the .app Resources
-      # before packaging. The official prebuilt binary runs the ruri GGUF unmodified.
+      # before packaging. The official prebuilt binary runs the ruri GGUF unmodified;
+      # scripts/sidecar.mjs pins its release, checks the archive's sha256, and keeps
+      # only llama-server and its dylibs (extra unsigned exes fail notarization).
       # NOTE: ships the arm64 sidecar; a universal sidecar needs lipo of both arches'
       # binary + dylibs (TODO). Signing the sidecar is part of the notarization TODO
       # below; scripts/build-mac-signed.sh is the verified local recipe.
       - name: Stage embedding sidecar (macOS)
         if: runner.os == 'macOS'
-        env:
-          LLAMA_RELEASE: b9437
-        run: |
-          set -euo pipefail
-          RES="build/bin/snz-studio.app/Contents/Resources"
-          curl -fsSL "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/llama-${LLAMA_RELEASE}-bin-macos-arm64.tar.gz" -o /tmp/sc.tar.gz
-          mkdir -p /tmp/sc && tar xzf /tmp/sc.tar.gz -C /tmp/sc
-          SRC="$(dirname "$(find /tmp/sc -name llama-server -type f | head -1)")"
-          # Keep only llama-server among executables (extra unsigned exes fail notarization).
-          for f in "$SRC"/*; do b="$(basename "$f")"; if [[ -f "$f" && "$b" != llama-server && "$b" != *.dylib ]] && file "$f" | grep -q "Mach-O.*executable"; then rm -f "$f"; fi; done
-          cp -R "$SRC"/. "$RES"/
+        run: pnpm sidecar --app --arch arm64
 
       # TinySegmenter's modified BSD requires its notice to accompany a binary
       # redistribution, so the notices ride inside the .app rather than only in
@@ -181,16 +173,7 @@ jobs:
       # instead. Authenticode-sign the sidecar with the app (signing TODO below).
       - name: Stage embedding sidecar (Windows)
         if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LLAMA_RELEASE: b9437
-        run: |
-          set -euo pipefail
-          curl -fsSL "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/llama-${LLAMA_RELEASE}-bin-win-cpu-x64.zip" -o /tmp/sc.zip
-          mkdir -p /tmp/sc && unzip -q /tmp/sc.zip -d /tmp/sc
-          SRC="$(dirname "$(find /tmp/sc -name llama-server.exe | head -1)")"
-          cp "$SRC/llama-server.exe" build/bin/
-          find "$SRC" -name '*.dll' -exec cp {} build/bin/ \;
+        run: pnpm sidecar --app
 
       # Same obligation as the macOS step above. The installer carries its own copies
       # now (build/windows/installer/project.nsi), so these cover the portable fallback:
@@ -232,6 +215,7 @@ jobs:
           path: |
             build/bin/*.dmg
             build/bin/*.exe
+            build/bin/*.dll
             build/bin/LICENSE
             build/bin/THIRD_PARTY_NOTICES.md
           if-no-files-found: warn

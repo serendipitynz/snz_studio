@@ -132,6 +132,9 @@ pnpm dev
   `LLM_API_KEY` は、環境変数として渡します（渡し方は「LLM 接続」）。
 - ブラウザ直開き（`localhost:5173`）での開発は廃止しました（API への非 GET が届かないため）。開発は
   `pnpm dev` を使ってください。
+- 内蔵 embedding を使うには、先に `pnpm sidecar` でサイドカーを `build/sidecar/<GOOS>-<GOARCH>/` に置き、
+  モデル GGUF を `data/models/` に置きます（「内蔵 embedding のサイドカー（llama-server）」）。
+  `SNZ_LLAMA_SERVER_BIN` の指定は要りません。
 
 ## ビルド（配布物）
 
@@ -152,7 +155,33 @@ pnpm build:app -platform windows/amd64 -nsis -webview2 download
 
 > **注意**: `wails build` 単体では内蔵 embedding（llama.cpp サイドカー + モデル GGUF）は同梱されません。
 > この `.app` を起動すると内蔵 embedding は `llama-server binary not found` になります（外部 embedding か
-> FTS のみで動作）。内蔵 embedding を含む配布物は次の署名ビルドで作ります。
+> FTS のみで動作）。サイドカーは `pnpm sidecar --app` で後から置けます（次節）。モデル GGUF まで含む
+> 配布物は、macOS では下の署名ビルドで作ります。
+
+### 内蔵 embedding のサイドカー（llama-server）
+
+内蔵 embedding が使う llama.cpp の `llama-server` は、次のスクリプトで取得して置きます。macOS でも
+Windows（PowerShell、WSL なし）でも同じコマンドです。
+
+```bash
+pnpm sidecar          # 開発用: build/sidecar/<GOOS>-<GOARCH>/ に置く（pnpm dev が使う）
+pnpm sidecar --app    # 配布用: pnpm build:app の成果物に置く（macOS は .app の Contents/Resources、Windows は exe の横）
+```
+
+- 実行中の OS と CPU に合うアーカイブを llama.cpp のリリースから取得し、sha256 を照合してから展開します。
+  一致しなければ何も置かずに中断します。
+- 置くのは `llama-server` と共有ライブラリ（dylib / DLL）だけです（macOS では、署名していない実行ファイルが
+  あると公証に通らないため）。
+- 同じ版が置いてあれば何もしません。取得したアーカイブは `build/sidecar/.downloads/` に残るので、
+  `pnpm build:app` をやり直した後の `pnpm sidecar --app` では取得し直しません。
+- `--arch arm64|amd64` で CPU を指定できます（例: universal の `.app` に arm64 のサイドカーを置く）。
+- 同梱する llama.cpp の版と sha256 は `scripts/sidecar.mjs` の 1 か所で固定しています。CI と
+  `scripts/build-mac-signed.sh` もこのスクリプトでサイドカーを置きます。
+- モデル GGUF はこのスクリプトでは置きません。`pnpm dev` では `data/models/` に、`pnpm build:app` の
+  アプリではユーザーデータ配下の `models/` に `ruri-v3-30m-q8_0.gguf` が必要です（作り方は
+  「内蔵 embedding モデル（GGUF）の再生成」）。
+- macOS の `pnpm dev` は `build/bin/` の `.app` からアプリを起動します。その `.app` にサイドカーが置いて
+  あると（`pnpm sidecar --app` や署名ビルドの後）、`build/sidecar/` より先にそちらが使われます。
 
 ### 2. 配布用（macOS・署名 + 公証 + embedding 同梱）
 
@@ -172,7 +201,8 @@ scripts/build-mac-signed.sh
 - notarytool の保存済みプロファイル（既定名 `snzstudio`。`xcrun notarytool store-credentials` で一度だけ作成）
 - `data/models/ruri-v3-30m-q8_0.gguf`（次節のスクリプトで再生成）
 
-主な env 上書き: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `LLAMA_RELEASE` / `SIDECAR_ARCH` / `MODEL_SRC`。
+主な env 上書き: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_ARCH`（`arm64` / `amd64`）/ `MODEL_SRC`。
+サイドカーの版は `scripts/sidecar.mjs` で固定しています。
 
 > Windows の署名は未対応です（当面は未署名配布）。CI（`.github/workflows/build.yml`）は雛形で、
 > `workflow_dispatch` 実行のみ・署名は secrets ゲートで後送りです。

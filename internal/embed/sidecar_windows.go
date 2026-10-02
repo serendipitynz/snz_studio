@@ -15,6 +15,12 @@ import (
 // a group via taskkill /T.
 const createNewProcessGroup = 0x00000200
 
+// createNoWindow is CREATE_NO_WINDOW. llama-server.exe and taskkill.exe are console
+// programs, and the packaged app is a GUI program with no console to hand down, so
+// without it Windows opens an empty console window for each. `pnpm dev` hides the
+// problem because the children inherit the dev terminal's console.
+const createNoWindow = 0x08000000
+
 // sidecarCommand builds the plain llama-server command. Unlike the unix build it
 // has no guard against the app being killed outright; a Job object with
 // KILL_ON_JOB_CLOSE would be the Windows counterpart.
@@ -23,7 +29,7 @@ func sidecarCommand(binPath string, args []string) *exec.Cmd {
 }
 
 func configureSysProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup | createNoWindow}
 }
 
 // killProcessGroup terminates the sidecar and any children with taskkill /T /F.
@@ -31,7 +37,9 @@ func killProcessGroup(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
 	}
-	_ = exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
+	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid))
+	kill.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	_ = kill.Run()
 }
 
 // defaultServerBinaryPath returns the production location of the bundled
