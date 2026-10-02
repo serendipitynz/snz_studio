@@ -488,6 +488,13 @@ func TestMemoryOrganizeFallback(t *testing.T) {
 	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/memories/organize/apply", map[string]any{}),
 		http.StatusBadRequest, "plan is required")
 
+	// apply with a change sanitizing would drop -> 400, nothing applied.
+	wantError(t, doJSON(t, h, "POST", "/api/projects/"+projectID+"/memories/organize/apply",
+		map[string]any{"plan": map[string]any{"changes": []any{
+			map[string]any{"action": "create", "kind": "gossip", "title": "t", "content": "c", "reason": "r"},
+		}}}),
+		http.StatusBadRequest, "plan has a malformed change")
+
 	// apply with an empty plan -> 200 with the (unchanged) memory list.
 	rec = doJSON(t, h, "POST", "/api/projects/"+projectID+"/memories/organize/apply",
 		map[string]any{"plan": map[string]any{"summary": "noop", "changes": []any{}}})

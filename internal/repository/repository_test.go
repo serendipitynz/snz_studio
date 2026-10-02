@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -401,44 +402,6 @@ func TestMemoryRepository(t *testing.T) {
 		t.Errorf("ListByProjectAndKind wrong: %+v", kinded)
 	}
 
-	// Update without Locked keeps existing locked=true (COALESCE) and refreshes FTS.
-	upd, err := memories.UpdateMemory(UpdateMemoryInput{MemoryID: m2.ID, Kind: "procedural", Title: "文体ルール", Content: "三人称で書くこと"})
-	if err != nil || upd == nil {
-		t.Fatalf("UpdateMemory: %v, %v", upd, err)
-	}
-	if !upd.Locked {
-		t.Error("UpdateMemory without Locked cleared locked flag")
-	}
-	if ids := ftsMemoryIDs(t, d, "三人称"); !ids[m2.ID] {
-		t.Error("updated content not searchable")
-	}
-	if ids := ftsMemoryIDs(t, d, "一人称"); ids[m2.ID] {
-		t.Error("stale content still searchable after update")
-	}
-
-	// A rewrite takes the memory out of the common project material, whatever it
-	// was before: the organizer folds other memories in, and the content is no
-	// longer the content the human agreed to share (design §4.4).
-	m3, err := memories.CreateMemory(CreateMemoryInput{
-		ProjectID: proj.ID, Kind: "semantic", Title: "港の掟", Content: "霧笛が三度鳴ったら船を舫う",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	shared, err := memories.SetMemorySharedWithAll(m3.ID, true)
-	if err != nil || shared == nil || !shared.SharedWithAll {
-		t.Fatalf("SetMemorySharedWithAll: %+v, %v", shared, err)
-	}
-	rewritten, err := memories.UpdateMemory(UpdateMemoryInput{
-		MemoryID: m3.ID, Kind: "semantic", Title: "港の掟", Content: "霧笛が三度鳴ったら船を舫う。合図を決めたのは灯台守である。",
-	})
-	if err != nil || rewritten == nil {
-		t.Fatalf("UpdateMemory rewrite: %v, %v", rewritten, err)
-	}
-	if rewritten.SharedWithAll {
-		t.Error("a rewritten memory must leave the common project material until it is shared again")
-	}
-
 	// Explicit unlock.
 	unlocked, err := memories.SetMemoryLocked(m2.ID, false)
 	if err != nil || unlocked == nil || unlocked.Locked {
@@ -492,6 +455,145 @@ func TestMemoryRepository(t *testing.T) {
 	}
 	if nilm, err := memories.DeleteMemory(m1.ID); err != nil || nilm != nil {
 		t.Errorf("DeleteMemory(again) = %v, %v", nilm, err)
+	}
+}
+
+// mustGetMemory fetches a memory that the test expects to exist.
+func mustGetMemory(t *testing.T, memories *MemoryRepository, memoryID string) model.Memory {
+	t.Helper()
+	m, err := memories.GetMemory(memoryID)
+	if err != nil || m == nil {
+		t.Fatalf("GetMemory(%s) = %v, %v", memoryID, m, err)
+	}
+	return *m
+}
+
+func TestMemoryApplyOrganization(t *testing.T) {
+	d := newTestDB(t)
+	projects := NewProjectRepository(d)
+	memories := NewMemoryRepository(d)
+	proj, err := projects.CreateProject(CreateProjectInput{Title: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := projects.CreateProject(CreateProjectInput{Title: "Q"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := func(projectID, title, content string, locked bool) model.Memory {
+		t.Helper()
+		m, err := memories.CreateMemory(CreateMemoryInput{ProjectID: projectID, Kind: "semantic", Title: title, Content: content, Locked: locked})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	rewrite := create(proj.ID, "港の掟", "霧笛が三度鳴ったら船を舫う", false)
+	stale := create(proj.ID, "古い噂", "灯台は無人である", false)
+	pinned := create(proj.ID, "文体ルール", "一人称で書くこと", true)
+	foreign := create(other.ID, "別作品の設定", "舞台は砂漠の都", false)
+	foreignLocked := create(other.ID, "別作品の主人公", "主人公はカイ", true)
+	if _, err := memories.SetMemorySharedWithAll(rewrite.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]model.Memory{}
+	for _, id := range []string{pinned.ID, foreign.ID, foreignLocked.ID} {
+		before[id] = mustGetMemory(t, memories, id)
+	}
+
+	affected, err := memories.ApplyOrganization(proj.ID, []model.MemoryOrganizationChange{
+		{Action: "update", MemoryID: rewrite.ID, Kind: "semantic", Title: "港の掟", Content: "霧笛が三度鳴ったら船を舫う。合図を決めたのは灯台守である。"},
+		{Action: "remove", MemoryID: stale.ID},
+		{Action: "remove", MemoryID: pinned.ID},
+		{Action: "update", MemoryID: foreign.ID, Kind: "episodic", Title: "上書き", Content: "上書きされた"},
+		{Action: "remove", MemoryID: foreignLocked.ID},
+		{Action: "create", Kind: "episodic", Title: "最近の経緯", Content: "酒場で密輸の噂を聞いた"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyOrganization: %v", err)
+	}
+
+	rewritten := mustGetMemory(t, memories, rewrite.ID)
+	if !strings.Contains(rewritten.Content, "灯台守") {
+		t.Errorf("rewrite not applied: %+v", rewritten)
+	}
+	// A rewrite takes the memory out of the common project material, whatever it
+	// was before: the organizer folds other memories in, and the content is no
+	// longer the content the human agreed to share (design §4.4).
+	if rewritten.SharedWithAll {
+		t.Error("a rewritten memory must leave the common project material until it is shared again")
+	}
+	if ids := ftsMemoryIDs(t, d, "合図"); !ids[rewrite.ID] {
+		t.Error("rewritten content not searchable")
+	}
+	if m, err := memories.GetMemory(stale.ID); err != nil || m != nil {
+		t.Errorf("stale memory not removed: %v, %v", m, err)
+	}
+	if ids := ftsMemoryIDs(t, d, "無人"); ids[stale.ID] {
+		t.Error("removed memory still in FTS")
+	}
+	for id, want := range before {
+		if got := mustGetMemory(t, memories, id); !reflect.DeepEqual(got, want) {
+			t.Errorf("memory %s changed:\n got %+v\nwant %+v", id, got, want)
+		}
+	}
+	if ids := ftsMemoryIDs(t, d, "上書き"); len(ids) != 0 {
+		t.Errorf("another project's FTS row was rewritten: %v", ids)
+	}
+
+	if len(affected) != 2 || affected[0] != rewrite.ID {
+		t.Fatalf("affected = %v, want the rewrite and the created memory", affected)
+	}
+	created := mustGetMemory(t, memories, affected[1])
+	if created.ProjectID != proj.ID || created.Source != "organized" || created.Locked {
+		t.Errorf("created memory wrong: %+v", created)
+	}
+}
+
+func TestMemoryApplyOrganizationRollsBackOnFailure(t *testing.T) {
+	d := newTestDB(t)
+	projects := NewProjectRepository(d)
+	memories := NewMemoryRepository(d)
+	proj, err := projects.CreateProject(CreateProjectInput{Title: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := memories.CreateMemory(CreateMemoryInput{ProjectID: proj.ID, Kind: "semantic", Title: "港の掟", Content: "霧笛が三度鳴ったら船を舫う"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doomed, err := memories.CreateMemory(CreateMemoryInput{ProjectID: proj.ID, Kind: "semantic", Title: "古い噂", Content: "灯台は無人である"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeList, err := memories.ListByProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The middle change violates the kind CHECK constraint: the update before it
+	// and the remove after it must not survive either.
+	_, err = memories.ApplyOrganization(proj.ID, []model.MemoryOrganizationChange{
+		{Action: "update", MemoryID: kept.ID, Kind: "semantic", Title: "港の掟", Content: "合図を決めたのは灯台守である"},
+		{Action: "create", Kind: "gossip", Title: "噂", Content: "酒場の噂"},
+		{Action: "remove", MemoryID: doomed.ID},
+	})
+	if err == nil {
+		t.Fatal("ApplyOrganization with an invalid kind succeeded")
+	}
+
+	afterList, err := memories.ListByProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(afterList, beforeList) {
+		t.Errorf("memories changed after a failed plan:\n got %+v\nwant %+v", afterList, beforeList)
+	}
+	if ids := ftsMemoryIDs(t, d, "合図"); len(ids) != 0 {
+		t.Errorf("FTS kept the rolled-back rewrite: %v", ids)
+	}
+	if ids := ftsMemoryIDs(t, d, "無人"); !ids[doomed.ID] {
+		t.Error("FTS lost the memory whose removal was rolled back")
 	}
 }
 

@@ -427,13 +427,14 @@ func TestAssembleTurnMaterialDropsRewrittenMemory(t *testing.T) {
 		t.Fatalf("the shared memory should reach the speaker to begin with:\n%s", before.Prompt)
 	}
 
-	if _, err := g.memories.UpdateMemory(repository.UpdateMemoryInput{
+	if _, err := g.memories.ApplyOrganization(fx.project.ID, []model.MemoryOrganizationChange{{
+		Action:   "update",
 		MemoryID: signal.ID,
 		Kind:     signal.Kind,
 		Title:    signal.Title,
 		Content:  "オルガの霧笛は港の全員が意味を知る合図である。三度目は密輸船への合図でもある。",
-	}); err != nil {
-		t.Fatalf("UpdateMemory: %v", err)
+	}}); err != nil {
+		t.Fatalf("ApplyOrganization: %v", err)
 	}
 
 	after, err := g.material.AssembleTurnMaterial(chat, speaker, messages)

@@ -579,6 +579,10 @@ func (s *Server) handleApplyMemoryOrganization(w http.ResponseWriter, r *http.Re
 	}
 
 	memoriesAfter, err := s.memoryOrg.ApplyProjectPlan(project.ID, *body.Plan)
+	if errors.Is(err, service.ErrMalformedPlan) {
+		writeError(w, http.StatusBadRequest, "plan has a malformed change")
+		return
+	}
 	if err != nil {
 		fail(w, err)
 		return
