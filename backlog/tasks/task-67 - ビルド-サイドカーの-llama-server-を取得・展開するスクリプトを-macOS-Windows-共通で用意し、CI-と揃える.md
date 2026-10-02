@@ -1,10 +1,10 @@
 ---
 id: TASK-67
 title: 'ビルド: サイドカーの llama-server を取得・展開するスクリプトを macOS / Windows 共通で用意し、CI と揃える'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 19:47'
-updated_date: '2026-10-02 00:38'
+updated_date: '2026-10-02 01:11'
 labels: []
 dependencies: []
 references:
