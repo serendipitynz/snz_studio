@@ -4,7 +4,7 @@ title: 'ビルド: サイドカーの llama-server を取得・展開するス�
 status: In Review
 assignee: []
 created_date: '2026-09-28 19:47'
-updated_date: '2026-10-01 22:42'
+updated_date: '2026-10-02 00:38'
 labels: []
 dependencies: []
 references:
@@ -48,9 +48,9 @@ GGUF の同梱は TASK-68 で扱う。このスクリプトの延長で置ける
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 macOS と Windows (PowerShell、WSL なし) の両方で、同じ pnpm スクリプト 1 本で、実行中の OS と CPU に合うサイドカーを取得して展開できる。固定した版が展開済みなら何もしない
-- [ ] #2 開発用の場所 (build/sidecar/<GOOS>-<GOARCH>/) に展開した後、SNZ_LLAMA_SERVER_BIN を指定しなくても、pnpm dev で内蔵 embedding が ready になる (macOS / Windows)
-- [ ] #3 配布用の場所 (macOS は .app の Contents/Resources、Windows は exe の横) に展開できる。pnpm build:app で作ったアプリで内蔵 embedding が ready になる (macOS / Windows)
+- [x] #1 macOS と Windows (PowerShell、WSL なし) の両方で、同じ pnpm スクリプト 1 本で、実行中の OS と CPU に合うサイドカーを取得して展開できる。固定した版が展開済みなら何もしない
+- [x] #2 開発用の場所 (build/sidecar/<GOOS>-<GOARCH>/) に展開した後、SNZ_LLAMA_SERVER_BIN を指定しなくても、pnpm dev で内蔵 embedding が ready になる (macOS / Windows)
+- [x] #3 配布用の場所 (macOS は .app の Contents/Resources、Windows は exe の横) に展開できる。pnpm build:app で作ったアプリで内蔵 embedding が ready になる (macOS / Windows)
 - [x] #4 ダウンロードしたアーカイブの sha256 を、固定した値と照合してから展開する
 - [x] #5 llama.cpp の版の固定が 1 か所にまとまっていて、build.yml と build-mac-signed.sh はこのスクリプト経由で配置する (curl で直接取得する処理が残っていない)
 - [x] #6 README.md / README.ja.md のビルド手順に、このスクリプトの使い方が書かれている
@@ -95,4 +95,11 @@ GGUF の同梱は TASK-68 で扱う。このスクリプトの延長で置ける
 
 ## 未確認 (Windows)
 - AC#1 / #2 / #3 の Windows 分。CI (workflow_dispatch) の Windows ジョブで pnpm sidecar --app (PowerShell) を確かめ、その成果物を実機で起動して ready を確認、実機で pnpm sidecar と pnpm dev を 1 回
+
+## 確認 (Windows、2026-10-02)
+- CI (workflow_dispatch、run 36936836537): Windows ジョブの pnpm sidecar --app は pwsh で実行され、windows-amd64 のアーカイブを取得・照合して build\bin に 30 ファイル (llama-server.exe と DLL 29 個) を置いた。成果物 snz-studio-Windows に DLL 29 個が入っていることも確認。macOS ジョブも同じスクリプトで 36 ファイルを置いて成功
+- 実機 (ユーザー確認): pnpm sidecar を 2 回実行し、2 回目は何もしない。pnpm dev で内蔵 embedding が ready (AC#1 / #2)
+- 実機 (ユーザー確認): CI 成果物を展開したフォルダーの SNZ Studio.exe を起動し、設定画面に「同梱の埋め込みモデルの準備が整いました」と表示された (AC#3)。インストーラーにはサイドカーが入っていない (TASK-26) ので、展開したフォルダーで確認した
+- 配布版の起動時に、llama-server.exe 用の空のコンソールウィンドウが開いていた。コンソールを持たない GUI アプリからコンソールプログラムを起動したため。sidecar_windows.go で llama-server と taskkill に CREATE_NO_WINDOW を付けた (03ca226)。pnpm dev では開発用ターミナルのコンソールを引き継ぐので出ない
+- ダッシュボードの接続カードは内蔵 embedding の状態を表示時に 1 回だけ読むので、起動直後に開くと ready になっても「準備中」のまま変わらない。設定画面は 2 秒ごとに読み直すので ready と出る。このタスクの範囲外 (画面側の不具合)
 <!-- SECTION:NOTES:END -->
