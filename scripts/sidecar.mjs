@@ -43,25 +43,25 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 // Must contain llama.cpp's ModernBERT graph (>= b9437), which ruri-v3 needs.
-const RELEASE = "b9437";
+const RELEASE = "b11126";
 
 // Keyed by Go's GOOS-GOARCH, the same naming as build/sidecar/<GOOS>-<GOARCH>/.
 const ASSETS = {
   "darwin-arm64": {
     file: `llama-${RELEASE}-bin-macos-arm64.tar.gz`,
-    sha256: "be62e359c081e718397e4ac9f8b7b346b77133681aa052bc6a26f5525ad0f723",
+    sha256: "5adfb8e114b5b875a319029d6980e414242ce693e0f51b6d2169f325f5506476",
   },
   "darwin-amd64": {
     file: `llama-${RELEASE}-bin-macos-x64.tar.gz`,
-    sha256: "2a355c6c22fab70a47f25bff49b73083e0d59cb266a5cc2df5544bfd0b86e13d",
+    sha256: "6032d4d94ef80bcb0ea8d9b10f9912381ace983c5887f075fbe565ca739f8713",
   },
   "windows-amd64": {
     file: `llama-${RELEASE}-bin-win-cpu-x64.zip`,
-    sha256: "7f19b3da00425946e41a83c15f8ef4bf5cd261f35f941e408e9b2634ce8b6d7f",
+    sha256: "88b6648aa8a96c751a5279cff96ad79cb6070bc3ef2b4f77fc10ea4c29909d1c",
   },
   "windows-arm64": {
     file: `llama-${RELEASE}-bin-win-cpu-arm64.zip`,
-    sha256: "9e0e177c5d6fba1834e6fb33d8da78c9abb2ecc225357274584fa945d405a380",
+    sha256: "6ca055d307664d95c30a0c68aa2a23f78d7c242b09f1980325fca695e71e8c95",
   },
 };
 

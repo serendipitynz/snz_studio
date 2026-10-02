@@ -63,7 +63,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ## 2. llama.cpp — bundled in the packaged application
 
 - Upstream: <https://github.com/ggml-org/llama.cpp>
-- Version: release `b9437` (official prebuilt binaries, used unmodified)
+- Version: release `b11126` (official prebuilt binaries, used unmodified)
 - License: MIT — full text below
 
 The packaged app ships `llama-server` and its `ggml` / `llama` shared libraries
