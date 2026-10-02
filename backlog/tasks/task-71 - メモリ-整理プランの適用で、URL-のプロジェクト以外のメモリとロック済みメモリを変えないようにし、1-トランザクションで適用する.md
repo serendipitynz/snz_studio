@@ -1,10 +1,10 @@
 ---
 id: TASK-71
 title: 'メモリ: 整理プランの適用で、URL のプロジェクト以外のメモリとロック済みメモリを変えないようにし、1 トランザクションで適用する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-10-02 08:30'
+updated_date: '2026-10-02 08:48'
 labels:
   - security
 dependencies: []
