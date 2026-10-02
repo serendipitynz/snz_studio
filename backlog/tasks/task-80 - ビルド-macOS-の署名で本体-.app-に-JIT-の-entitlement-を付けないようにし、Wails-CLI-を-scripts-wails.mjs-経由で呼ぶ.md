@@ -3,10 +3,10 @@ id: TASK-80
 title: >-
   ビルド: macOS の署名で本体 .app に JIT の entitlement を付けないようにし、Wails CLI を
   scripts/wails.mjs 経由で呼ぶ
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-02 04:40'
+updated_date: '2026-10-02 05:45'
 labels:
   - security
 dependencies: []
