@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -214,13 +215,26 @@ func (s *MemoryOrganizerService) AnalyzeProject(projectID string) (model.MemoryO
 	return buildFallbackPlan(memories, summaries), nil
 }
 
+// ErrMalformedPlan reports a plan with a change sanitizePlan would drop: an
+// unknown action, an invalid kind, or a missing field.
+var ErrMalformedPlan = errors.New("service: the memory organization plan has a malformed change")
+
 // ApplyProjectPlan applies a plan the client sends back after AnalyzeProject. The
 // plan is sanitized again because nothing guarantees it is the one analyze
-// returned; the repository then applies it in one transaction, skipping changes
-// to memories outside the project or locked. Embeddings are synced only after the
+// returned, and a plan that loses a change to sanitizing is rejected whole rather
+// than applied without it: a merge is a create plus the removes of what it
+// replaces, and dropping the create alone would delete the originals with nothing
+// in their place. AnalyzeProject only returns sanitized plans, so this never
+// rejects one it produced.
+//
+// The repository applies the plan in one transaction, skipping changes to
+// memories outside the project or locked. Embeddings are synced only after the
 // commit, so an embedding failure cannot leave the plan half-applied.
 func (s *MemoryOrganizerService) ApplyProjectPlan(projectID string, plan model.MemoryOrganizationPlan) ([]model.Memory, error) {
 	sanitized := sanitizePlan(plan.Summary, plan.Changes)
+	if len(sanitized.Changes) != len(plan.Changes) {
+		return nil, ErrMalformedPlan
+	}
 	affectedMemoryIDs, err := s.memories.ApplyOrganization(projectID, sanitized.Changes)
 	if err != nil {
 		return nil, err

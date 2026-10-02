@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -149,5 +150,42 @@ func TestMemoryOrganizerApplyKeepsOtherProjectsAndLocked(t *testing.T) {
 		if !reflect.DeepEqual(*got, want) {
 			t.Errorf("memory %s changed:\n got %+v\nwant %+v", id, *got, want)
 		}
+	}
+}
+
+// TestMemoryOrganizerApplyRejectsMalformedPlan: a merge whose create carries an
+// invalid kind must not go through as its removes alone.
+func TestMemoryOrganizerApplyRejectsMalformedPlan(t *testing.T) {
+	srv := failingLLMServer(t)
+	g := newServiceGraph(t, srv.URL)
+
+	project, err := g.projects.CreateProject(repository.CreateProjectInput{Title: "Saga"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	original, err := g.memories.CreateMemory(repository.CreateMemoryInput{
+		ProjectID: project.ID, Kind: "semantic", Title: "港の掟", Content: "霧笛が三度鳴ったら船を舫う",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemory: %v", err)
+	}
+	before, err := g.memories.ListByProject(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = g.organizer.ApplyProjectPlan(project.ID, model.MemoryOrganizationPlan{Changes: []model.MemoryOrganizationChange{
+		{Action: "create", Kind: "gossip", Title: "港の掟 (統合)", Content: "霧笛と合図の決まり", Reason: "統合"},
+		{Action: "remove", MemoryID: original.ID, Reason: "統合先に移した"},
+	}})
+	if !errors.Is(err, ErrMalformedPlan) {
+		t.Fatalf("ApplyProjectPlan err = %v, want ErrMalformedPlan", err)
+	}
+	after, err := g.memories.ListByProject(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after, before) {
+		t.Errorf("memories changed after a rejected plan:\n got %+v\nwant %+v", after, before)
 	}
 }
