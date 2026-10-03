@@ -25,6 +25,7 @@ type EmbeddingSyncService struct {
 	mu      sync.Mutex
 	idle    *sync.Cond
 	running bool
+	current corpusPass
 	pending corpusPass
 	// rebuildOwed stays set from a rebuild request until a rebuild completes. A
 	// rebuild that fails (the new endpoint is down) leaves the old source's
@@ -32,6 +33,9 @@ type EmbeddingSyncService struct {
 	// cannot tell those from current ones, so gap fills run as rebuilds until
 	// one gets through.
 	rebuildOwed bool
+	// rebuildCompleted records that a rebuild has gone through since startup, so
+	// the settings screen can say so after the fact.
+	rebuildCompleted bool
 }
 
 // corpusPass is ordered so that a larger value covers a smaller one: a full
@@ -42,6 +46,22 @@ const (
 	passNone corpusPass = iota
 	passMissing
 	passRebuild
+)
+
+// RebuildState is where the corpus-wide rebuild stands, for the settings screen.
+type RebuildState string
+
+const (
+	// RebuildIdle: no rebuild has been asked for since startup.
+	RebuildIdle RebuildState = "idle"
+	// RebuildRunning: a rebuild is running or waiting for the worker. Asking for
+	// another would only queue one more pass over the same corpus.
+	RebuildRunning RebuildState = "running"
+	// RebuildDone: the last rebuild replaced the corpus.
+	RebuildDone RebuildState = "done"
+	// RebuildIncomplete: the last rebuild did not get through (see rebuildOwed);
+	// the next gap fill runs it again.
+	RebuildIncomplete RebuildState = "incomplete"
 )
 
 // NewEmbeddingSyncService builds an EmbeddingSyncService.
@@ -59,6 +79,23 @@ func (s *EmbeddingSyncService) RequestRebuild() {
 // RequestSyncMissing schedules a SyncMissing on the worker and returns at once.
 func (s *EmbeddingSyncService) RequestSyncMissing() {
 	s.schedule(passMissing)
+}
+
+// RebuildState reports where the corpus-wide rebuild stands. A gap fill that
+// runs as an owed rebuild counts as a rebuild.
+func (s *EmbeddingSyncService) RebuildState() RebuildState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case s.current == passRebuild || s.pending == passRebuild:
+		return RebuildRunning
+	case s.rebuildOwed:
+		return RebuildIncomplete
+	case s.rebuildCompleted:
+		return RebuildDone
+	default:
+		return RebuildIdle
+	}
 }
 
 // WaitIdle blocks until no pass is running or pending.
@@ -92,6 +129,7 @@ func (s *EmbeddingSyncService) drain() {
 		s.mu.Lock()
 		pass := s.pending
 		s.pending = passNone
+		s.current = pass
 		if pass == passNone {
 			s.running = false
 			s.idle.Broadcast()
@@ -109,8 +147,11 @@ func (s *EmbeddingSyncService) drain() {
 			// A rebuild requested while this one ran is still pending and owes
 			// its own completion: it may target a source this pass never saw.
 			s.mu.Lock()
-			if complete && s.pending != passRebuild {
-				s.rebuildOwed = false
+			if complete {
+				s.rebuildCompleted = true
+				if s.pending != passRebuild {
+					s.rebuildOwed = false
+				}
 			}
 			s.mu.Unlock()
 		case passMissing:
