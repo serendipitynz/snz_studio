@@ -4,7 +4,7 @@ title: '埋め込み: サイドカーを止めた直後の起動要求が無視�
 status: In Review
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-03 09:46'
+updated_date: '2026-10-03 09:51'
 labels: []
 dependencies: []
 references:
@@ -67,4 +67,9 @@ ordinal: 78000
 ## 検証
 
 `go vet ./...` / `go test ./...` 通過。`go test -race -count=3 ./internal/embed/` 通過。
+
+## レビュー 1 回目の対応 (PR #76)
+
+- [P2] 世代をまたいだモデルファイルの準備の直列化: 修正前は `started` が残る不具合のせいで 2 つの run が重ならなかった。修正後は、Shutdown 直後の新しい run が `.part` を stat して Range の開始位置を決めた後に、旧 run が cancel 前に読み終えたチャンクを書き込みうる。そうなると重複したバイトで checksum が合わず、`.part` が消されて error になる。`modelMu` で seed とダウンロードを 1 run ずつにした。
+- 回帰テスト `TestRestartDuringDownloadResumesAndReachesReady`: ダウンロード途中 (半分書いたところ) で Shutdown → EnsureInternalReady し、新しい run が `bytes=<half>-` で再開して検証済みのモデルで ready に達することを確かめる。ただし Read と Write の間の窓はテストの外から作れない。そのため `modelMu` を外しても 20 回とも通り、このテストは直列化そのものの回帰検出にはならない (テスト専用のフックは足していない)。
 <!-- SECTION:NOTES:END -->
