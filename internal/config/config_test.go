@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -114,15 +115,40 @@ func TestInternalOverlayAndDegrade(t *testing.T) {
 		t.Fatalf("not-ready internal EmbeddingModel = %q, want empty", got.EmbeddingModel)
 	}
 
-	c.SetInternalEmbedding("http://127.0.0.1:9999/v1", "ruri-v3-30m")
+	c.SetInternalEmbedding("http://127.0.0.1:9999/v1", "launch-key", "ruri-v3-30m")
 	got := c.Get()
-	if got.EmbeddingModel != "ruri-v3-30m" || got.EmbeddingBaseURL != "http://127.0.0.1:9999/v1" || got.EmbeddingAPIKey != "" {
-		t.Fatalf("ready internal overlay = %+v, want sidecar url/model and empty key", got.Editable)
+	if got.EmbeddingModel != "ruri-v3-30m" || got.EmbeddingBaseURL != "http://127.0.0.1:9999/v1" || got.EmbeddingAPIKey != "launch-key" {
+		t.Fatalf("ready internal overlay = %+v (key %q), want sidecar url/model/key", got.Editable, got.EmbeddingAPIKey)
 	}
 
 	c.ClearInternalEmbedding()
-	if got := c.Get(); got.EmbeddingModel != "" {
-		t.Fatalf("after clear, internal EmbeddingModel = %q, want empty", got.EmbeddingModel)
+	if got := c.Get(); got.EmbeddingModel != "" || got.EmbeddingAPIKey != "" {
+		t.Fatalf("after clear, internal EmbeddingModel = %q, key = %q, want both empty", got.EmbeddingModel, got.EmbeddingAPIKey)
+	}
+}
+
+// EMBEDDING_API_KEY is meant for an external endpoint, so internal mode replaces it
+// with the sidecar's key, and that key never reaches app-config.json.
+func TestInternalKeyReplacesAndIsNotPersisted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	s := Defaults()
+	s.EmbeddingMode = "internal"
+	s.EmbeddingAPIKey = "emb-secret"
+	c := New(s, path)
+	c.SetInternalEmbedding("http://127.0.0.1:9999/v1", "launch-key", "ruri-v3-30m")
+	if got := c.Get().EmbeddingAPIKey; got != "launch-key" {
+		t.Fatalf("internal EmbeddingAPIKey = %q, want the sidecar key", got)
+	}
+
+	if _, err := c.UpdateEditable(c.GetEditable()); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(persisted), "launch-key") {
+		t.Fatalf("app-config.json carries the sidecar key:\n%s", persisted)
 	}
 }
 
@@ -135,7 +161,7 @@ func TestExternalModeNoOverlay(t *testing.T) {
 
 	// Even with an internal overlay set, external mode must keep the persisted
 	// external endpoint/model.
-	c.SetInternalEmbedding("http://internal/v1", "ruri-v3-30m")
+	c.SetInternalEmbedding("http://internal/v1", "launch-key", "ruri-v3-30m")
 	got := c.Get()
 	if got.EmbeddingModel != "ext-model" || got.EmbeddingBaseURL != "http://ext/v1" {
 		t.Fatalf("external mode overlaid = %+v, want persisted ext values", got.Editable)

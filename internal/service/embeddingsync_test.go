@@ -301,7 +301,7 @@ func TestRebuildDiscardsVectorsWhenTheModelSwitchesMidPass(t *testing.T) {
 		// The sidecar comes back with another model while the first batch is
 		// being computed by the old one.
 		if switched.CompareAndSwap(false, true) {
-			cfg.SetInternalEmbedding("http://"+r.Host, "new-model")
+			cfg.SetInternalEmbedding("http://"+r.Host, "", "new-model")
 		}
 		data := make([]map[string]any, len(body.Input))
 		for i := range body.Input {
@@ -313,7 +313,7 @@ func TestRebuildDiscardsVectorsWhenTheModelSwitchesMidPass(t *testing.T) {
 	settings := config.Settings{EmbeddingTimeoutMs: 5000}
 	settings.EmbeddingMode = "internal"
 	cfg = testConfig(settings)
-	cfg.SetInternalEmbedding(srv.URL, "old-model")
+	cfg.SetInternalEmbedding(srv.URL, "", "old-model")
 	client := NewEmbeddingClient(cfg)
 	sync := NewEmbeddingSyncService(documents, memories, client)
 

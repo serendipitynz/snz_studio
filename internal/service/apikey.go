@@ -29,10 +29,16 @@ func llmAPIKeyFor(s config.Settings, dest *url.URL) string {
 
 // embeddingAPIKeyFor returns EMBEDDING_API_KEY when it is set: the owner configured
 // it for the embedding endpoint alone. Unset, it borrows LLM_API_KEY under the LLM
-// key's origin rule. The bundled sidecar never receives a key.
+// key's origin rule. In internal mode the only key is the bundled sidecar's
+// per-launch one, sent to the sidecar's origin alone: a model-list request can
+// still carry a URL the user typed for an external endpoint.
 func embeddingAPIKeyFor(s config.Settings, dest *url.URL) string {
 	if s.EmbeddingMode == "internal" {
-		return ""
+		base, err := url.Parse(strings.TrimSpace(s.EmbeddingBaseURL))
+		if err != nil || !sameOrigin(base, dest) {
+			return ""
+		}
+		return s.EmbeddingAPIKey
 	}
 	if s.EmbeddingAPIKey != "" {
 		return s.EmbeddingAPIKey

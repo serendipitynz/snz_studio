@@ -147,7 +147,7 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 // the bare origin that is llama-server's native endpoint, whose array response the
 // client cannot decode — so the OpenAI-compatible /v1 root is what gets overlaid.
 func (s *Server) onEmbeddingReady(baseURL, modelID string) {
-	s.cfg.SetInternalEmbedding(strings.TrimRight(baseURL, "/")+"/v1", modelID)
+	s.cfg.SetInternalEmbedding(strings.TrimRight(baseURL, "/")+"/v1", "", modelID)
 	s.embedding.RefreshConfiguration()
 	s.embeddingSync.RequestSyncMissing()
 }

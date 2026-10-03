@@ -52,9 +52,10 @@ type Settings struct {
 	Editable
 	LLMAPIKey    string
 	LLMTimeoutMs int
-	// EmbeddingAPIKey holds EMBEDDING_API_KEY only. The LLM_API_KEY fallback is
-	// applied per request (service.embeddingAPIKeyFor) so that it follows the LLM
-	// key's origin rule instead of reaching whatever the embedding endpoint is.
+	// EmbeddingAPIKey holds EMBEDDING_API_KEY only, or in internal mode the bundled
+	// sidecar's per-launch key. The LLM_API_KEY fallback is applied per request
+	// (service.embeddingAPIKeyFor) so that it follows the LLM key's origin rule
+	// instead of reaching whatever the embedding endpoint is.
 	EmbeddingAPIKey    string
 	EmbeddingTimeoutMs int
 	// ImageDescriptionTimeoutMs is separate from LLMTimeoutMs because a local
@@ -71,12 +72,13 @@ type Config struct {
 	settings      Settings
 	appConfigPath string
 
-	// internalEmbedURL/Model are the runtime-only overlay for the bundled
+	// internalEmbedURL/Model/Key are the runtime-only overlay for the bundled
 	// embedding sidecar. They are NOT persisted; Config.Get substitutes them into
 	// the returned Settings when EmbeddingMode=="internal". Empty model means the
 	// sidecar is not ready yet (retrieval degrades to FTS-only).
 	internalEmbedURL   string
 	internalEmbedModel string
+	internalEmbedKey   string
 }
 
 func getenv(key, fallback string) string {
@@ -289,17 +291,19 @@ func (c *Config) Get() Settings {
 	if s.EmbeddingMode == "internal" {
 		s.EmbeddingBaseURL = c.internalEmbedURL
 		s.EmbeddingModel = c.internalEmbedModel
-		s.EmbeddingAPIKey = ""
+		s.EmbeddingAPIKey = c.internalEmbedKey
 	}
 	return s
 }
 
 // SetInternalEmbedding points the internal-mode overlay at the bundled sidecar's
-// loopback endpoint and model id. Called from the sidecar manager's ready callback.
-func (c *Config) SetInternalEmbedding(baseURL, model string) {
+// loopback endpoint, the key that launch requires, and the model id. Called from
+// the sidecar manager's ready callback.
+func (c *Config) SetInternalEmbedding(baseURL, apiKey, model string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.internalEmbedURL = baseURL
+	c.internalEmbedKey = apiKey
 	c.internalEmbedModel = model
 }
 
@@ -309,6 +313,7 @@ func (c *Config) ClearInternalEmbedding() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.internalEmbedURL = ""
+	c.internalEmbedKey = ""
 	c.internalEmbedModel = ""
 }
 
