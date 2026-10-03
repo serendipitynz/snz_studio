@@ -25,8 +25,8 @@ import (
 // later embedding until the configuration is refreshed.
 //
 // Once disabled for an unreachable endpoint, it probes the endpoint in the
-// background every retryInterval and re-enables itself when the endpoint answers,
-// so an endpoint that comes back does not wait for a settings save.
+// background every retryInterval and re-enables itself when the endpoint embeds
+// the probe, so an endpoint that comes back does not wait for a settings save.
 //
 // The TS client relied on JS being single-threaded to guard its disabled flag;
 // here a mutex protects the mutable state since Go callers may run concurrently.
@@ -68,7 +68,7 @@ func NewEmbeddingClient(cfg *config.Config) *EmbeddingClient {
 }
 
 // SetOnReconnect registers fn to run, on the probe's goroutine, each time the
-// client re-enables itself after an unreachable endpoint answers again. Call it
+// client re-enables itself after an unreachable endpoint embeds again. Call it
 // before the client is used.
 func (c *EmbeddingClient) SetOnReconnect(fn func()) {
 	c.onReconnect = fn
@@ -424,7 +424,7 @@ func (c *EmbeddingClient) scheduleRetryLocked() {
 }
 
 // RetryIfUnreachable probes the endpoint now when the client is disabled for an
-// unreachable endpoint, and re-enables it if the endpoint answers. The settings
+// unreachable endpoint, and re-enables it if the endpoint embeds. The settings
 // screen calls it when its own probe finds the endpoint up, so it never reports
 // a connection the client is still refusing to use. The scheduled probe keeps
 // running if this one fails.
@@ -438,21 +438,23 @@ func (c *EmbeddingClient) RetryIfUnreachable() {
 	}
 }
 
-// tryReconnect sends one probe and, if the endpoint answers, re-enables the client
-// and runs onReconnect. A failed probe stays silent — the disable already logged
-// — and, with reschedule, arms the next one. A probe whose generation has passed
-// changes nothing.
+// tryReconnect sends one probe and, if the endpoint embeds it, re-enables the
+// client and runs onReconnect. Merely reaching the endpoint is not enough: a
+// llama-server still loading its model answers 503, and the gap fill onReconnect
+// starts would then fail on every input with nothing left to retry it. A failed
+// probe stays silent — the disable already logged — and, with reschedule, arms
+// the next one. A probe whose generation has passed changes nothing.
 func (c *EmbeddingClient) tryReconnect(generation uint64, reschedule bool) {
 	s := c.cfg.Get()
 	timeout := time.Duration(minInt(s.EmbeddingTimeoutMs, 5000)) * time.Millisecond
-	_, reachable, _ := c.requestEmbeddings(s, []string{embeddingProbeInput}, timeout)
+	_, _, err := c.requestEmbeddings(s, []string{embeddingProbeInput}, timeout)
 
 	c.mu.Lock()
 	if generation != c.generation {
 		c.mu.Unlock()
 		return
 	}
-	if !reachable {
+	if err != nil {
 		if reschedule {
 			c.scheduleRetryLocked()
 		}
@@ -464,7 +466,7 @@ func (c *EmbeddingClient) tryReconnect(generation uint64, reschedule bool) {
 	c.unavailableLogged = false
 	c.mu.Unlock()
 
-	log.Printf("Embedding endpoint is reachable again; embeddings re-enabled")
+	log.Printf("Embedding endpoint is embedding again; embeddings re-enabled")
 	if c.onReconnect != nil {
 		c.onReconnect()
 	}
