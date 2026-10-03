@@ -288,6 +288,11 @@ export interface EmbeddingStatus {
   error?: string;
 }
 
+// EmbeddingRebuildState mirrors the Go service.RebuildState: where the corpus-wide
+// rebuild stands, however it was started (the rebuild button, a settings save that
+// changed the embedding source, or startup).
+export type EmbeddingRebuildState = "idle" | "running" | "done" | "incomplete";
+
 // ImageDescriptionAvailability mirrors GET /api/image-description: whether a model
 // is configured, and the size and formats the server accepts for a description.
 export interface ImageDescriptionAvailability {
@@ -387,6 +392,7 @@ export const api = {
       body: JSON.stringify(input)
     }).then((response) => ({ models: response.models ?? [] })),
   getEmbeddingStatus: () => request<EmbeddingStatus>("/api/embedding/status"),
+  getEmbeddingRebuild: () => request<{ state: EmbeddingRebuildState }>("/api/embedding/rebuild"),
   rebuildEmbeddings: () => request<{ started: boolean }>("/api/embedding/rebuild", { method: "POST" }),
   getProjects: () => request<{ projects: Project[] }>("/api/projects"),
   createProject: (input: { title: string; description: string; systemPrompt: string }) =>

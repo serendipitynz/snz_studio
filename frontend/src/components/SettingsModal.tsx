@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, EmbeddingStatus, WorkspaceConfiguration } from "../api/client";
+import { api, EmbeddingRebuildState, EmbeddingStatus, WorkspaceConfiguration } from "../api/client";
 import { Language, MessageKey, useLanguage } from "../i18n";
 import { ThemeMode, useThemeController } from "../styles/ThemeController";
 import type { ThemeFamily } from "../styles/themes";
@@ -157,7 +157,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [rebuilding, setRebuilding] = useState(false);
-  const [rebuildStarted, setRebuildStarted] = useState(false);
+  const [rebuildState, setRebuildState] = useState<EmbeddingRebuildState | null>(null);
+  // Bumped to read the rebuild state again after an action that may have started one.
+  const [rebuildWatch, setRebuildWatch] = useState(0);
   const [rebuildError, setRebuildError] = useState("");
   // Dismissed for this opening only: the stored value is still unknown, so the
   // note returns the next time the modal opens (snz-design doc-9 §6.4).
@@ -225,6 +227,45 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       if (timer) window.clearTimeout(timer);
     };
   }, [configuration?.embeddingMode]);
+
+  // The rebuild runs on the server, so its state is read from there rather than
+  // kept from the button press: a rebuild a save or startup began holds the button
+  // too, and the outcome still shows after the modal is closed and opened again.
+  useEffect(() => {
+    let active = true;
+    let timer = 0;
+    const tick = async () => {
+      try {
+        const { state } = await api.getEmbeddingRebuild();
+        if (!active) return;
+        setRebuildState(state);
+        if (state === "running") {
+          timer = window.setTimeout(tick, 2000);
+        }
+      } catch {
+        /* transient; the next opening or rebuild reads the state again */
+      }
+    };
+    void tick();
+    return () => {
+      active = false;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [rebuildWatch]);
+
+  // Read out the end of a rebuild this opening watched run; an outcome already
+  // there when the modal opened is only shown.
+  const watchedRebuildRef = useRef(false);
+  useEffect(() => {
+    if (rebuildState === "running") {
+      watchedRebuildRef.current = true;
+    } else if (watchedRebuildRef.current && (rebuildState === "done" || rebuildState === "incomplete")) {
+      watchedRebuildRef.current = false;
+      announce(
+        t(rebuildState === "done" ? "settings.rebuildEmbeddingsDone" : "settings.rebuildEmbeddingsIncomplete")
+      );
+    }
+  }, [rebuildState, t]);
 
   useEffect(() => {
     if (!configDraft.llmBaseUrl.trim()) {
@@ -307,6 +348,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       const response = await api.updateConfiguration(configDraft);
       setConfiguration(response.configuration);
       setConfigDraft(draftFrom(response.configuration));
+      // A save that changed the embedding source starts a rebuild; read whether this one did.
+      setRebuildWatch((current) => current + 1);
     } catch (nextError) {
       setSaveError(nextError instanceof Error ? nextError.message : t("settings.saveError"));
     } finally {
@@ -316,12 +359,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
   async function handleRebuildEmbeddings() {
     setRebuilding(true);
-    setRebuildStarted(false);
     setRebuildError("");
     try {
       await api.rebuildEmbeddings();
-      setRebuildStarted(true);
-      announce(t("settings.rebuildEmbeddingsStarted"));
+      // The server queues the rebuild before it answers, so the button holds from
+      // here rather than after the next read.
+      setRebuildState("running");
+      setRebuildWatch((current) => current + 1);
+      announce(t("settings.rebuildEmbeddingsRunning"));
     } catch (nextError) {
       setRebuildError(nextError instanceof Error ? nextError.message : t("settings.rebuildEmbeddingsError"));
     } finally {
@@ -357,6 +402,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   function rebuildDisabledReason(): string | undefined {
     if (loading) {
       return t("settings.loadingConfig");
+    }
+    if (rebuildState === "running") {
+      return t("settings.rebuildRunningReason");
     }
     if (connectionDirty) {
       return t("settings.rebuildNeedsSave");
@@ -659,7 +707,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <Stack>
             <SubsectionTitle>{t("settings.rebuildEmbeddings")}</SubsectionTitle>
             <Subtle>{t("settings.rebuildEmbeddingsNote")}</Subtle>
-            {rebuildStarted ? <Subtle>{t("settings.rebuildEmbeddingsStarted")}</Subtle> : null}
+            {rebuildState === "running" ? <Subtle>{t("settings.rebuildEmbeddingsRunning")}</Subtle> : null}
+            {rebuildState === "done" ? <Subtle>{t("settings.rebuildEmbeddingsDone")}</Subtle> : null}
+            {rebuildState === "incomplete" ? <Subtle>{t("settings.rebuildEmbeddingsIncomplete")}</Subtle> : null}
             {rebuildError ? <FailureNotice>{rebuildError}</FailureNotice> : null}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <ActionButton
