@@ -1,10 +1,10 @@
 ---
 id: TASK-73
 title: '埋め込み: 設定を保存するたびに全件を再計算しないようにし、再計算を直列化してモデル名の取り違えを防ぐ'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-10-02 22:38'
+updated_date: '2026-10-03 00:50'
 labels: []
 dependencies: []
 references:
