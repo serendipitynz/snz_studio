@@ -1,10 +1,10 @@
 ---
 id: TASK-79
 title: '埋め込み: 同梱の llama-server を起動ごとの API キー付きで起動し、使わないエンドポイントを閉じる'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-03 19:55'
+updated_date: '2026-10-03 20:22'
 labels:
   - security
 dependencies:
@@ -38,7 +38,7 @@ ordinal: 79000
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 b11126 の llama-server の既定の CORS と、/slots などが返す内容を確かめた結果が記録されている
-- [ ] #2 同梱のサイドカーがキーの無い要求 (/v1/embeddings など) を拒否し、アプリからの埋め込みは従来どおり動く (macOS / Windows)
+- [x] #2 同梱のサイドカーがキーの無い要求 (/v1/embeddings など) を拒否し、アプリからの埋め込みは従来どおり動く (macOS / Windows)
 - [x] #3 キーは起動ごとに作られ、app-config.json にもログにも残らない
 - [x] #4 使わないエンドポイントを閉じたこと、または閉じる必要が無いと判断した理由が記録されている
 <!-- AC:END -->
@@ -93,4 +93,10 @@ ordinal: 79000
 ## 範囲外で見つけた既存の問題
 
 internal モードで ready でも、GET /api/configuration の embeddingConnected が false になる。サイドカーの /v1/models がモデルを GGUF の絶対パスで返し、`CheckConnection` が `ruri-v3-30m` との一致を見ているため。この変更を一時的に外した main でも同じだったので、本タスクによるものではない。別タスクとして扱う。
+
+## Windows での確認 (AC#2、2026-10-04、オーナー)
+
+- `pnpm dev` で起動し、ダッシュボードの内蔵埋め込みが「利用可能」(ready。キー付きの次元 probe が通った状態) になった。
+- 同梱サイドカーのコマンドラインは `... -ngl 0 --no-slots --no-ui` で終わり、キーを含まない。
+- キー無しの POST /v1/embeddings は 401。
 <!-- SECTION:NOTES:END -->
