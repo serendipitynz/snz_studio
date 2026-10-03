@@ -100,16 +100,51 @@ jobs:
         if: runner.os == 'macOS'
         run: node scripts/wails.mjs build -platform darwin/universal -clean
 
-      # Stage the bundled embedding sidecar (llama-server) into the .app Resources
-      # before packaging. The official prebuilt binary runs the ruri GGUF unmodified;
-      # scripts/sidecar.mjs pins its release, checks the archive's sha256, and keeps
-      # only llama-server and its dylibs (extra unsigned exes fail notarization).
+      # Stage the built-in embedding stack into the .app Resources before packaging:
+      # the sidecar (llama-server) and the model GGUF the app seeds on first launch.
+      # The official prebuilt binary runs the ruri GGUF unmodified; scripts/sidecar.mjs
+      # pins its release, checks the archive's sha256, and keeps only llama-server and
+      # its dylibs (extra unsigned exes fail notarization). The GGUF is the verified
+      # release asset pinned in internal/embed/modelspec.go.
       # NOTE: ships the arm64 sidecar; a universal sidecar needs lipo of both arches'
       # binary + dylibs (TODO). Signing the sidecar is part of the notarization TODO
       # below; scripts/build-mac-signed.sh is the verified local recipe.
-      - name: Stage embedding sidecar (macOS)
+      - name: Stage built-in embedding (macOS)
         if: runner.os == 'macOS'
         run: pnpm sidecar --app --arch arm64
+
+      # Launch the built app on an empty data dir with every proxied request sent to a
+      # closed port, so a model download cannot succeed (loopback is never proxied, so
+      # the app still reaches its sidecar). The sidecar only stays up once the app's
+      # probe embedding passes, so a llama-server still answering /health a few seconds
+      # later means built-in embedding came up from the bundled files alone.
+      - name: Smoke-test built-in embedding without the network (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$PWD/build/bin/snz-studio.app"
+          exe="$(find "$app/Contents/MacOS" -type f -perm -u+x | head -1)"
+          data="$RUNNER_TEMP/embed-smoke"
+          mkdir -p "$data"
+          DATA_DIR="$data" HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 \
+            "$exe" > "$RUNNER_TEMP/embed-smoke.log" 2>&1 &
+          trap 'kill $! 2>/dev/null || true; pkill -f "$app/Contents/Resources/llama-server" || true' EXIT
+          health() {
+            # Anchored: the /bin/sh parent-watch wrapper (internal/embed/sidecar_unix.go)
+            # carries the same path in its arguments but listens on nothing.
+            pid="$(pgrep -f "^$app/Contents/Resources/llama-server" | head -1 || true)"
+            [ -n "$pid" ] || return 1
+            port="$(lsof -a -p "$pid" -iTCP -sTCP:LISTEN -Fn 2>/dev/null | sed -n 's/^n.*://p' | head -1)"
+            [ -n "$port" ] && curl -fsS "http://127.0.0.1:$port/health" > /dev/null
+          }
+          for _ in $(seq 60); do health && break; sleep 2; done
+          health || { cat "$RUNNER_TEMP/embed-smoke.log"; echo "the sidecar never answered /health"; exit 1; }
+          first="$pid"
+          sleep 5
+          health && [ "$pid" = "$first" ] || { echo "the sidecar did not stay up"; exit 1; }
+          ls -la "$data/models"
+          echo "2a6cb2d9889140cd214bc4eaee14114f276a52afcf0a2fe65fae3d467f7480fe  $data/models/ruri-v3-30m-q8_0.gguf" | shasum -a 256 -c
 
       # TinySegmenter's modified BSD requires its notice to accompany a binary
       # redistribution, so the notices ride inside the .app rather than only in
@@ -126,6 +161,13 @@ jobs:
             -srcfolder "build/bin/snz-studio.app" \
             -ov -format UDZO \
             "build/bin/SNZ-Studio.dmg"
+
+      # The installer takes the sidecar and the GGUF from where this leaves them
+      # (build/sidecar/windows-amd64/ and build/sidecar/.downloads/), so it runs before
+      # `wails build`, whose makensis step reads them and whose -clean leaves them be.
+      - name: Stage built-in embedding for the installer (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm sidecar --arch amd64
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -160,18 +202,52 @@ jobs:
           $p = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$dest" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode)" }
           Get-ChildItem $dest
-          foreach ($f in 'LICENSE', 'THIRD_PARTY_NOTICES.md') {
+          foreach ($f in 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'llama-server.exe', 'ggml.dll', 'llama.dll', 'ruri-v3-30m-q8_0.gguf') {
             if (-not (Test-Path (Join-Path $dest $f))) { throw "$f is missing from the installed directory" }
           }
 
-      # Stage the Windows embedding sidecar (CPU build): llama-server.exe + ggml/llama
-      # DLLs next to the app exe. Bundling these INTO the NSIS installer stays deferred
-      # (TASK-26): makensis runs inside `wails build`, so it is already over by the time
-      # this step downloads them, and they never exist in a plain checkout — a File
-      # directive would break a local `wails build -nsis` to improve a build that has no
-      # signed distribution path yet. The loose files are uploaded as a portable fallback
-      # instead. Authenticode-sign the sidecar with the app (signing TODO below).
-      - name: Stage embedding sidecar (Windows)
+      # Same check as the macOS smoke test, against the installed copy: an empty data
+      # dir, proxied requests sent to a closed port, and a sidecar that must still
+      # answer /health a few seconds after it first does.
+      - name: Smoke-test built-in embedding without the network (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = Join-Path $env:RUNNER_TEMP 'installed-check'
+          $data = Join-Path $env:RUNNER_TEMP 'embed-smoke'
+          $exe = Get-ChildItem $dest -Filter '*.exe' | Where-Object { $_.Name -notin 'llama-server.exe', 'uninstall.exe' } | Select-Object -First 1
+          # Set only for the app's launch: the child takes a copy, and the checks below
+          # must not go through the dead proxy themselves.
+          $env:DATA_DIR = $data; $env:HTTPS_PROXY = 'http://127.0.0.1:9'; $env:HTTP_PROXY = 'http://127.0.0.1:9'
+          $app = Start-Process -FilePath $exe.FullName -PassThru
+          Remove-Item Env:DATA_DIR, Env:HTTPS_PROXY, Env:HTTP_PROXY
+          function Get-Health {
+            $srv = Get-Process llama-server -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$dest*" } | Select-Object -First 1
+            if (-not $srv) { return $null }
+            $port = (Get-NetTCPConnection -OwningProcess $srv.Id -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).LocalPort
+            if (-not $port) { return $null }
+            try { Invoke-WebRequest "http://127.0.0.1:$port/health" -UseBasicParsing -NoProxy | Out-Null } catch { return $null }
+            return $srv.Id
+          }
+          try {
+            $first = $null
+            for ($i = 0; $i -lt 60 -and -not $first; $i++) { Start-Sleep 2; $first = Get-Health }
+            if (-not $first) { throw 'the sidecar never answered /health' }
+            Start-Sleep 5
+            if ((Get-Health) -ne $first) { throw 'the sidecar did not stay up' }
+            Get-ChildItem (Join-Path $data 'models')
+            $hash = (Get-FileHash (Join-Path $data 'models\ruri-v3-30m-q8_0.gguf') -Algorithm SHA256).Hash.ToLower()
+            if ($hash -ne '2a6cb2d9889140cd214bc4eaee14114f276a52afcf0a2fe65fae3d467f7480fe') { throw "seeded GGUF has sha256 $hash" }
+          } finally {
+            Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+            Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
+          }
+
+      # The same files loose beside the app exe, for the portable fallback: someone who
+      # takes the artifact zip without running the installer still gets built-in
+      # embedding. Authenticode-sign the sidecar with the app (signing TODO below).
+      - name: Stage built-in embedding beside the exe (Windows)
         if: runner.os == 'Windows'
         run: pnpm sidecar --app
 
@@ -216,6 +292,7 @@ jobs:
             build/bin/*.dmg
             build/bin/*.exe
             build/bin/*.dll
+            build/bin/*.gguf
             build/bin/LICENSE
             build/bin/THIRD_PARTY_NOTICES.md
           if-no-files-found: warn

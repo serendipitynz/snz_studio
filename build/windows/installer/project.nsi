@@ -103,12 +103,16 @@ Section
     File "..\..\..\LICENSE"
     File "..\..\..\THIRD_PARTY_NOTICES.md"
 
-    # The embedding sidecar (llama-server.exe + ggml/llama DLLs) is deliberately NOT
-    # bundled here: CI downloads it after `wails build`, which is where makensis already
-    # ran, and it never exists in a plain checkout, so an unconditional File would break
-    # a local `wails build -nsis`. It ships as loose files beside the exe instead
-    # (.github/workflows/build.yml), and revisiting that waits for Windows signing to
-    # give the installer a real distribution path.
+    # The built-in embedding stack lands beside the exe, where the app looks for it
+    # (internal/embed/sidecar_windows.go): llama-server.exe and its DLLs, and the model
+    # GGUF that the app seeds into %AppData% on first launch. `pnpm sidecar` stages them
+    # before `wails build` into places `-clean` leaves alone. They are absent in a plain
+    # checkout, so /nonfatal keeps a local `wails build -nsis` working, at the cost of an
+    # installer without built-in embedding; CI installs the result and asserts they are
+    # there (.github/workflows/build.yml).
+    File /nonfatal "..\..\sidecar\windows-${ARCH}\llama-server.exe"
+    File /nonfatal "..\..\sidecar\windows-${ARCH}\*.dll"
+    File /nonfatal "..\..\sidecar\.downloads\ruri-v3-30m-q8_0.gguf"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
