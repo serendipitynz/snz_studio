@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Regenerate data/models/ruri-v3-30m-q8_0.gguf from scratch, reproducibly.
 #
-# The q8_0 GGUF is gitignored (data/ is ignored, ~42MB binary), so this script is the
-# canonical way to recreate it on a fresh machine before `scripts/build-mac-signed.sh`
-# bundles it into the .app. The full pipeline is:
+# This is the provenance recipe of the GGUF the app ships. Builds do not run it:
+# `pnpm sidecar` (scripts/sidecar.mjs) fetches the verified copy published as a GitHub
+# Release asset (the URL in internal/embed/modelspec.go). Run this to audit that asset
+# or to build a new one. It runs on macOS only (it uses the macOS llama-quantize
+# binary); the same pipeline gives the same sha256 with the Windows llama-quantize.exe
+# and with Python 3.10 or 3.12 (measured for TASK-68). The full pipeline is:
 #
 #   1. fetch llama.cpp SOURCE   @ $LLAMA_RELEASE  (for convert_hf_to_gguf.py)
 #   2. fetch llama.cpp RELEASE  @ $LLAMA_RELEASE  (for the llama-quantize binary)
@@ -65,6 +68,9 @@ SIDECAR_ARCH="${SIDECAR_ARCH:-$ARCH_DEFAULT}"
 SRC_DIR="$WORKDIR/llama.cpp-$LLAMA_RELEASE"
 TOOLS_DIR="$WORKDIR/tools-$LLAMA_RELEASE-$SIDECAR_ARCH"
 VENV_DIR="$WORKDIR/venv"
+# The converter derives general.name / general.basename / size_label from this
+# directory's name, so it must stay the repo's own name (ruri-v3-30m): any other name
+# changes the metadata, and with it the sha256.
 HF_DIR="$WORKDIR/hf/$(basename "$HF_REPO")"
 F16="$WORKDIR/ruri-v3-30m-f16.gguf"
 Q8="$WORKDIR/ruri-v3-30m-q8_0.gguf"

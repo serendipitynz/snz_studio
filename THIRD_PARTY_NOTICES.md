@@ -105,9 +105,14 @@ SOFTWARE.
 The packaged app bundles this model as `ruri-v3-30m-q8_0.gguf` and seeds it into
 the user's data directory on first launch. **The bundled file is a modified form
 of the upstream model**: it was converted from the upstream safetensors to GGUF
-and quantized to Q8_0 with llama.cpp `b9437`. No weights were retrained or
-fine-tuned. `scripts/build-ruri-gguf.sh` is the reproducible recipe for that
-conversion and records every pinned input.
+and quantized to Q8_0 with llama.cpp `b9437` (`convert_hf_to_gguf.py` and
+`llama-quantize`). No weights were retrained or fine-tuned.
+`scripts/build-ruri-gguf.sh` is the reproducible recipe for that conversion and
+records every pinned input. The converted file (sha256
+`2a6cb2d9889140cd214bc4eaee14114f276a52afcf0a2fe65fae3d467f7480fe`) is also
+published, with this license, as the release asset
+<https://github.com/serendipitynz/snz_studio/releases/tag/ruri-v3-30m-q8_0-2a6cb2d9>,
+which is where the build takes it from.
 
 The upstream repository contains no `NOTICE` file, so there is no upstream
 notice text to propagate here.

@@ -140,9 +140,9 @@ pnpm dev
   UI cannot set, are passed as environment variables (see "LLM connection" for how).
 - Developing against the browser directly (`localhost:5173`) has been dropped, because non-GET
   requests do not reach the API. Use `pnpm dev`.
-- For built-in embedding, first place the sidecar in `build/sidecar/<GOOS>-<GOARCH>/` with
-  `pnpm sidecar`, and the model GGUF in `data/models/` (see "Built-in embedding sidecar
-  (llama-server)"). `SNZ_LLAMA_SERVER_BIN` is not needed.
+- For built-in embedding, first run `pnpm sidecar`: it places the sidecar in
+  `build/sidecar/<GOOS>-<GOARCH>/` and the model GGUF in `data/models/` (see "Built-in embedding
+  sidecar and model (llama-server, GGUF)"). `SNZ_LLAMA_SERVER_BIN` is not needed.
 
 ## Building (distributables)
 
@@ -163,34 +163,39 @@ Artifacts land in `build/bin/` (`SNZ Studio.app` on macOS, `.exe` on Windows).
 
 > **Note**: `wails build` alone does not bundle the built-in embedding stack (the llama.cpp sidecar
 > and the model GGUF). Launching that `.app` reports `llama-server binary not found` for built-in
-> embedding (it still runs with an external embedding endpoint, or with FTS only). The sidecar can
-> be added afterwards with `pnpm sidecar --app` (next section). On macOS, a distributable that also
-> includes the model GGUF is produced by the signed build below.
+> embedding (it still runs with an external embedding endpoint, or with FTS only). Both can be added
+> afterwards with `pnpm sidecar --app` (next section). For the Windows installer to carry them, run
+> `pnpm sidecar --arch amd64` **before** `pnpm build:app -platform windows/amd64 -nsis ...`: the
+> installer takes them from `build/sidecar/windows-amd64/` and `build/sidecar/.downloads/`, and
+> without them it is built without built-in embedding.
 
-### Built-in embedding sidecar (llama-server)
+### Built-in embedding sidecar and model (llama-server, GGUF)
 
-The llama.cpp `llama-server` used by built-in embedding is fetched and placed by the following
-script. The same command works on macOS and on Windows (PowerShell, no WSL).
+The llama.cpp `llama-server` and the model GGUF used by built-in embedding are fetched and placed by
+the following script. The same command works on macOS and on Windows (PowerShell, no WSL).
 
 ```bash
-pnpm sidecar          # development: places it in build/sidecar/<GOOS>-<GOARCH>/ (used by pnpm dev)
-pnpm sidecar --app    # distribution: places it in the pnpm build:app output (the .app's Contents/Resources on macOS, beside the exe on Windows)
+pnpm sidecar          # development: llama-server in build/sidecar/<GOOS>-<GOARCH>/, the GGUF in data/models/ (used by pnpm dev)
+pnpm sidecar --app    # distribution: both into the pnpm build:app output (the .app's Contents/Resources on macOS, beside the exe on Windows)
 ```
 
 - It downloads the llama.cpp release archive matching the running OS and CPU and checks its sha256
   before extracting. On a mismatch it stops without placing anything.
+- The model GGUF (`ruri-v3-30m-q8_0.gguf`) comes from this repository's GitHub Release
+  ([`ruri-v3-30m-q8_0-2a6cb2d9`](https://github.com/serendipitynz/snz_studio/releases/tag/ruri-v3-30m-q8_0-2a6cb2d9)).
+  The script checks its size and sha256 against `internal/embed/modelspec.go`, the same values the
+  app checks at runtime, and stops on a mismatch. A verified copy already in `data/models/` is used
+  instead of downloading. The app copies the placed GGUF into `models/` under the user data
+  directory on first launch, so it never downloads the model when the GGUF is bundled.
 - Only `llama-server` and its shared libraries (dylib / DLL) are placed (on macOS, an unsigned extra
   executable fails notarization).
-- When the same release is already in place it does nothing. Downloaded archives stay in
+- When the same release and GGUF are already in place it does nothing. Downloads stay in
   `build/sidecar/.downloads/`, so `pnpm sidecar --app` after rebuilding with `pnpm build:app` does not
   download again.
 - `--arch arm64|amd64` picks the CPU (e.g. placing the arm64 sidecar into a universal `.app`).
 - The bundled llama.cpp release and its sha256 values are pinned in one place,
-  `scripts/sidecar.mjs`. CI and `scripts/build-mac-signed.sh` place the sidecar through this script
-  too.
-- The script does not place the model GGUF. `pnpm dev` needs `ruri-v3-30m-q8_0.gguf` in
-  `data/models/`, and an app from `pnpm build:app` needs it in `models/` under the user data directory
-  (see "Regenerating the built-in embedding model (GGUF)").
+  `scripts/sidecar.mjs`; the GGUF's URL, size and sha256 in one place, `internal/embed/modelspec.go`.
+  CI and `scripts/build-mac-signed.sh` place both through this script too.
 - On macOS, `pnpm dev` launches the app from the `.app` in `build/bin/`. When that `.app` already
   holds a sidecar (after `pnpm sidecar --app` or the signed build), it is used before
   `build/sidecar/`.
@@ -211,20 +216,20 @@ signing-and-notarization recipe).
 scripts/build-mac-signed.sh
 ```
 
-It runs `wails build` (default `darwin/universal`) → staging and signing the llama.cpp sidecar
-(`llama-server` + dylibs) → staging the model GGUF → signing the `.app` / `.dmg` with a hardened
-runtime and a secure timestamp → `notarytool submit --wait` → `stapler staple`, producing
-`build/bin/SNZ-Studio.dmg`.
+It runs `wails build` (default `darwin/universal`) → staging the llama.cpp sidecar
+(`llama-server` + dylibs) and the model GGUF with `pnpm sidecar --app` → signing the sidecar →
+signing the `.app` / `.dmg` with a hardened runtime and a secure timestamp →
+`notarytool submit --wait` → `stapler staple`, producing `build/bin/SNZ-Studio.dmg`.
 
 You need:
 
 - a "Developer ID Application" certificate (installed in the login keychain)
 - a saved notarytool profile (default name `snzstudio`; created once with
   `xcrun notarytool store-credentials`)
-- `data/models/ruri-v3-30m-q8_0.gguf` (regenerated by the script in the next section)
 
 Main env overrides: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_ARCH` (`arm64` /
-`amd64`) / `MODEL_SRC`. The sidecar's release is pinned in `scripts/sidecar.mjs`.
+`amd64`). The sidecar's release is pinned in `scripts/sidecar.mjs`, the GGUF in
+`internal/embed/modelspec.go`.
 
 > Windows signing is not supported yet (unsigned distribution for now). CI
 > (`.github/workflows/build.yml`) is a scaffold: `workflow_dispatch` only, with signing deferred
@@ -233,10 +238,11 @@ Main env overrides: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_AR
 ### Regenerating the built-in embedding model (GGUF)
 
 Built-in embedding uses `cl-nagoya/ruri-v3-30m` (ModernBERT-Ja, 256 dimensions, Apache-2.0)
-converted to GGUF with llama.cpp and quantized to q8_0; the file is bundled into the `.app` and
-unpacked into `models/` under the user's data directory on first launch. That GGUF
-(`data/models/ruri-v3-30m-q8_0.gguf`, about 42MB) is outside git because of its size, so the
-following script regenerates it reproducibly.
+converted to GGUF with llama.cpp and quantized to q8_0; the file is bundled into the app and
+copied into `models/` under the user's data directory on first launch. That GGUF (about 42MB) is
+outside git because of its size. Builds take the verified copy published as a GitHub Release asset
+(`pnpm sidecar`, above); the following script is the recipe that produced it, for auditing that
+asset or building a new one.
 
 ```bash
 scripts/build-ruri-gguf.sh
@@ -247,6 +253,12 @@ revision, and pinned Python dependencies (torch / transformers / sentencepiece /
 HF download → converter patch (SentencePiece) → f16 → q8_0 → sha256 verification → installation
 into `data/models/`, idempotently (each stage is skipped when its output already exists). It aborts
 when the sha256 does not match the one pinned in `internal/embed/modelspec.go`.
+
+The script itself runs on macOS only, but the pipeline is not OS-dependent: run with the Windows
+`llama-quantize.exe` of the same release, and with Python 3.10 or 3.12, it produced the same
+sha256. The HF download directory's name ends up in the GGUF's metadata, so it has to stay
+`ruri-v3-30m`. A new GGUF goes out under a new release tag, together with new
+`URL` / `SHA256` / `SizeBytes` values in `modelspec.go`; the published asset is never replaced.
 
 ## Data location and migration
 
