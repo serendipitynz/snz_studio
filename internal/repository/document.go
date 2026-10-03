@@ -457,6 +457,11 @@ type ChunkEmbedding struct {
 	Model      string
 }
 
+// DeleteChunkEmbeddings removes the stored vectors of the given chunks.
+func (r *DocumentRepository) DeleteChunkEmbeddings(chunkIDs []string) error {
+	return deleteByIDs(r.db, "DELETE FROM document_chunk_embeddings WHERE chunk_id = ?", chunkIDs)
+}
+
 // UpsertChunkEmbeddings inserts or replaces chunk embeddings. Mirrors
 // upsertChunkEmbeddings.
 func (r *DocumentRepository) UpsertChunkEmbeddings(rows []ChunkEmbedding) error {
