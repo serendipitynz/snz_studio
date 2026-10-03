@@ -4,7 +4,7 @@ title: '埋め込み: 接続先に届かず無効になった埋め込みクラ�
 status: In Review
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-03 10:07'
+updated_date: '2026-10-03 10:14'
 labels: []
 dependencies: []
 references:
@@ -57,7 +57,7 @@ ordinal: 77000
 ## 実装
 
 - `EmbeddingClient` は、接続できずに無効にしたときだけ再試行タイマー (`embeddingRetryInterval` = 30 秒、固定間隔) を張る。タイマーは `/embeddings` に 1 入力だけの要求を送り、届けば有効に戻して `onReconnect` を呼び、届かなければ何もログに出さずに次のタイマーを張る。
-- 復帰の判定は「無効にする判定の裏返し」にそろえた。要求が届いたら復帰とみなし、エラー応答・タイムアウトも復帰に数える (TASK-41 以降、これらでは無効にしないため)。判定は `requestEmbeddings` の `reachable` 1 か所にまとめ、`CreateEmbeddings` と再試行の両方がこれを使う。
+- 無効にする条件と復帰する条件は対称にしていない。無効にするのは要求が届かなかったとき (`requestEmbeddings` の `reachable` が false) だけで、エラー応答・タイムアウトでは無効にしない (TASK-41)。一方、復帰するのは再試行の要求で実際にベクトルが返ったときだけにした。当初は「届いたら復帰」にしていたが、PR レビューで指摘を受けて変えた。モデル読み込み中の llama-server は 503 を返すので、届いただけで復帰すると gap fill が全入力 503 で失敗し、その後は再試行されずに設定保存まで欠落が残る。
 - 世代番号 `generation` を設けた。`RefreshConfiguration`・`EnsureModelLoaded` の成功・復帰で世代が進み、それより前に始まった再試行や要求の失敗は状態を書き換えない。サイドカー喪失 (`onEmbeddingLost`) でモデルが空になった後に、古い再試行がクライアントを有効に戻すことはない。
 - `server.go` で `onReconnect` に `embeddingSync.RequestSyncMissing` をつないだ。無効の間に作ったドキュメント・メモリは `SyncDocument` / `SyncMemories` が飛ばすので、復帰時の gap fill で埋まる。rebuild が残っていれば `schedule` が rebuild に格上げする。
 - 設定画面の接続表示 (`checkConnections` の `embeddingConnected`) が接続ありを返したときは、その場で `RetryIfUnreachable` を同期実行する。応答が返る時点でクライアントは有効になっているので、「接続あり」と表示しながら埋め込みが無効のまま、という状態が残らない。逆向きの「接続なし表示なのにクライアントは有効」は直していない。`/models` が取れないだけのサーバー (モデル一覧を返さない実装) で埋め込みまで止めないためで、その場合も次の埋め込み要求が届かなければ無効になる。
@@ -75,7 +75,8 @@ ordinal: 77000
   - `TestReconfiguringCancelsTheReconnectProbe`: サイドカー喪失の経路で古い再試行が無効化を取り消さない。
   - `TestReconnectEmbedsWhatWasSavedWhileUnreachable` (AC#2): 停止中に作ったドキュメントのチャンクとメモリが、復帰後に埋まる。
 - `internal/httpapi/embeddingreconnect_test.go` `TestReadingConfigurationReconnectsAnUnreachableEmbeddingEndpoint` (AC#2, AC#4): 停止中は `GET /api/configuration` の `embeddingConnected` が false でクライアントも無効。復帰後の 1 回目の読み込みで true になり、その応答の時点でクライアントは有効。停止中に作ったドキュメントとメモリが埋まる。
-- ミューテーション確認: タイマー間隔を 1 時間にすると service の 3 テストが落ち、`checkConnections` の `RetryIfUnreachable` を外すと httpapi のテストが落ちる。
+  - `TestReconnectWaitsForTheEndpointToEmbedAgain` (レビュー指摘の回帰テスト): 接続断 → 停止中にメモリ保存 → 接続先が 503 を返す間は無効のまま → 200 に戻ると復帰してメモリが埋まる。
+- ミューテーション確認: タイマー間隔を 1 時間にすると service の 3 テストが落ち、`checkConnections` の `RetryIfUnreachable` を外すと httpapi のテストが落ちる。再試行の復帰条件を「届いたら」に戻すと 503 の回帰テストが落ちる。
 - `go vet ./...`、`go test ./... -race` はすべて通過。`gofmt -l` が `internal/search/model.go` を挙げるが、今回の変更より前からある (`9c816a1`)。
 
 ## 測っていないこと
