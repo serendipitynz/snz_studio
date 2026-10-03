@@ -159,7 +159,7 @@ func TestUnreachableClientDoesNotRetryPerRequestOrLogEachProbe(t *testing.T) {
 func TestReconfiguringCancelsTheReconnectProbe(t *testing.T) {
 	srv, endpoint := switchableEmbeddingServer(t)
 	cfg := testConfig(config.Settings{Editable: config.Editable{EmbeddingMode: "internal"}, EmbeddingTimeoutMs: 5000})
-	cfg.SetInternalEmbedding(srv.URL, "m")
+	cfg.SetInternalEmbedding(srv.URL, "", "m")
 	client := NewEmbeddingClient(cfg)
 	client.retryInterval = 20 * time.Millisecond
 	var reconnects atomic.Int64

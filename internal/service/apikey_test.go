@@ -203,14 +203,31 @@ func TestEmbeddingKey(t *testing.T) {
 	}
 }
 
-func TestEmbeddingKeyNeverReachesInternalSidecar(t *testing.T) {
-	settings := keySettings("http://127.0.0.1:1234")
+func TestInternalSidecarKey(t *testing.T) {
+	home := newKeyServer(t)
+	sidecar := newKeyServer(t)
+	other := newKeyServer(t)
+
+	settings := keySettings(home.URL)
 	settings.EmbeddingMode = "internal"
 	settings.EmbeddingAPIKey = "emb-secret"
-	dest, _ := url.Parse("http://127.0.0.1:1234/v1/embeddings")
-	if got := embeddingAPIKeyFor(settings, dest); got != "" {
-		t.Fatalf("internal mode key = %q, want empty", got)
+	cfg := testConfig(settings)
+	cfg.SetInternalEmbedding(sidecar.URL+"/v1", "launch-key", "e")
+	client := NewEmbeddingClient(cfg)
+
+	if got := client.CreateEmbedding("text"); got == nil {
+		t.Fatal("CreateEmbedding returned nil")
 	}
+	if _, err := client.ListModels(""); err != nil {
+		t.Fatalf("list models: %v", err)
+	}
+	wantAuth(t, "sidecar", sidecar.take(), "Bearer launch-key")
+
+	// A model list for a URL the user typed while still in internal mode.
+	if _, err := client.ListModels(other.URL + "/v1"); err != nil {
+		t.Fatalf("list other models: %v", err)
+	}
+	wantAuth(t, "other origin", other.take(), "")
 }
 
 func TestSameOrigin(t *testing.T) {

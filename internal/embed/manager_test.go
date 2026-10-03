@@ -75,7 +75,7 @@ func newFakeSidecarManager(t *testing.T) (*Manager, <-chan string) {
 	m := NewManager(dir)
 	m.spec = spec
 	ready := make(chan string, 8)
-	m.SetCallbacks(func(baseURL, _ string) { ready <- baseURL }, func() {})
+	m.SetCallbacks(func(baseURL, _, _ string) { ready <- baseURL }, func() {})
 	t.Cleanup(m.Shutdown)
 	return m, ready
 }

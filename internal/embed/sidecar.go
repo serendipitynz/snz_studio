@@ -3,10 +3,12 @@ package embed
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -26,6 +28,7 @@ type sidecar struct {
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	baseURL string
+	apiKey  string
 }
 
 func newSidecar(binPath, modelPath string, dim, ctxLen int) *sidecar {
@@ -48,6 +51,10 @@ func (s *sidecar) Start(ctx context.Context) error {
 		return err
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	// A fresh key per launch keeps other local processes and web pages (the default
+	// CORS policy reflects any Origin) from using the sidecar; it lives only in
+	// memory and in the child's environment.
+	apiKey := rand.Text()
 
 	// -b/-ub match -c because an embedding input must fit one physical batch; at the
 	// default -ub 512 a single 1000-rune chunk plus its title/prefix was rejected.
@@ -64,10 +71,19 @@ func (s *sidecar) Start(ctx context.Context) error {
 		// CPU-only: the 37M model is tiny, and this keeps the sidecar portable
 		// (matches the Windows CPU build) and free of GPU/JIT concerns.
 		"-ngl", "0",
+		// Nothing in the app reads the slot monitor or the Web UI.
+		"--no-slots",
+		"--no-ui",
 	}
 	cmd := sidecarCommand(s.binPath, args) // platform-specific parent-death guard
 	configureSysProcAttr(cmd)              // platform-specific process-group setup
 	cmd.Dir = filepath.Dir(s.binPath)
+	// The key goes through LLAMA_API_KEY rather than --api-key so that it stays out
+	// of the command line, which other users' processes can read.
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	cmd.Env = append(cmd.Env, "LLAMA_API_KEY="+apiKey)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -75,13 +91,15 @@ func (s *sidecar) Start(ctx context.Context) error {
 	s.mu.Lock()
 	s.cmd = cmd
 	s.baseURL = baseURL
+	s.apiKey = apiKey
 	s.mu.Unlock()
 
+	// /health is exempt from the key, so readiness is checked without it.
 	if err := s.waitHealthy(ctx, baseURL); err != nil {
 		s.Stop()
 		return err
 	}
-	if err := s.probeDim(ctx, baseURL); err != nil {
+	if err := s.probeDim(ctx, baseURL, apiKey); err != nil {
 		s.Stop()
 		return err
 	}
@@ -93,6 +111,13 @@ func (s *sidecar) BaseURL() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.baseURL
+}
+
+// APIKey returns the key this launch requires on every endpoint but /health.
+func (s *sidecar) APIKey() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.apiKey
 }
 
 // Wait blocks until the process exits, returning its exit error (nil on clean exit).
@@ -149,13 +174,14 @@ func (s *sidecar) waitHealthy(ctx context.Context, baseURL string) error {
 
 // probeDim sends one embedding request and asserts the returned vector dimension,
 // catching a wrong/incompatible GGUF before the sidecar is marked ready.
-func (s *sidecar) probeDim(ctx context.Context, baseURL string) error {
+func (s *sidecar) probeDim(ctx context.Context, baseURL, apiKey string) error {
 	body, _ := json.Marshal(map[string]any{"input": []string{"probe"}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return err

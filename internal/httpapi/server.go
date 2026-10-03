@@ -146,8 +146,8 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 // baseURL is the sidecar's origin; the client posts to <base>/embeddings, and on
 // the bare origin that is llama-server's native endpoint, whose array response the
 // client cannot decode — so the OpenAI-compatible /v1 root is what gets overlaid.
-func (s *Server) onEmbeddingReady(baseURL, modelID string) {
-	s.cfg.SetInternalEmbedding(strings.TrimRight(baseURL, "/")+"/v1", modelID)
+func (s *Server) onEmbeddingReady(baseURL, apiKey, modelID string) {
+	s.cfg.SetInternalEmbedding(strings.TrimRight(baseURL, "/")+"/v1", apiKey, modelID)
 	s.embedding.RefreshConfiguration()
 	s.embeddingSync.RequestSyncMissing()
 }
