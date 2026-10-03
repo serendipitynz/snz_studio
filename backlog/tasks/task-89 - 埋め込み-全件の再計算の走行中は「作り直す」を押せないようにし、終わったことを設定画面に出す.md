@@ -1,10 +1,10 @@
 ---
 id: TASK-89
 title: '埋め込み: 全件の再計算の走行中は「作り直す」を押せないようにし、終わったことを設定画面に出す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-03 00:50'
-updated_date: '2026-10-03 02:28'
+updated_date: '2026-10-03 03:24'
 labels: []
 dependencies:
   - TASK-73
@@ -80,4 +80,9 @@ TASK-73 (PR #74) で、設定モーダルに「埋め込みの作り直し」区
 ## 確かめていないこと
 
 - 実窓 (WKWebView) での見え方と読み上げ。4配色の比は測っていない (区画の文は既存の `Subtle`、ボタンは既存の無効の形をそのまま使い、新しい色・部品は足していない)
+
+## レビューと実機確認
+
+- PR #75 の Codex レビュー1回目の [P2]: 走行中を見た後に状態の読み取りが1回失敗するとポーリングが止まり、終わっても無効と「作り直しています」が残る。失敗した読み取りも同じ 2 秒間隔で再試行するようにし、ポーリングを `frontend/src/components/rebuildPoll.ts` に切り出して `frontend/test/rebuildPoll.test.ts` で再試行と停止を確かめた (3f889b9)。[P3] の波括弧は切り出しで解消。2回目で APPROVE
+- 2026-10-03 ユーザーが mac 実機 (実窓) で動作を確認した
 <!-- SECTION:NOTES:END -->
