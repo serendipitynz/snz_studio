@@ -46,11 +46,23 @@ type Manager struct {
 	onReady func(baseURL, modelID string)
 	onLost  func()
 
+	// callbackMu serialises the ready/lost callbacks with Shutdown, so a run that
+	// Shutdown superseded cannot re-apply the internal overlay after the caller
+	// cleared it.
+	callbackMu sync.Mutex
+	// modelMu gives one run at a time the model files (the seed copy and the
+	// download's .part).
+	modelMu sync.Mutex
+
 	mu      sync.Mutex
 	status  Status
 	sidecar *sidecar
 	started bool
 	cancel  context.CancelFunc
+	// gen identifies the current run. A superseded run keeps going until it notices
+	// its cancelled context, so its state writes are dropped by generation rather
+	// than allowed to overwrite its successor's.
+	gen uint64
 }
 
 // NewManager builds a Manager for the default model under modelsDir. The
@@ -88,33 +100,40 @@ func (m *Manager) EnsureInternalReady(ctx context.Context) {
 		return
 	}
 	m.started = true
+	m.gen++
+	gen := m.gen
 	runCtx, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 	m.mu.Unlock()
 
-	go m.run(runCtx)
+	go m.run(runCtx, gen)
 }
 
-func (m *Manager) run(ctx context.Context) {
-	m.setState(StateDownloading, "")
+func (m *Manager) run(ctx context.Context, gen uint64) {
+	m.setState(gen, StateDownloading, "")
+	// A run that Shutdown superseded can still be writing the .part file after a
+	// chunk it read before the cancel; waiting for it keeps this run's resume
+	// offset from going stale under that write.
+	m.modelMu.Lock()
 	// Packaged builds ship the GGUF inside the app bundle; seed it into the
 	// per-user models dir so downloadModel verifies and skips the network.
 	seedBundledModel(m.modelsDir, m.spec)
 	modelPath, err := downloadModel(ctx, m.client, m.spec, m.modelsDir, func(d, t int64) {
-		m.setProgress(d, t)
+		m.setProgress(gen, d, t)
 	})
+	m.modelMu.Unlock()
 	if err != nil {
-		m.fail(err)
-		m.markStopped()
+		m.fail(gen, err)
+		m.markStopped(gen)
 		return
 	}
-	m.superviseSidecar(ctx, modelPath)
+	m.superviseSidecar(ctx, gen, modelPath)
 }
 
 // superviseSidecar runs the sidecar, restarting it with exponential backoff after a
 // crash, up to maxConsecutiveFailures. A clean shutdown (ctx cancel) exits quietly.
-func (m *Manager) superviseSidecar(ctx context.Context, modelPath string) {
-	defer m.markStopped()
+func (m *Manager) superviseSidecar(ctx context.Context, gen uint64, modelPath string) {
+	defer m.markStopped(gen)
 	failures := 0
 	backoff := time.Second
 	for {
@@ -122,11 +141,11 @@ func (m *Manager) superviseSidecar(ctx context.Context, modelPath string) {
 			return
 		}
 		if failures >= maxConsecutiveFailures {
-			m.fail(fmt.Errorf("sidecar failed %d times; staying FTS-only", failures))
+			m.fail(gen, fmt.Errorf("sidecar failed %d times; staying FTS-only", failures))
 			return
 		}
 
-		m.setState(StateStarting, "")
+		m.setState(gen, StateStarting, "")
 		sc := newSidecar(m.binPath, modelPath, m.spec.Dim, m.spec.ContextLength)
 		if err := sc.Start(ctx); err != nil {
 			sc.Stop()
@@ -134,7 +153,7 @@ func (m *Manager) superviseSidecar(ctx context.Context, modelPath string) {
 				return
 			}
 			failures++
-			m.fail(err)
+			m.fail(gen, err)
 			if !sleep(ctx, backoff) {
 				return
 			}
@@ -144,9 +163,9 @@ func (m *Manager) superviseSidecar(ctx context.Context, modelPath string) {
 
 		failures = 0
 		backoff = time.Second
-		m.markReady(sc)
-		if cb := m.readyCallback(); cb != nil {
-			cb(sc.BaseURL(), m.spec.ModelID)
+		if !m.becomeReady(gen, sc) {
+			sc.Stop() // Shutdown ran while this sidecar was starting and never saw it
+			return
 		}
 
 		exitErr := sc.Wait()
@@ -154,11 +173,9 @@ func (m *Manager) superviseSidecar(ctx context.Context, modelPath string) {
 			return // intentional shutdown
 		}
 		// Unexpected exit: drop the overlay and retry after backoff.
-		if cb := m.lostCallback(); cb != nil {
-			cb()
-		}
+		m.reportLost(gen)
 		failures++
-		m.fail(fmt.Errorf("sidecar exited unexpectedly: %v", exitErr))
+		m.fail(gen, fmt.Errorf("sidecar exited unexpectedly: %v", exitErr))
 		if !sleep(ctx, backoff) {
 			return
 		}
@@ -183,12 +200,21 @@ func (m *Manager) Status() Status {
 	return m.status
 }
 
-// Shutdown stops the pipeline and the sidecar process.
+// Shutdown stops the pipeline and the sidecar process. On return the status is
+// disabled and EnsureInternalReady starts a fresh run, even while the superseded
+// run is still winding down.
 func (m *Manager) Shutdown() {
+	m.callbackMu.Lock()
 	m.mu.Lock()
+	m.gen++
 	cancel := m.cancel
 	sc := m.sidecar
+	m.cancel = nil
+	m.sidecar = nil
+	m.started = false
+	m.status = Status{State: StateDisabled, ModelID: m.spec.ModelID, Dim: m.spec.Dim}
 	m.mu.Unlock()
+	m.callbackMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
@@ -197,23 +223,36 @@ func (m *Manager) Shutdown() {
 	}
 }
 
-func (m *Manager) setState(state State, errMsg string) {
+func (m *Manager) setState(gen uint64, state State, errMsg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if gen != m.gen {
+		return
+	}
 	m.status.State = state
 	m.status.Err = errMsg
 }
 
-func (m *Manager) setProgress(downloaded, total int64) {
+func (m *Manager) setProgress(gen uint64, downloaded, total int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if gen != m.gen {
+		return
+	}
 	m.status.Downloaded = downloaded
 	m.status.Total = total
 }
 
-func (m *Manager) markReady(sc *sidecar) {
+// becomeReady publishes sc as the serving sidecar and fires onReady. It reports
+// false, publishing nothing, when Shutdown has superseded this run.
+func (m *Manager) becomeReady(gen uint64, sc *sidecar) bool {
+	m.callbackMu.Lock()
+	defer m.callbackMu.Unlock()
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	if gen != m.gen {
+		m.mu.Unlock()
+		return false
+	}
 	m.sidecar = sc
 	m.status = Status{
 		State:      StateReady,
@@ -222,11 +261,34 @@ func (m *Manager) markReady(sc *sidecar) {
 		Downloaded: m.spec.SizeBytes,
 		Total:      m.spec.SizeBytes,
 	}
+	onReady := m.onReady
+	m.mu.Unlock()
+	if onReady != nil {
+		onReady(sc.BaseURL(), m.spec.ModelID)
+	}
+	return true
 }
 
-func (m *Manager) fail(err error) {
+// reportLost fires onLost unless Shutdown has superseded this run; by then the
+// overlay belongs to the caller that shut it down, or to the next run.
+func (m *Manager) reportLost(gen uint64) {
+	m.callbackMu.Lock()
+	defer m.callbackMu.Unlock()
+	m.mu.Lock()
+	current := gen == m.gen
+	onLost := m.onLost
+	m.mu.Unlock()
+	if current && onLost != nil {
+		onLost()
+	}
+}
+
+func (m *Manager) fail(gen uint64, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if gen != m.gen {
+		return
+	}
 	m.status.State = StateError
 	if err != nil {
 		m.status.Err = err.Error()
@@ -234,22 +296,13 @@ func (m *Manager) fail(err error) {
 	m.sidecar = nil
 }
 
-func (m *Manager) markStopped() {
+func (m *Manager) markStopped(gen uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if gen != m.gen {
+		return
+	}
 	m.started = false
-}
-
-func (m *Manager) readyCallback() func(string, string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.onReady
-}
-
-func (m *Manager) lostCallback() func() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.onLost
 }
 
 // resolveServerBinary finds the llama-server binary, in order: the
