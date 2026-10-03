@@ -1,10 +1,10 @@
 ---
 id: TASK-77
 title: '埋め込み: 接続先に届かず無効になった埋め込みクライアントが、時間をおいて自動で再試行するようにする'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-03 10:18'
+updated_date: '2026-10-03 10:38'
 labels: []
 dependencies: []
 references:
