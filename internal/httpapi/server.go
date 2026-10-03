@@ -93,6 +93,8 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 
 	retrieval := service.NewRetrievalService(db, embedding)
 	embeddingSync := service.NewEmbeddingSyncService(documents, memories, embedding)
+	// Whatever was saved while the endpoint was unreachable has no vector yet.
+	embedding.SetOnReconnect(embeddingSync.RequestSyncMissing)
 	contextService := service.NewContextService(projects, chats, documents, memories, retrieval)
 	summary := service.NewSummaryService(llm)
 	memoryService := service.NewMemoryService(memories, llm)
