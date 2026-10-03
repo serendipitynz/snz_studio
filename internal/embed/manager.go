@@ -50,6 +50,9 @@ type Manager struct {
 	// Shutdown superseded cannot re-apply the internal overlay after the caller
 	// cleared it.
 	callbackMu sync.Mutex
+	// modelMu gives one run at a time the model files (the seed copy and the
+	// download's .part).
+	modelMu sync.Mutex
 
 	mu      sync.Mutex
 	status  Status
@@ -108,12 +111,17 @@ func (m *Manager) EnsureInternalReady(ctx context.Context) {
 
 func (m *Manager) run(ctx context.Context, gen uint64) {
 	m.setState(gen, StateDownloading, "")
+	// A run that Shutdown superseded can still be writing the .part file after a
+	// chunk it read before the cancel; waiting for it keeps this run's resume
+	// offset from going stale under that write.
+	m.modelMu.Lock()
 	// Packaged builds ship the GGUF inside the app bundle; seed it into the
 	// per-user models dir so downloadModel verifies and skips the network.
 	seedBundledModel(m.modelsDir, m.spec)
 	modelPath, err := downloadModel(ctx, m.client, m.spec, m.modelsDir, func(d, t int64) {
 		m.setProgress(gen, d, t)
 	})
+	m.modelMu.Unlock()
 	if err != nil {
 		m.fail(gen, err)
 		m.markStopped(gen)

@@ -1,12 +1,15 @@
 package embed
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -149,5 +152,59 @@ func TestShutdownLeavesStatusDisabled(t *testing.T) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestRestartDuringDownloadResumesAndReachesReady(t *testing.T) {
+	content := bytes.Repeat([]byte("ruri-v3-30m"), 6000)
+	half := len(content) / 2
+	firstServing := make(chan struct{})
+	var mu sync.Mutex
+	var ranges []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		ranges = append(ranges, r.Header.Get("Range"))
+		first := len(ranges) == 1
+		mu.Unlock()
+		if !first {
+			http.ServeContent(w, r, "test.gguf", time.Time{}, bytes.NewReader(content))
+			return
+		}
+		// The first run gets half the model and then stalls, as on a slow link,
+		// until Shutdown cancels it.
+		w.Header().Set("Content-Length", fmt.Sprint(len(content)))
+		_, _ = w.Write(content[:half])
+		w.(http.Flusher).Flush()
+		close(firstServing)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	m, ready := newFakeSidecarManager(t)
+	m.modelsDir = t.TempDir()
+	m.spec = testSpec(srv.URL, content)
+	m.spec.Dim = fakeSidecarDim
+
+	m.EnsureInternalReady(context.Background())
+	<-firstServing
+	deadline := time.Now().Add(10 * time.Second)
+	for m.Status().Downloaded < int64(half) {
+		if time.Now().After(deadline) {
+			t.Fatalf("first run never wrote the first half; status=%+v", m.Status())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	m.Shutdown()
+	m.EnsureInternalReady(context.Background())
+	waitReady(t, m, ready)
+
+	if !verifyFile(filepath.Join(m.modelsDir, m.spec.FileName), m.spec) {
+		t.Fatal("the model the restarted run produced does not verify")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(ranges) != 2 || ranges[1] != fmt.Sprintf("bytes=%d-", half) {
+		t.Fatalf("requests' Range headers = %q, want a resume from byte %d", ranges, half)
 	}
 }
