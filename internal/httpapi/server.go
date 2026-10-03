@@ -93,6 +93,8 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 
 	retrieval := service.NewRetrievalService(db, embedding)
 	embeddingSync := service.NewEmbeddingSyncService(documents, memories, embedding)
+	// Whatever was saved while the endpoint was unreachable has no vector yet.
+	embedding.SetOnReconnect(embeddingSync.RequestSyncMissing)
 	contextService := service.NewContextService(projects, chats, documents, memories, retrieval)
 	summary := service.NewSummaryService(llm)
 	memoryService := service.NewMemoryService(memories, llm)
@@ -328,7 +330,16 @@ func (s *Server) checkConnections(settings config.Settings) (llmConnected, revie
 		defer wg.Done()
 		reviewConnected = s.llm.CheckConnection(settings.ReviewBaseURL, settings.ReviewModel)
 	}()
-	go func() { defer wg.Done(); embeddingConnected = s.embedding.CheckConnection() }()
+	go func() {
+		defer wg.Done()
+		// The model list answering does not mean embeddings work: a restarting
+		// llama-server lists its model while /embeddings still answers 503, and
+		// the client stays disabled until its probe gets a vector back.
+		if s.embedding.CheckConnection() {
+			s.embedding.RetryIfUnreachable()
+			embeddingConnected = s.embedding.IsEnabled()
+		}
+	}()
 	go func() {
 		defer wg.Done()
 		// Unlike the review model, an empty image description model does not fall
