@@ -34,22 +34,21 @@ type ModelSpec struct {
 // (the converter needs a one-line SentencePiece-vocab patch, applied host-side at
 // build time) and quantized to q8_0. ModernBERT-Ja, 256-dim, mean pooling.
 //
-// Packaged builds bundle this GGUF inside the app (scripts/build-mac-signed.sh stages
-// it into Contents/Resources; seedBundledModel copies it into the models dir on first
-// launch), so the URL below is only a fallback for unbundled/dev builds.
+// Packaged builds bundle this GGUF inside the app (scripts/sidecar.mjs stages it into
+// Contents/Resources or beside the exe; seedBundledModel copies it into the models dir
+// on first launch), so the app downloads from URL only when it runs without one.
 //
-// SHA256/SizeBytes identify the reproducible q8_0 artifact built by
-// scripts/build-ruri-gguf.sh (llama.cpp b9437 + the pinned converter deps; the patched
-// set_vocab writes add_bos/eos/sep=True per ruri's tokenizer config). Re-run that
-// script to regenerate it byte-for-byte; update these two fields if the toolchain drifts.
+// URL is a GitHub Release asset of this repository, published once from the verified
+// file rather than rebuilt per OS: scripts/sidecar.mjs reads FileName/URL/SHA256/
+// SizeBytes from this literal, so keep the field names and the one-line string form.
 //
-// TODO(track-b): URL is a placeholder — fill it in only if/when the q8_0 GGUF is also
-// hosted at an immutable location (e.g. a pinned Hugging Face revision) as a download
-// fallback; bundling (above) is the primary distribution path and needs no URL.
+// SHA256/SizeBytes identify the q8_0 artifact built by scripts/build-ruri-gguf.sh
+// (llama.cpp b9437 + the pinned converter deps), which reproduces it byte-for-byte on
+// macOS and Windows. A new artifact needs a new release tag, not a replaced asset.
 var RuriV3_30m = ModelSpec{
 	ModelID:        "ruri-v3-30m",
 	FileName:       "ruri-v3-30m-q8_0.gguf",
-	URL:            "https://huggingface.co/REPLACE_OWNER/ruri-v3-30m-GGUF/resolve/REPLACE_REVISION/ruri-v3-30m-q8_0.gguf",
+	URL:            "https://github.com/serendipitynz/snz_studio/releases/download/ruri-v3-30m-q8_0-2a6cb2d9/ruri-v3-30m-q8_0.gguf",
 	SHA256:         "2a6cb2d9889140cd214bc4eaee14114f276a52afcf0a2fe65fae3d467f7480fe",
 	SizeBytes:      41569120,
 	Dim:            256,
