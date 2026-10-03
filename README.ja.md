@@ -217,6 +217,9 @@ dylib）とモデル GGUF の staging → サイドカーの署名 → hardened 
 
 > Windows の署名は未対応です（当面は未署名配布）。CI（`.github/workflows/build.yml`）は雛形で、
 > `workflow_dispatch` 実行のみ・署名は secrets ゲートで後送りです。
+>
+> `.github/workflows/audit.yml` は `main` への PR と push、週 1 回、手動実行で `pnpm audit --prod` と
+> `govulncheck` を走らせ、既知の脆弱性が 1 件でもあれば失敗します。
 
 ### 内蔵 embedding モデル（GGUF）の再生成
 
