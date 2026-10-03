@@ -10,6 +10,7 @@ import { Dialog, DialogBody, DialogHeader, DialogTitle } from "./Dialog";
 import { FailureNotice, InfoNotice } from "./FailureNotice";
 import { CheckIcon, RotateCwIcon } from "./icons";
 import { Progress } from "./Progress";
+import { pollRebuildState } from "./rebuildPoll";
 import {
   Card,
   Field,
@@ -231,27 +232,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   // The rebuild runs on the server, so its state is read from there rather than
   // kept from the button press: a rebuild a save or startup began holds the button
   // too, and the outcome still shows after the modal is closed and opened again.
-  useEffect(() => {
-    let active = true;
-    let timer = 0;
-    const tick = async () => {
-      try {
-        const { state } = await api.getEmbeddingRebuild();
-        if (!active) return;
-        setRebuildState(state);
-        if (state === "running") {
-          timer = window.setTimeout(tick, 2000);
-        }
-      } catch {
-        /* transient; the next opening or rebuild reads the state again */
-      }
-    };
-    void tick();
-    return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [rebuildWatch]);
+  useEffect(
+    () =>
+      pollRebuildState(async () => (await api.getEmbeddingRebuild()).state, setRebuildState),
+    [rebuildWatch]
+  );
 
   // Read out the end of a rebuild this opening watched run; an outcome already
   // there when the modal opened is only shown.
