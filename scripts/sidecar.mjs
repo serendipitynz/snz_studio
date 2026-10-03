@@ -1,17 +1,26 @@
 #!/usr/bin/env node
-// Fetches the pinned llama.cpp release and stages its llama-server where the app
-// looks for it (internal/embed/sidecar_*.go):
+// Fetches the pinned llama.cpp release and the embedding model GGUF, and stages
+// them where the app looks for them (internal/embed/sidecar_*.go):
 //
-//   (default)  build/sidecar/<GOOS>-<GOARCH>/   devServerBinaryPath, for `pnpm dev`
+//   (default)  llama-server: build/sidecar/<GOOS>-<GOARCH>/   devServerBinaryPath
+//              GGUF:         data/models/                      the dev models dir
+//                                               for `pnpm dev`
 //   --app      macOS: build/bin/<name>.app/Contents/Resources/
 //              Windows: build/bin/ (beside the exe)
-//                                               defaultServerBinaryPath, for the
-//                                               output of `pnpm build:app`
+//                                               defaultServerBinaryPath and
+//                                               bundledModelPath, for the output
+//                                               of `pnpm build:app`
 //   --arch     arm64 | amd64; defaults to the CPU Node runs on
 //
 // This file is the one place the sidecar's llama.cpp release is pinned: CI and
 // scripts/build-mac-signed.sh call it instead of downloading on their own, so a
-// version bump is RELEASE plus the sha256 values below.
+// version bump is RELEASE plus the sha256 values below. The GGUF is pinned in
+// internal/embed/modelspec.go instead, which the app verifies against at runtime,
+// and read from there so the two cannot disagree.
+//
+// The verified GGUF also stays in build/sidecar/.downloads/, where the Windows
+// installer (build/windows/installer/project.nsi) picks it up together with the
+// dev-staged windows-amd64 sidecar; `wails build -clean` does not touch either.
 //
 // It is Node rather than shell for the same reason as scripts/wails.mjs: it has
 // to run from PowerShell on Windows without WSL. Extraction uses the OS's own
@@ -33,6 +42,7 @@ import {
   readlinkSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -72,6 +82,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sidecarRoot = join(repoRoot, "build", "sidecar");
 const downloadDir = join(sidecarRoot, ".downloads");
 const binDir = join(repoRoot, "build", "bin");
+const modelSpecPath = join(repoRoot, "internal", "embed", "modelspec.go");
+const devModelsDir = join(repoRoot, "data", "models");
 // Records which archive a directory was staged from, so a re-run with the same
 // pin is a no-op.
 const markerName = ".llama-server-release";
@@ -105,6 +117,31 @@ function parseOptions() {
   return { goos, target, app: values.app };
 }
 
+// Reads the bundled model's pin out of the RuriV3_30m literal in modelspec.go.
+function readModelSpec() {
+  const src = readFileSync(modelSpecPath, "utf8");
+  const start = src.indexOf("var RuriV3_30m = ModelSpec{");
+  const end = src.indexOf("\n}", start);
+  if (start < 0 || end < 0) {
+    fail(`RuriV3_30m not found in ${modelSpecPath}`);
+  }
+  const body = src.slice(start, end);
+  const field = (name, pattern) => {
+    // \r? because Git for Windows checks the file out with CRLF by default.
+    const match = body.match(new RegExp(`^\\s*${name}:\\s*${pattern},\\r?$`, "m"));
+    if (!match) {
+      fail(`${name} not found in RuriV3_30m (${modelSpecPath})`);
+    }
+    return match[1];
+  };
+  return {
+    file: field("FileName", '"([^"]+)"'),
+    url: field("URL", '"(https://[^"]+)"'),
+    sha256: field("SHA256", '"([0-9a-f]{64})"'),
+    size: Number(field("SizeBytes", "(\\d+)")),
+  };
+}
+
 function resolveDestination(goos, target, app) {
   if (!app) {
     return join(sidecarRoot, target);
@@ -128,32 +165,76 @@ async function sha256Of(path) {
   return hash.digest("hex");
 }
 
-// Returns a local copy of the archive whose sha256 matches the pin, reusing an
-// earlier download so that re-staging into a freshly built app stays offline.
-async function fetchArchive({ file, sha256 }) {
-  const archive = join(downloadDir, file);
-  if (existsSync(archive) && (await sha256Of(archive)) === sha256) {
-    return archive;
+async function matches(path, { sha256, size }) {
+  if (!existsSync(path)) {
+    return false;
   }
+  if (size !== undefined && statSync(path).size !== size) {
+    return false;
+  }
+  return (await sha256Of(path)) === sha256;
+}
+
+// Downloads url into downloadDir/<file> and keeps it only if it matches the pin.
+async function download(url, pin, pinnedIn) {
+  const dest = join(downloadDir, pin.file);
   mkdirSync(downloadDir, { recursive: true });
-  const url = `https://github.com/ggml-org/llama.cpp/releases/download/${RELEASE}/${file}`;
   console.log(`sidecar: downloading ${url}`);
   const response = await fetch(url);
   if (!response.ok) {
     fail(`download failed: HTTP ${response.status} for ${url}`);
   }
-  const partial = `${archive}.part`;
+  const partial = `${dest}.part`;
   await pipeline(Readable.fromWeb(response.body), createWriteStream(partial));
-  const actual = await sha256Of(partial);
-  if (actual !== sha256) {
+  if (!(await matches(partial, pin))) {
+    const actual = await sha256Of(partial);
+    const actualSize = statSync(partial).size;
     rmSync(partial, { force: true });
     fail(
-      `sha256 mismatch for ${file}\n  expected ${sha256}\n  actual   ${actual}\n` +
-        "The archive was discarded. If the pin was changed on purpose, update ASSETS in scripts/sidecar.mjs.",
+      `${pin.file} does not match its pin\n  expected ${pin.sha256}${pin.size !== undefined ? ` (${pin.size} bytes)` : ""}\n` +
+        `  actual   ${actual} (${actualSize} bytes)\n` +
+        `The download was discarded. If the pin was changed on purpose, update ${pinnedIn}.`,
     );
   }
-  renameSync(partial, archive);
-  return archive;
+  renameSync(partial, dest);
+  return dest;
+}
+
+// Returns a local copy of the archive whose sha256 matches the pin, reusing an
+// earlier download so that re-staging into a freshly built app stays offline.
+async function fetchArchive(asset) {
+  const archive = join(downloadDir, asset.file);
+  if (await matches(archive, asset)) {
+    return archive;
+  }
+  const url = `https://github.com/ggml-org/llama.cpp/releases/download/${RELEASE}/${asset.file}`;
+  return download(url, asset, "ASSETS in scripts/sidecar.mjs");
+}
+
+// Returns build/sidecar/.downloads/<file> verified against modelspec.go. A verified
+// copy already in the dev models dir is reused, so a machine that has one (e.g.
+// regenerated by scripts/build-ruri-gguf.sh) never needs the network for it.
+async function fetchModel(model) {
+  const cached = join(downloadDir, model.file);
+  if (await matches(cached, model)) {
+    return cached;
+  }
+  const devCopy = join(devModelsDir, model.file);
+  if (await matches(devCopy, model)) {
+    mkdirSync(downloadDir, { recursive: true });
+    copyAtomically(devCopy, cached);
+    return cached;
+  }
+  return download(model.url, model, "RuriV3_30m in internal/embed/modelspec.go");
+}
+
+// Copies through a temporary name, so an interrupted copy never leaves a partial
+// file under the name the app (or the installer) looks for. Not `.part`: the app
+// resumes a download from <file>.part in its models dir.
+function copyAtomically(from, to) {
+  const partial = `${to}.copying`;
+  copyFileSync(from, partial);
+  renameSync(partial, to);
 }
 
 function extract(archive, into) {
@@ -206,11 +287,24 @@ function stage(fromDir, toDir, serverName) {
   return count;
 }
 
-async function main() {
-  const { goos, target, app } = parseOptions();
+async function stageModel(dest) {
+  const model = readModelSpec();
+  // Fetched even when dest already has the file: the installer reads the copy in
+  // build/sidecar/.downloads/, not the dev models dir.
+  const from = await fetchModel(model);
+  const to = join(dest, model.file);
+  if (await matches(to, model)) {
+    console.log(`sidecar: ${model.file} is already in ${dest}`);
+    return;
+  }
+  mkdirSync(dest, { recursive: true });
+  copyAtomically(from, to);
+  console.log(`sidecar: staged ${model.file} into ${dest}`);
+}
+
+async function stageSidecar(goos, target, app, dest) {
   const asset = ASSETS[target];
   const serverName = goos === "windows" ? "llama-server.exe" : "llama-server";
-  const dest = resolveDestination(goos, target, app);
   const marker = join(dest, markerName);
   const stamp = `${RELEASE} ${target} ${asset.sha256}\n`;
 
@@ -243,6 +337,13 @@ async function main() {
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+async function main() {
+  const { goos, target, app } = parseOptions();
+  const dest = resolveDestination(goos, target, app);
+  await stageSidecar(goos, target, app, dest);
+  await stageModel(app ? dest : devModelsDir);
 }
 
 await main();

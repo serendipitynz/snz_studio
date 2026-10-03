@@ -132,8 +132,8 @@ pnpm dev
   `LLM_API_KEY` は、環境変数として渡します（渡し方は「LLM 接続」）。
 - ブラウザ直開き（`localhost:5173`）での開発は廃止しました（API への非 GET が届かないため）。開発は
   `pnpm dev` を使ってください。
-- 内蔵 embedding を使うには、先に `pnpm sidecar` でサイドカーを `build/sidecar/<GOOS>-<GOARCH>/` に置き、
-  モデル GGUF を `data/models/` に置きます（「内蔵 embedding のサイドカー（llama-server）」）。
+- 内蔵 embedding を使うには、先に `pnpm sidecar` を実行します。サイドカーを `build/sidecar/<GOOS>-<GOARCH>/` に、
+  モデル GGUF を `data/models/` に置きます（「内蔵 embedding のサイドカーとモデル（llama-server・GGUF）」）。
   `SNZ_LLAMA_SERVER_BIN` の指定は要りません。
 
 ## ビルド（配布物）
@@ -155,31 +155,37 @@ pnpm build:app -platform windows/amd64 -nsis -webview2 download
 
 > **注意**: `wails build` 単体では内蔵 embedding（llama.cpp サイドカー + モデル GGUF）は同梱されません。
 > この `.app` を起動すると内蔵 embedding は `llama-server binary not found` になります（外部 embedding か
-> FTS のみで動作）。サイドカーは `pnpm sidecar --app` で後から置けます（次節）。モデル GGUF まで含む
-> 配布物は、macOS では下の署名ビルドで作ります。
+> FTS のみで動作）。どちらも `pnpm sidecar --app` で後から置けます（次節）。Windows のインストーラに
+> 入れるには、`pnpm build:app -platform windows/amd64 -nsis ...` の**前に** `pnpm sidecar --arch amd64` を
+> 実行します。インストーラは `build/sidecar/windows-amd64/` と `build/sidecar/.downloads/` から取り込み、
+> そこに無ければ内蔵 embedding なしのインストーラになります。
 
-### 内蔵 embedding のサイドカー（llama-server）
+### 内蔵 embedding のサイドカーとモデル（llama-server・GGUF）
 
-内蔵 embedding が使う llama.cpp の `llama-server` は、次のスクリプトで取得して置きます。macOS でも
-Windows（PowerShell、WSL なし）でも同じコマンドです。
+内蔵 embedding が使う llama.cpp の `llama-server` とモデル GGUF は、次のスクリプトで取得して置きます。
+macOS でも Windows（PowerShell、WSL なし）でも同じコマンドです。
 
 ```bash
-pnpm sidecar          # 開発用: build/sidecar/<GOOS>-<GOARCH>/ に置く（pnpm dev が使う）
-pnpm sidecar --app    # 配布用: pnpm build:app の成果物に置く（macOS は .app の Contents/Resources、Windows は exe の横）
+pnpm sidecar          # 開発用: llama-server を build/sidecar/<GOOS>-<GOARCH>/ に、GGUF を data/models/ に置く（pnpm dev が使う）
+pnpm sidecar --app    # 配布用: どちらも pnpm build:app の成果物に置く（macOS は .app の Contents/Resources、Windows は exe の横）
 ```
 
 - 実行中の OS と CPU に合うアーカイブを llama.cpp のリリースから取得し、sha256 を照合してから展開します。
   一致しなければ何も置かずに中断します。
+- モデル GGUF（`ruri-v3-30m-q8_0.gguf`）は、このリポジトリの GitHub Release
+  （[`ruri-v3-30m-q8_0-2a6cb2d9`](https://github.com/serendipitynz/snz_studio/releases/tag/ruri-v3-30m-q8_0-2a6cb2d9)）
+  から取得します。サイズと sha256 を `internal/embed/modelspec.go` の値（アプリが起動時に照合するのと同じ値）と
+  照合し、一致しなければ中断します。照合が通るコピーが `data/models/` にあれば、取得せずにそれを使います。
+  アプリは置かれた GGUF を初回起動時にユーザーデータ配下の `models/` へコピーするので、GGUF を同梱した
+  アプリがモデルをダウンロードすることはありません。
 - 置くのは `llama-server` と共有ライブラリ（dylib / DLL）だけです（macOS では、署名していない実行ファイルが
   あると公証に通らないため）。
-- 同じ版が置いてあれば何もしません。取得したアーカイブは `build/sidecar/.downloads/` に残るので、
+- 同じ版と GGUF が置いてあれば何もしません。取得したファイルは `build/sidecar/.downloads/` に残るので、
   `pnpm build:app` をやり直した後の `pnpm sidecar --app` では取得し直しません。
 - `--arch arm64|amd64` で CPU を指定できます（例: universal の `.app` に arm64 のサイドカーを置く）。
-- 同梱する llama.cpp の版と sha256 は `scripts/sidecar.mjs` の 1 か所で固定しています。CI と
-  `scripts/build-mac-signed.sh` もこのスクリプトでサイドカーを置きます。
-- モデル GGUF はこのスクリプトでは置きません。`pnpm dev` では `data/models/` に、`pnpm build:app` の
-  アプリではユーザーデータ配下の `models/` に `ruri-v3-30m-q8_0.gguf` が必要です（作り方は
-  「内蔵 embedding モデル（GGUF）の再生成」）。
+- 同梱する llama.cpp の版と sha256 は `scripts/sidecar.mjs` の 1 か所で、GGUF の URL・サイズ・sha256 は
+  `internal/embed/modelspec.go` の 1 か所で固定しています。CI と `scripts/build-mac-signed.sh` もこの
+  スクリプトで両方を置きます。
 - macOS の `pnpm dev` は `build/bin/` の `.app` からアプリを起動します。その `.app` にサイドカーが置いて
   あると（`pnpm sidecar --app` や署名ビルドの後）、`build/sidecar/` より先にそちらが使われます。
 - 版を変えても、保存済みのベクトルは計算し直されません。新しい版でベクトルが変わり得るときは、内蔵
@@ -197,18 +203,17 @@ macOS の配布可能 DMG はローカルスクリプトで一括生成します
 scripts/build-mac-signed.sh
 ```
 
-`wails build`（既定 `darwin/universal`）→ llama.cpp サイドカー（`llama-server` + dylib）の staging と署名 →
-モデル GGUF の staging → hardened runtime + secure timestamp で `.app`/`.dmg` 署名 → `notarytool submit --wait`
+`wails build`（既定 `darwin/universal`）→ `pnpm sidecar --app` による llama.cpp サイドカー（`llama-server` +
+dylib）とモデル GGUF の staging → サイドカーの署名 → hardened runtime + secure timestamp で `.app`/`.dmg` 署名 → `notarytool submit --wait`
 → `stapler staple` までを実行し、`build/bin/SNZ-Studio.dmg` を生成します。
 
 必要なもの:
 
 - 「Developer ID Application」証明書（login keychain にインストール済み）
 - notarytool の保存済みプロファイル（既定名 `snzstudio`。`xcrun notarytool store-credentials` で一度だけ作成）
-- `data/models/ruri-v3-30m-q8_0.gguf`（次節のスクリプトで再生成）
 
-主な env 上書き: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_ARCH`（`arm64` / `amd64`）/ `MODEL_SRC`。
-サイドカーの版は `scripts/sidecar.mjs` で固定しています。
+主な env 上書き: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_ARCH`（`arm64` / `amd64`）。
+サイドカーの版は `scripts/sidecar.mjs` で、GGUF は `internal/embed/modelspec.go` で固定しています。
 
 > Windows の署名は未対応です（当面は未署名配布）。CI（`.github/workflows/build.yml`）は雛形で、
 > `workflow_dispatch` 実行のみ・署名は secrets ゲートで後送りです。
@@ -216,8 +221,10 @@ scripts/build-mac-signed.sh
 ### 内蔵 embedding モデル（GGUF）の再生成
 
 内蔵 embedding は `cl-nagoya/ruri-v3-30m`（ModernBERT-Ja・256 次元・Apache-2.0）を llama.cpp で GGUF 化し
-q8_0 量子化したものを `.app` に同梱し、初回起動時にユーザーデータ配下の `models/` へ展開します。この GGUF
-（`data/models/ruri-v3-30m-q8_0.gguf`・約 42MB）は容量のため git 管理外なので、次のスクリプトで再現生成します。
+q8_0 量子化したものをアプリに同梱し、初回起動時にユーザーデータ配下の `models/` へコピーします。この GGUF
+（約 42MB）は容量のため git 管理外です。ビルドでは GitHub Release に公開した検証済みのコピーを使い
+（上の `pnpm sidecar`）、次のスクリプトはそれを作った手順です。公開したファイルの検証や、新しい GGUF を
+作るときに使います。
 
 ```bash
 scripts/build-ruri-gguf.sh
@@ -227,6 +234,12 @@ llama.cpp `b9437` の source（converter）と release（`llama-quantize`）、H
 （torch / transformers / sentencepiece / gguf）を使い、HF ダウンロード → converter パッチ（SentencePiece 化）→
 f16 → q8_0 → sha256 検証 → `data/models/` へ設置、までを冪等に実行します（各ステージは出力があれば skip）。
 `internal/embed/modelspec.go` に pin した sha256 と一致しない場合は中断します。
+
+スクリプト自体は macOS でしか動きませんが、手順は OS に依存しません。同じ版の Windows の
+`llama-quantize.exe` で量子化しても、Python 3.10 と 3.12 のどちらでも、同じ sha256 になりました。
+HF からダウンロードしたディレクトリの名前が GGUF のメタデータに入るので、名前は `ruri-v3-30m` のままにします。
+新しい GGUF は新しいリリースタグで公開し、`modelspec.go` の `URL` / `SHA256` / `SizeBytes` も変えます。
+公開済みのアセットは差し替えません。
 
 ## データ保存先と移行
 

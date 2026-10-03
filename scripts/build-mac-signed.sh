@@ -68,26 +68,16 @@ ENT_ARGS=()
 # Expand the (possibly empty) array in a way that is safe under `set -u` on
 # macOS's stock bash 3.2, where a bare "${arr[@]}" on an empty array errors.
 
-echo "==> Staging the embedding sidecar (macos-$SIDECAR_ARCH)"
+echo "==> Staging the embedding sidecar (macos-$SIDECAR_ARCH) and model GGUF"
 RES="$APP/Contents/Resources"
 # Stages only llama-server and its dylibs: the official tarball ships ~25 tools,
 # and any unsigned extra Mach-O executable fails notarization (verified).
+# The same call places the model GGUF, checked against internal/embed/modelspec.go
+# (taken from data/models/ when a verified copy is there, else downloaded). It is a
+# data file, not Mach-O, so it needs no codesign of its own: it is in place BEFORE
+# the .app signing below, which seals it via CodeResources (and so notarizes it).
+# At runtime, seedBundledModel copies it into the per-user models dir.
 node scripts/sidecar.mjs --app --arch "$SIDECAR_ARCH"
-
-echo "==> Staging the embedding model GGUF"
-# The GGUF is a data file (not Mach-O), so it needs no codesign of its own — the
-# outer .app signing below seals it via CodeResources. It is copied BEFORE that
-# signing so it is covered by the seal (and thus notarized). At runtime,
-# seedBundledModel copies it from Contents/Resources into the per-user models dir.
-MODEL_FILE="ruri-v3-30m-q8_0.gguf"
-MODEL_SRC="${MODEL_SRC:-data/models/$MODEL_FILE}"
-if [[ ! -f "$MODEL_SRC" ]]; then
-  echo "ERROR: model GGUF not found at $MODEL_SRC" >&2
-  echo "       Regenerate it with scripts/build-ruri-gguf.sh, or set MODEL_SRC=/path/to/$MODEL_FILE." >&2
-  exit 1
-fi
-cp "$MODEL_SRC" "$RES/$MODEL_FILE"
-echo "    staged model into $RES/$MODEL_FILE"
 
 echo "==> Staging the license notices"
 # TinySegmenter's modified BSD requires the copyright notice, conditions and
