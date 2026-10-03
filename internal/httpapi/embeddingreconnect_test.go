@@ -11,10 +11,11 @@ import (
 )
 
 // The settings screen's probe finding the endpoint back must not leave the
-// client disabled behind a "connected" badge, and what was saved meanwhile must
-// get its vectors without a settings save.
+// client disabled behind a "connected" badge, nor report a connection while the
+// endpoint lists its model but cannot embed yet, and what was saved meanwhile
+// must get its vectors without a settings save.
 func TestReadingConfigurationReconnectsAnUnreachableEmbeddingEndpoint(t *testing.T) {
-	var down atomic.Bool
+	var down, loading atomic.Bool
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if down.Load() {
 			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
@@ -26,6 +27,10 @@ func TestReadingConfigurationReconnectsAnUnreachableEmbeddingEndpoint(t *testing
 		case "/v1/models":
 			writeJSON(w, http.StatusOK, map[string]any{"data": []map[string]string{{"id": "m"}}})
 		case "/v1/embeddings":
+			if loading.Load() {
+				http.Error(w, `{"error":{"message":"Loading model"}}`, http.StatusServiceUnavailable)
+				return
+			}
 			var body struct {
 				Input []string `json:"input"`
 			}
@@ -80,7 +85,14 @@ func TestReadingConfigurationReconnectsAnUnreachableEmbeddingEndpoint(t *testing
 		t.Fatal("while the endpoint is down the settings screen and the client must both report it unavailable")
 	}
 
+	// Back, but still loading its model: it lists the model and rejects embeddings.
+	loading.Store(true)
 	down.Store(false)
+	if readConnected() || srv.embedding.IsEnabled() {
+		t.Fatal("while the endpoint cannot embed yet the settings screen and the client must both report it unavailable")
+	}
+
+	loading.Store(false)
 	if !readConnected() {
 		t.Fatal("the settings screen did not see the endpoint come back")
 	}

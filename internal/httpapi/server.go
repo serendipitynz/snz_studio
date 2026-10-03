@@ -332,9 +332,12 @@ func (s *Server) checkConnections(settings config.Settings) (llmConnected, revie
 	}()
 	go func() {
 		defer wg.Done()
-		embeddingConnected = s.embedding.CheckConnection()
-		if embeddingConnected {
+		// The model list answering does not mean embeddings work: a restarting
+		// llama-server lists its model while /embeddings still answers 503, and
+		// the client stays disabled until its probe gets a vector back.
+		if s.embedding.CheckConnection() {
 			s.embedding.RetryIfUnreachable()
+			embeddingConnected = s.embedding.IsEnabled()
 		}
 	}()
 	go func() {
