@@ -35,7 +35,13 @@ func newExternalEmbeddingServer(t *testing.T) (*Server, *atomic.Int64) {
 		writeJSON(w, http.StatusOK, map[string]any{"data": data})
 	}))
 	t.Cleanup(endpoint.Close)
+	return newServerOnEmbeddingEndpoint(t, endpoint.URL+"/v1"), &embedded
+}
 
+// newServerOnEmbeddingEndpoint builds a Server in external embedding mode pointed
+// at baseURL, with one document and one memory stored.
+func newServerOnEmbeddingEndpoint(t *testing.T, baseURL string) *Server {
+	t.Helper()
 	dir := t.TempDir()
 	d, err := db.Open(filepath.Join(dir, "app.sqlite"))
 	if err != nil {
@@ -50,7 +56,7 @@ func newExternalEmbeddingServer(t *testing.T) (*Server, *atomic.Int64) {
 			ReviewBaseURL:     "http://127.0.0.1:1/v1",
 			ReviewModel:       "test-model",
 			EmbeddingMode:     "external",
-			EmbeddingBaseURL:  endpoint.URL + "/v1",
+			EmbeddingBaseURL:  baseURL,
 			EmbeddingModel:    "m",
 		},
 		LLMTimeoutMs:       500,
@@ -73,7 +79,7 @@ func newExternalEmbeddingServer(t *testing.T) (*Server, *atomic.Int64) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return srv, &embedded
+	return srv
 }
 
 func configurationBody(editable config.Editable) map[string]any {

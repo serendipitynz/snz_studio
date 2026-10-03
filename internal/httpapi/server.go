@@ -330,7 +330,13 @@ func (s *Server) checkConnections(settings config.Settings) (llmConnected, revie
 		defer wg.Done()
 		reviewConnected = s.llm.CheckConnection(settings.ReviewBaseURL, settings.ReviewModel)
 	}()
-	go func() { defer wg.Done(); embeddingConnected = s.embedding.CheckConnection() }()
+	go func() {
+		defer wg.Done()
+		embeddingConnected = s.embedding.CheckConnection()
+		if embeddingConnected {
+			s.embedding.RetryIfUnreachable()
+		}
+	}()
 	go func() {
 		defer wg.Done()
 		// Unlike the review model, an empty image description model does not fall
