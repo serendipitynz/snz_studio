@@ -1,10 +1,10 @@
 ---
 id: TASK-78
 title: '埋め込み: サイドカーを止めた直後の起動要求が無視される競合と、外部モードに切り替えた後も status が ready のまま残る不具合を直す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-03 09:51'
+updated_date: '2026-10-03 09:58'
 labels: []
 dependencies: []
 references:
