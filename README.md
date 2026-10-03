@@ -234,6 +234,9 @@ Main env overrides: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_AR
 > Windows signing is not supported yet (unsigned distribution for now). CI
 > (`.github/workflows/build.yml`) is a scaffold: `workflow_dispatch` only, with signing deferred
 > behind secrets gates.
+>
+> `.github/workflows/audit.yml` runs `pnpm audit --prod` and `govulncheck` on PRs and pushes to
+> `main`, weekly, and on manual dispatch, and fails on any known vulnerability.
 
 ### Regenerating the built-in embedding model (GGUF)
 
