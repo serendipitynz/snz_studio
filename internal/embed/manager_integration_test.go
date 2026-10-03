@@ -48,11 +48,12 @@ func TestManagerIntegrationRealSidecar(t *testing.T) {
 	if m.binPath == "" {
 		t.Fatal("manager did not resolve the binary from SNZ_LLAMA_SERVER_BIN")
 	}
-	readyCh := make(chan string, 1)
+	type ready struct{ baseURL, apiKey string }
+	readyCh := make(chan ready, 1)
 	m.SetCallbacks(
-		func(baseURL, modelID string) {
+		func(baseURL, apiKey, modelID string) {
 			select {
-			case readyCh <- baseURL:
+			case readyCh <- ready{baseURL, apiKey}:
 			default:
 			}
 		},
@@ -64,9 +65,9 @@ func TestManagerIntegrationRealSidecar(t *testing.T) {
 	defer cancel()
 	m.EnsureInternalReady(ctx)
 
-	var baseURL string
+	var r ready
 	select {
-	case baseURL = <-readyCh:
+	case r = <-readyCh:
 	case <-ctx.Done():
 		t.Fatalf("sidecar not ready within timeout; status=%+v", m.Status())
 	}
@@ -74,16 +75,47 @@ func TestManagerIntegrationRealSidecar(t *testing.T) {
 	if s := m.Status(); s.State != StateReady {
 		t.Fatalf("status=%s, want ready", s.State)
 	}
-	if m.BaseURL() == "" || baseURL == "" {
-		t.Fatal("BaseURL empty after ready")
+	baseURL := r.baseURL
+	if m.BaseURL() == "" || baseURL == "" || r.apiKey == "" {
+		t.Fatal("BaseURL or API key empty after ready")
+	}
+
+	body, _ := json.Marshal(map[string]any{"input": []string{"検索クエリ: テスト"}})
+	post := func(apiKey string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, baseURL+"/v1/embeddings", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("embeddings request: %v", err)
+		}
+		return resp
+	}
+
+	keyless := post("")
+	keyless.Body.Close()
+	if keyless.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("keyless embeddings status %d, want 401", keyless.StatusCode)
+	}
+	slots, err := http.NewRequest(http.MethodGet, baseURL+"/slots", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slots.Header.Set("Authorization", "Bearer "+r.apiKey)
+	slotsResp, err := http.DefaultClient.Do(slots)
+	if err != nil {
+		t.Fatalf("slots request: %v", err)
+	}
+	slotsResp.Body.Close()
+	if slotsResp.StatusCode == http.StatusOK {
+		t.Fatal("/slots answered 200 with --no-slots")
 	}
 
 	// Confirm the live endpoint returns a 256-dim embedding end-to-end.
-	body, _ := json.Marshal(map[string]any{"input": []string{"検索クエリ: テスト"}})
-	resp, err := http.Post(baseURL+"/v1/embeddings", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("embeddings request: %v", err)
-	}
+	resp := post(r.apiKey)
 	defer resp.Body.Close()
 	var out struct {
 		Data []struct {

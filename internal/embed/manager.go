@@ -35,7 +35,7 @@ type Status struct {
 const maxConsecutiveFailures = 5
 
 // Manager downloads the model and supervises the llama-server sidecar. It is
-// decoupled from config/service: it reports readiness via onReady(baseURL, modelID)
+// decoupled from config/service: it reports readiness via onReady(baseURL, apiKey, modelID)
 // and loss via onLost(), which the HTTP layer wires to config's internal overlay.
 type Manager struct {
 	modelsDir string
@@ -43,7 +43,7 @@ type Manager struct {
 	binPath   string // resolved llama-server path; "" if not found
 	client    *http.Client
 
-	onReady func(baseURL, modelID string)
+	onReady func(baseURL, apiKey, modelID string)
 	onLost  func()
 
 	// callbackMu serialises the ready/lost callbacks with Shutdown, so a run that
@@ -79,7 +79,7 @@ func NewManager(modelsDir string) *Manager {
 }
 
 // SetCallbacks registers the ready/lost hooks. Call before EnsureInternalReady.
-func (m *Manager) SetCallbacks(onReady func(baseURL, modelID string), onLost func()) {
+func (m *Manager) SetCallbacks(onReady func(baseURL, apiKey, modelID string), onLost func()) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onReady = onReady
@@ -264,7 +264,7 @@ func (m *Manager) becomeReady(gen uint64, sc *sidecar) bool {
 	onReady := m.onReady
 	m.mu.Unlock()
 	if onReady != nil {
-		onReady(sc.BaseURL(), m.spec.ModelID)
+		onReady(sc.BaseURL(), sc.APIKey(), m.spec.ModelID)
 	}
 	return true
 }
