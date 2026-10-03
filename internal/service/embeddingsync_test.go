@@ -464,3 +464,115 @@ func TestACompletedRebuildDoesNotSettleOneRequestedWhileItRan(t *testing.T) {
 		t.Fatalf("the gap fill after the failed second rebuild embedded %d inputs, want 3 (run as the owed rebuild)", got)
 	}
 }
+
+func TestRebuildStateFollowsTheRebuild(t *testing.T) {
+	d := newServiceTestDB(t)
+	projects := repository.NewProjectRepository(d)
+	documents := repository.NewDocumentRepository(d)
+	memories := repository.NewMemoryRepository(d)
+	seedSyncCorpus(t, projects, documents, memories)
+
+	var healthy atomic.Bool
+	healthy.Store(true)
+	var hold atomic.Pointer[chan struct{}]
+	started := make(chan struct{}, 1)
+	abort := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if gate := hold.Load(); gate != nil {
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			select {
+			case <-*gate:
+			case <-abort:
+			}
+		}
+		if !healthy.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		var body struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		data := make([]map[string]any, len(body.Input))
+		for i := range body.Input {
+			data[i] = map[string]any{"embedding": []float64{1, 0, 0}}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	t.Cleanup(srv.Close)
+	// Runs before srv.Close, so a failed check while a request is held does not
+	// leave Close waiting on it.
+	t.Cleanup(func() { close(abort) })
+	sync := NewEmbeddingSyncService(documents, memories, enabledEmbeddingClient(srv.URL, "m"))
+	// runHeld starts a pass, checks the state while its first request is held at
+	// the endpoint, then lets it finish.
+	runHeld := func(request func(), want RebuildState, while string) {
+		t.Helper()
+		gate := make(chan struct{})
+		hold.Store(&gate)
+		request()
+		<-started
+		if got := sync.RebuildState(); got != want {
+			t.Fatalf("state %s = %q, want %q", while, got, want)
+		}
+		hold.Store(nil)
+		close(gate)
+		sync.WaitIdle()
+	}
+
+	if got := sync.RebuildState(); got != RebuildIdle {
+		t.Fatalf("state before any rebuild = %q, want %q", got, RebuildIdle)
+	}
+	runHeld(sync.RequestSyncMissing, RebuildIdle, "during a gap fill")
+
+	runHeld(sync.RequestRebuild, RebuildRunning, "during a rebuild")
+	if got := sync.RebuildState(); got != RebuildDone {
+		t.Fatalf("state after the rebuild = %q, want %q", got, RebuildDone)
+	}
+
+	// A rebuild asked for while a gap fill runs waits for the worker, and asking
+	// again would only queue the same pass.
+	project, err := projects.CreateProject(repository.CreateProjectInput{Title: "Annex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memories.CreateMemory(repository.CreateMemoryInput{
+		ProjectID: project.ID, Kind: "semantic", Title: "港", Content: "北の港。",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gate := make(chan struct{})
+	hold.Store(&gate)
+	sync.RequestSyncMissing()
+	<-started
+	if got := sync.RebuildState(); got != RebuildDone {
+		t.Fatalf("state during a gap fill after a rebuild = %q, want %q", got, RebuildDone)
+	}
+	sync.RequestRebuild()
+	if got := sync.RebuildState(); got != RebuildRunning {
+		t.Fatalf("state with a rebuild queued behind a gap fill = %q, want %q", got, RebuildRunning)
+	}
+	hold.Store(nil)
+	close(gate)
+	sync.WaitIdle()
+	if got := sync.RebuildState(); got != RebuildDone {
+		t.Fatalf("state after the queued rebuild = %q, want %q", got, RebuildDone)
+	}
+
+	healthy.Store(false)
+	sync.RequestRebuild()
+	sync.WaitIdle()
+	if got := sync.RebuildState(); got != RebuildIncomplete {
+		t.Fatalf("state after a rebuild the endpoint refused = %q, want %q", got, RebuildIncomplete)
+	}
+
+	// The owed rebuild runs as the next gap fill, and reads as a rebuild.
+	healthy.Store(true)
+	runHeld(sync.RequestSyncMissing, RebuildRunning, "during a gap fill run as the owed rebuild")
+	if got := sync.RebuildState(); got != RebuildDone {
+		t.Fatalf("state after the owed rebuild = %q, want %q", got, RebuildDone)
+	}
+}

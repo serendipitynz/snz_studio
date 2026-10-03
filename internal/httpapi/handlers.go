@@ -165,6 +165,13 @@ func (s *Server) handleRebuildEmbeddings(w http.ResponseWriter, _ *http.Request)
 	writeJSON(w, http.StatusAccepted, map[string]bool{"started": true})
 }
 
+// handleGetEmbeddingRebuild reports where the corpus-wide rebuild stands, whether
+// the rebuild endpoint, a settings save or startup asked for it, so the settings
+// screen can hold its rebuild button while one runs.
+func (s *Server) handleGetEmbeddingRebuild(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"state": s.embeddingSync.RebuildState()})
+}
+
 func (s *Server) handleListConfigurationModels(w http.ResponseWriter, r *http.Request) {
 	m, ok := decodeBody(w, r)
 	if !ok {

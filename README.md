@@ -198,8 +198,9 @@ pnpm sidecar --app    # distribution: places it in the pnpm build:app output (th
   different vectors, press "Rebuild" under "Rebuild embeddings" in the settings
   (`POST /api/embedding/rebuild`) once the internal embedding is ready. Saving the settings rebuilds
   everything only when the embedding source changes (mode, or the external endpoint or model). The
-  move from `b9437` to `b11126` needed no rebuild: both releases produced bit-identical vectors from
-  the same GGUF.
+  section shows whether a rebuild is running (the button waits until it ends;
+  `GET /api/embedding/rebuild`) and whether the last one finished. The move from `b9437` to
+  `b11126` needed no rebuild: both releases produced bit-identical vectors from the same GGUF.
 
 ### 2. For distribution (macOS: signing + notarization + bundled embedding)
 

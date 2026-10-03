@@ -72,7 +72,11 @@ const en = {
   "settings.rebuildEmbeddingsNote":
     "Recomputes every stored vector with the current embedding model. Saving a change to the embedding source already does this; use it after upgrading the bundled llama.cpp, or after swapping the model behind the same name on an external endpoint.",
   "settings.rebuildEmbeddingsAction": "Rebuild",
-  "settings.rebuildEmbeddingsStarted": "Rebuilding in the background. Search keeps using the current vectors until it finishes.",
+  "settings.rebuildEmbeddingsRunning": "Rebuilding in the background. Search keeps using the current vectors until it finishes.",
+  "settings.rebuildEmbeddingsDone": "The rebuild has finished. Search uses the rebuilt vectors.",
+  "settings.rebuildEmbeddingsIncomplete":
+    "The last rebuild did not finish, possibly because the embedding endpoint could not be reached. It runs again the next time the configuration is saved; press Rebuild to try now.",
+  "settings.rebuildRunningReason": "A rebuild is already running. You can press this again once it finishes.",
   "settings.rebuildEmbeddingsError": "Failed to start the rebuild",
   "settings.rebuildNeedsSave": "Save or discard the connection changes first; the rebuild uses the saved settings.",
   "settings.save": "Save configuration",
@@ -631,7 +635,11 @@ const ja: Record<MessageKey, string> = {
   "settings.rebuildEmbeddingsNote":
     "保存済みのベクトルをすべて、現在の埋め込みモデルで計算し直します。埋め込みソースの変更を保存したときは自動で作り直されます。同梱の llama.cpp を更新した後や、外部の接続先で同じ名前のモデルを差し替えた後に使います。",
   "settings.rebuildEmbeddingsAction": "作り直す",
-  "settings.rebuildEmbeddingsStarted": "バックグラウンドで作り直しています。終わるまでは今のベクトルで検索します。",
+  "settings.rebuildEmbeddingsRunning": "バックグラウンドで作り直しています。終わるまでは今のベクトルで検索します。",
+  "settings.rebuildEmbeddingsDone": "作り直しが終わりました。検索は作り直したベクトルを使います。",
+  "settings.rebuildEmbeddingsIncomplete":
+    "最後の作り直しは終わりきりませんでした。埋め込みの接続先に届かなかった可能性があります。次に設定を保存したときに、もう一度行います。すぐにやり直すときは「作り直す」を押してください。",
+  "settings.rebuildRunningReason": "作り直している最中です。終わると、もう一度押せます。",
   "settings.rebuildEmbeddingsError": "作り直しを開始できませんでした",
   "settings.rebuildNeedsSave": "作り直しは保存済みの設定で行います。先に接続設定の変更を保存するか、元に戻してください。",
   "settings.save": "設定を保存",
