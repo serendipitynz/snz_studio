@@ -4,7 +4,7 @@ title: '埋め込み: 接続先に届かず無効になった埋め込みクラ�
 status: In Review
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-03 10:14'
+updated_date: '2026-10-03 10:18'
 labels: []
 dependencies: []
 references:
@@ -83,4 +83,9 @@ ordinal: 77000
 
 - 実機での確認はしていない。外部モードで LM Studio などを止めて戻し、30 秒以内に意味検索が戻るかは見ていない。
 - フロントエンドは変更していない。ダッシュボードの接続カードは読み込み時にしか確認しないので、開いたまま待っても表示は更新されない。ただし表示を更新すれば、その時点で上記の即時復帰が走る。
+
+## レビュー 2 回目
+
+- 1 回目の修正で「届いただけでは復帰しない」にしたため、`/models` は答えるが `/embeddings` が 503 の間、設定画面は `embeddingConnected=true` を返し、クライアントは無効のまま、という食い違いが新たに生まれていた (AC#4)。`checkConnections` は、モデル一覧の確認が通ったら再試行を走らせ、その後のクライアントの `IsEnabled()` を `embeddingConnected` として返すようにした。
+- `TestReadingConfigurationReconnectsAnUnreachableEmbeddingEndpoint` に、接続先が戻ったがモデル読み込み中 (`/models` は 200、`/embeddings` は 503) の段階を追加した。この間は `embeddingConnected=false` でクライアントも無効、読み込みが終わると true で有効。`IsEnabled()` を見ずに true を返すとこの段階で落ちる。`go vet ./...`・`go test -race ./...` 通過。
 <!-- SECTION:NOTES:END -->
