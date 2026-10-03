@@ -3,10 +3,10 @@ id: TASK-68
 title: >-
   ビルド: ruri-v3-30m-q8_0.gguf を macOS / Windows のどちらでも用意・同梱できるようにし、sha256 が OS
   をまたいで一致するか確かめる
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 19:48'
-updated_date: '2026-10-03 20:58'
+updated_date: '2026-10-03 21:38'
 labels: []
 dependencies:
   - TASK-67
@@ -125,4 +125,9 @@ ordinal: 68000
 
 ## テスト
 - go vet / go test ./... / pnpm check:client / test:client は通過。gofmt -l は internal/search/model.go を挙げるが、このタスクより前からある
+
+## マージ後の追記 (2026-10-04)
+- 「測っていないこと」に挙げた 2 件は、ユーザーが確認した: Windows の実機での pnpm dev、署名・公証つきの build-mac-signed.sh の実行
+- リポジトリの immutable releases をユーザーが有効にした。ruri-v3-30m-q8_0-2a6cb2d9 は有効化の前に公開していたので対象外だった。そのため、同じタグと同じアセット (sha256 を照合済み) で作り直し、isImmutable=true になった。ダウンロード URL と sha256 は変わらない
+- 使い捨てのブランチ task-68-gguf-repro-experiment は削除した (CI の run のログは残る)
 <!-- SECTION:NOTES:END -->
