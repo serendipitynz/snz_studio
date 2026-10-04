@@ -1,10 +1,12 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -106,19 +108,19 @@ func TestCreateChatCompletionStream(t *testing.T) {
 	srv := sseServer(t, body)
 	client := NewLLMClient(testConfig(streamSettings(srv.URL, llmresponse.FormatStandard)))
 
-	var deltas []string
+	var shown streamDisplay
 	result, err := client.CreateChatCompletionStream(ChatCompletionInput{
 		SystemPrompt: "sys",
 		UserInput:    "hi",
-	}, func(chunk string) { deltas = append(deltas, chunk) })
+	}, shown.apply)
 	if err != nil {
 		t.Fatalf("stream error: %v", err)
 	}
 	if result.Content != "Hello, world!" {
 		t.Fatalf("content = %q, want %q", result.Content, "Hello, world!")
 	}
-	if strings.Join(deltas, "") != "Hello, world!" {
-		t.Fatalf("deltas joined = %q, want %q", strings.Join(deltas, ""), "Hello, world!")
+	if shown.text != "Hello, world!" || shown.replaces != 0 {
+		t.Fatalf("shown = %q after %d replaces, want %q from appends only", shown.text, shown.replaces, "Hello, world!")
 	}
 	if result.OutputTokens != 7 {
 		t.Fatalf("outputTokens = %d, want 7 (from usage)", result.OutputTokens)
@@ -144,9 +146,11 @@ func TestCreateChatCompletionStreamLLMJPThinking(t *testing.T) {
 	srv := sseServer(t, body)
 	client := NewLLMClient(testConfig(streamSettings(srv.URL, llmresponse.FormatLLMJPThinking)))
 
-	var deltas []string
-	result, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi"}, func(chunk string) {
-		deltas = append(deltas, chunk)
+	var shown streamDisplay
+	var history []string
+	result, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi"}, func(delta StreamDelta) {
+		shown.apply(delta)
+		history = append(history, shown.text)
 	})
 	if err != nil {
 		t.Fatalf("stream error: %v", err)
@@ -154,12 +158,163 @@ func TestCreateChatCompletionStreamLLMJPThinking(t *testing.T) {
 	if result.Content != "Visible answer" {
 		t.Fatalf("content = %q, want %q", result.Content, "Visible answer")
 	}
-	joined := strings.Join(deltas, "")
-	if joined != "Visible answer" {
-		t.Fatalf("streamed deltas = %q, want %q (analysis must be hidden)", joined, "Visible answer")
+	if shown.text != "Visible answer" {
+		t.Fatalf("shown = %q, want %q (analysis must be hidden)", shown.text, "Visible answer")
 	}
-	if strings.Contains(joined, "secret") {
-		t.Fatalf("analysis content leaked into stream: %q", joined)
+	for _, text := range history {
+		if strings.Contains(text, "secret") {
+			t.Fatalf("analysis content leaked into stream: %q", text)
+		}
+	}
+}
+
+// streamDisplay applies StreamDeltas the way the frontend does: a delta is
+// appended, a replacement stands in for everything shown before it.
+type streamDisplay struct {
+	text     string
+	replaces int
+}
+
+func (d *streamDisplay) apply(delta StreamDelta) {
+	if delta.Replace {
+		d.text = delta.Text
+		d.replaces++
+		return
+	}
+	d.text += delta.Text
+}
+
+// sseBody frames each content fragment as its own completion chunk event.
+func sseBody(t *testing.T, fragments []string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, fragment := range fragments {
+		payload, err := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"delta": map[string]string{"content": fragment}}},
+		})
+		if err != nil {
+			t.Fatalf("marshal chunk: %v", err)
+		}
+		b.WriteString("data: " + string(payload) + "\n\n")
+	}
+	b.WriteString("data: [DONE]\n\n")
+	return b.String()
+}
+
+// TestCreateChatCompletionStreamFollowsVisibleText covers TASK-82 AC #2: when the
+// visible text shrinks or changes course mid-stream (a tag fragment shown as text
+// until the rest of the tag arrives; text shown before a late channel tag), what
+// the stream has shown after each chunk is exactly the visible text of the
+// response so far — nothing dropped, nothing doubled — and ends as the result.
+func TestCreateChatCompletionStreamFollowsVisibleText(t *testing.T) {
+	cases := []struct {
+		name      string
+		format    string
+		fragments []string
+		want      string
+	}{
+		{
+			name:      "standard: end tag split across chunks",
+			format:    llmresponse.FormatStandard,
+			fragments: []string{"Hello <|en", "d|> wor", "ld", " and more"},
+			want:      "Hello  world and more",
+		},
+		{
+			name:      "standard: message tag split three ways",
+			format:    llmresponse.FormatStandard,
+			fragments: []string{"前置き<", "|mess", "age|>本文", "の続き"},
+			want:      "前置き本文の続き",
+		},
+		{
+			name:   "llm_jp_thinking: text shown before a late final channel",
+			format: llmresponse.FormatLLMJPThinking,
+			fragments: []string{
+				"Draft", " text", "<|chan", "nel|>final<|message|>Real ", "answer",
+			},
+			want: "Real answer",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := sseServer(t, sseBody(t, tc.fragments))
+			client := NewLLMClient(testConfig(streamSettings(srv.URL, tc.format)))
+
+			var shown streamDisplay
+			var history []string
+			result, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi"}, func(delta StreamDelta) {
+				shown.apply(delta)
+				history = append(history, shown.text)
+			})
+			if err != nil {
+				t.Fatalf("stream error: %v", err)
+			}
+			if result.Content != tc.want {
+				t.Fatalf("content = %q, want %q", result.Content, tc.want)
+			}
+			if shown.text != result.Content {
+				t.Fatalf("shown at the end = %q, want the result %q", shown.text, result.Content)
+			}
+			if shown.replaces == 0 {
+				t.Fatalf("no replacement sent; the case does not exercise a shrinking visible text")
+			}
+
+			var want []string
+			var raw, last string
+			for _, fragment := range tc.fragments {
+				raw += fragment
+				if visible := llmresponse.ParseAssistantResponse(raw, tc.format); visible != last {
+					want = append(want, visible)
+					last = visible
+				}
+			}
+			if !reflect.DeepEqual(history, want) {
+				t.Fatalf("shown after each change = %q, want the visible text so far %q", history, want)
+			}
+		})
+	}
+}
+
+// TestCreateChatCompletionStreamBoundsUnseparatedData covers TASK-82 AC #1: an
+// endpoint that keeps sending data with no "\n\n" separator fails the stream
+// once the pending bytes pass the bound, instead of being buffered for as long
+// as it keeps sending.
+func TestCreateChatCompletionStreamBoundsUnseparatedData(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		line := strings.Repeat("x", 64<<10) + "\n"
+		for sent := 0; sent <= 4*maxStreamEventBytes; sent += len(line) {
+			if _, err := io.WriteString(w, line); err != nil {
+				return // the client gave up, as it should
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	client := NewLLMClient(testConfig(streamSettings(srv.URL, llmresponse.FormatStandard)))
+
+	_, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi"}, func(StreamDelta) {})
+	if err == nil || !strings.Contains(err.Error(), "without an event separator") {
+		t.Fatalf("err = %v, want the unseparated-data bound", err)
+	}
+}
+
+// TestCreateChatCompletionStreamLongResponse checks the bound applies to one
+// pending event, not to the response: a stream whose events add up to well past
+// it still completes.
+func TestCreateChatCompletionStreamLongResponse(t *testing.T) {
+	fragment := strings.Repeat("あ", 32<<10)
+	var fragments []string
+	for len(fragments)*len(fragment) <= maxStreamEventBytes+maxStreamEventBytes/4 {
+		fragments = append(fragments, fragment)
+	}
+	srv := sseServer(t, sseBody(t, fragments))
+	client := NewLLMClient(testConfig(streamSettings(srv.URL, llmresponse.FormatStandard)))
+
+	result, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi"}, func(StreamDelta) {})
+	if err != nil {
+		t.Fatalf("stream error: %v", err)
+	}
+	if want := strings.Join(fragments, ""); result.Content != want {
+		t.Fatalf("content has %d bytes, want %d", len(result.Content), len(want))
 	}
 }
 

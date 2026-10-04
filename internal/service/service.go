@@ -63,20 +63,6 @@ func round2(x float64) float64 {
 func float64Ptr(v float64) *float64 { return &v }
 func int64Ptr(v int64) *int64       { return &v }
 
-// sliceFromRune returns s with its first offset runes removed (or "" when offset
-// exceeds s's length). It mirrors JS String.prototype.slice(offset) using rune
-// counts in place of UTF-16 code units — equal for every BMP character.
-func sliceFromRune(s string, offset int) string {
-	if offset <= 0 {
-		return s
-	}
-	r := []rune(s)
-	if offset >= len(r) {
-		return ""
-	}
-	return string(r[offset:])
-}
-
 // sortedStrings returns a lexicographically sorted copy, mirroring Array.sort()
 // for the ASCII model identifiers these helpers deal with.
 // sortedStrings returns the sorted input, never nil. The nil matters: these lists

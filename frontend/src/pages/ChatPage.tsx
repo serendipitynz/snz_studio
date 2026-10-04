@@ -10,6 +10,7 @@ import {
   Project as ProjectRecord
 } from "../api/client";
 import type { ReviewReference } from "../api/client";
+import { applyStreamText, isStreamTextEvent } from "../api/streamText";
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { ComposerTextarea } from "../components/ComposerTextarea";
@@ -310,18 +311,16 @@ export function ChatPage() {
         | { message?: string }
         | { chat?: ChatRecord; messages?: MessageRecord[]; summary?: ChatSummary | null };
 
-      if (eventName === "delta") {
-        const delta = "content" in payload ? payload.content ?? "" : "";
-        if (!delta) {
-          return;
-        }
-
+      if (isStreamTextEvent(eventName)) {
+        const content = "content" in payload ? payload.content : undefined;
         setState((current) =>
           current
             ? {
                 ...current,
                 messages: current.messages.map((message) =>
-                  message.id === assistantMessageId ? { ...message, content: `${message.content}${delta}` } : message
+                  message.id === assistantMessageId
+                    ? { ...message, content: applyStreamText(message.content, eventName, content) }
+                    : message
                 )
               }
             : current
@@ -599,8 +598,8 @@ export function ChatPage() {
         references?: ReviewReference[];
       };
 
-      if (eventName === "delta" && payload.content) {
-        setReviewContent((current) => `${current}${payload.content}`);
+      if (isStreamTextEvent(eventName)) {
+        setReviewContent((current) => applyStreamText(current, eventName, payload.content));
         return;
       }
 

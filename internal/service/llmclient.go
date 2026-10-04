@@ -263,10 +263,30 @@ func (c *LLMClient) CreateChatCompletion(input ChatCompletionInput) (*ChatComple
 	}, nil
 }
 
-// CreateChatCompletionStream performs a streaming completion, invoking onDelta with
-// each newly-visible fragment. Mirrors createChatCompletionStream, including the
-// sliding timeout that resets on every received chunk.
-func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelta func(string)) (*ChatCompletionResult, error) {
+// StreamDelta is one change to the visible text of a streaming completion.
+//
+// The visible text is re-parsed from the whole raw response on every chunk, so it
+// does not only grow: a tag fragment shows as text until the rest of the tag
+// arrives and removes it, and under llm_jp_thinking a late channel tag hides
+// everything shown so far. Replace marks such a change, and Text is then the whole
+// visible text, shown instead of everything streamed before it. Otherwise Text is
+// appended. A whole-text replacement rather than "keep N characters, then append"
+// because Go counts runes and the frontend counts UTF-16 code units.
+type StreamDelta struct {
+	Text    string
+	Replace bool
+}
+
+// maxStreamEventBytes bounds the bytes held while waiting for an SSE event's
+// "\n\n" separator. Every read resets the sliding timeout, so without a bound an
+// endpoint that keeps sending data with no separator grows the buffer for as long
+// as it keeps sending.
+const maxStreamEventBytes = 1 << 20
+
+// CreateChatCompletionStream performs a streaming completion, invoking onDelta
+// whenever the visible text changes. Mirrors createChatCompletionStream, including
+// the sliding timeout that resets on every received chunk.
+func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelta func(StreamDelta)) (*ChatCompletionResult, error) {
 	s := c.cfg.Get()
 	baseURL, modelName := resolveTarget(input.Target, s.LLMBaseURL, s.LLMModel)
 	body := chatCompletionBody{
@@ -362,11 +382,15 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 		}
 		rawContent.WriteString(delta)
 		nextVisible := llmresponse.ParseAssistantResponse(rawContent.String(), s.LLMResponseFormat)
-		visibleDelta := sliceFromRune(nextVisible, utf8.RuneCountInString(visibleContent))
-		visibleContent = nextVisible
-		if visibleDelta != "" {
-			onDelta(visibleDelta)
+		if nextVisible == visibleContent {
+			return nil
 		}
+		if strings.HasPrefix(nextVisible, visibleContent) {
+			onDelta(StreamDelta{Text: nextVisible[len(visibleContent):]})
+		} else {
+			onDelta(StreamDelta{Text: nextVisible, Replace: true})
+		}
+		visibleContent = nextVisible
 		return nil
 	}
 
@@ -390,6 +414,9 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 						return nil, err
 					}
 				}
+			}
+			if len(buffer) > maxStreamEventBytes {
+				return nil, fmt.Errorf("LLM stream sent more than %d bytes without an event separator", maxStreamEventBytes)
 			}
 		}
 		if readErr != nil {

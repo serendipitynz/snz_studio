@@ -201,7 +201,7 @@ type WeightFactor struct {
 // The turn is not bound to the caller's lifetime: the underlying stream runs on
 // its own sliding deadline, so a disconnected client still gets the finished turn
 // stored (§4.1). onSpeaker and onDelta may be nil when no one is watching.
-func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(SpeakerChoice), onDelta func(string)) (*model.Message, error) {
+func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(SpeakerChoice), onDelta func(StreamDelta)) (*model.Message, error) {
 	if !e.acquireTurn(chatID) {
 		return nil, ErrTurnInProgress
 	}
@@ -262,17 +262,15 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 
 	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(material.References))
 	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers), speaker)
-	var streamed strings.Builder
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
 		SystemPrompt: buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers),
 		Messages:     history,
 		UserInput:    finalUserMessage,
 		Temperature:  float64Ptr(0.7),
 		Target:       target,
-	}, func(chunk string) {
-		streamed.WriteString(chunk)
+	}, func(delta StreamDelta) {
 		if onDelta != nil {
-			onDelta(chunk)
+			onDelta(delta)
 		}
 	})
 	if err != nil {

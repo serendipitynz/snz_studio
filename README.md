@@ -392,7 +392,9 @@ receives either key.
 - `GET / POST /api/chats/:chatId/participants`
 - `PATCH / DELETE /api/participants/:participantId`
 - `POST /api/chats/:chatId/turns/stream` (runs one turn over SSE: a `speaker` event, then
-  `delta` events and `done`; a duplicate call while one is running returns 409)
+  `delta` events and `done`; a duplicate call while one is running returns 409). A `replace` event
+  may come between the `delta`s: it carries the whole text shown so far, in place of what the deltas
+  added — sent when markup that streamed as text is removed. The chat and review streams use it too.
 - `GET /api/messages/:messageId/memory-draft` / `POST /api/messages/:messageId/memory` (save one
   multi-agent utterance as a project memory; a multi-agent chat never extracts memories on its own)
 - `POST /api/chats/:chatId/conclusion-draft` (drafts, with the default LLM, what the whole conversation

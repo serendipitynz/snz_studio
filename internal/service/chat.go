@@ -112,7 +112,7 @@ func (s *ChatService) SendMessage(chatID, content string) (*model.Message, error
 // another turn running (ErrTurnInProgress) and storing the user message and its
 // memories — and before any assistant message exists, so a caller that opens its
 // stream there can still answer those failures with a status of their own.
-func (s *ChatService) SendMessageStream(chatID, content string, onStart func(), onDelta func(string)) (*model.Message, error) {
+func (s *ChatService) SendMessageStream(chatID, content string, onStart func(), onDelta func(StreamDelta)) (*model.Message, error) {
 	if !s.turns.acquire(chatID) {
 		return nil, ErrTurnInProgress
 	}
@@ -140,11 +140,14 @@ func (s *ChatService) SendMessageStream(chatID, content string, onStart func(), 
 		Messages:     prepared.assembled.RecentMessages,
 		UserInput:    content,
 		Temperature:  float64Ptr(0.25),
-	}, func(chunk string) {
-		streamedContent.WriteString(chunk)
+	}, func(delta StreamDelta) {
+		if delta.Replace {
+			streamedContent.Reset()
+		}
+		streamedContent.WriteString(delta.Text)
 		// Best-effort live persistence, matching the TS which does not await/check.
 		_, _ = s.chats.UpdateMessageContent(assistantMessage.ID, streamedContent.String())
-		onDelta(chunk)
+		onDelta(delta)
 	})
 
 	var gen generation
@@ -153,7 +156,10 @@ func (s *ChatService) SendMessageStream(chatID, content string, onStart func(), 
 		fallbackContent := s.buildFallbackResponse(prepared.assembled.References, content, llmErr.Error())
 		gen = generation{content: fallbackContent}
 		_, _ = s.chats.UpdateMessageContent(assistantMessage.ID, fallbackContent)
-		onDelta(fallbackContent)
+		// A replacement, not an append: the fallback is the whole stored message,
+		// and appending it would show it after whatever had streamed before the
+		// failure.
+		onDelta(StreamDelta{Text: fallbackContent, Replace: true})
 	} else {
 		gen = generationFromResult(result)
 	}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -250,4 +251,88 @@ func TestMultiAgentNextSpeaker(t *testing.T) {
 		t.Fatalf("next = %s, want null on an empty roster", id)
 	}
 	wantStatus(t, doJSON(t, h, "GET", "/api/chats/chat_missing/turns/next", nil), http.StatusNotFound)
+}
+
+// replayStreamText applies a stream's delta and replace frames in the order they
+// were sent, the way the frontend builds the text it shows.
+func replayStreamText(t *testing.T, raw string) (string, []string) {
+	t.Helper()
+	var text string
+	var events []string
+	for _, frame := range strings.Split(raw, "\n\n") {
+		var event, data string
+		for _, line := range strings.Split(strings.TrimSpace(frame), "\n") {
+			switch {
+			case strings.HasPrefix(line, "event:"):
+				event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			case strings.HasPrefix(line, "data:"):
+				data = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+		}
+		if event != "delta" && event != "replace" {
+			continue
+		}
+		var payload struct {
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(data), &payload); err != nil {
+			t.Fatalf("decode %s frame: %v", event, err)
+		}
+		if event == "replace" {
+			text = payload.Content
+		} else {
+			text += payload.Content
+		}
+		events = append(events, event)
+	}
+	return text, events
+}
+
+// TestMultiAgentTurnStreamWithdrawsTagFragment covers TASK-82 AC #2/#3 for a
+// multi-agent turn: a tag fragment that streamed as text is withdrawn with a
+// replace frame, and the replayed frames end as the stored utterance.
+func TestMultiAgentTurnStreamWithdrawsTagFragment(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/"):
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/models"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":[]}`)
+		case strings.HasSuffix(r.URL.Path, "/chat/completions"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			for _, fragment := range []string{"発言<|en", "d|>します", "。"} {
+				payload, _ := json.Marshal(map[string]any{
+					"choices": []any{map[string]any{"delta": map[string]string{"content": fragment}}},
+				})
+				_, _ = io.WriteString(w, "data: "+string(payload)+"\n\n")
+			}
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	h := newTestServer(t).Handler()
+	projectID := createProject(t, h, "Replace Project")
+	chatID := createMultiAgentChat(t, h, projectID, "round_robin")
+	addParticipant(t, h, chatID, "Alice", srv.URL+"/v1")
+	addParticipant(t, h, chatID, "Bob", srv.URL+"/v1")
+
+	rec := doJSON(t, h, "POST", "/api/chats/"+chatID+"/turns/stream", map[string]any{})
+	wantStatus(t, rec, http.StatusOK)
+	shown, events := replayStreamText(t, rec.Body.String())
+	if !reflect.DeepEqual(events, []string{"delta", "replace", "delta"}) {
+		t.Fatalf("text frames = %v, want delta, replace, delta", events)
+	}
+
+	var spoken struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(doneFrame(t, rec)["message"], &spoken); err != nil {
+		t.Fatalf("decode done.message: %v", err)
+	}
+	if spoken.Content != "発言します。" || shown != spoken.Content {
+		t.Fatalf("shown = %q, stored = %q; want both %q", shown, spoken.Content, "発言します。")
+	}
 }

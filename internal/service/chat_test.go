@@ -3,6 +3,7 @@ package service
 import (
 	"database/sql"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -190,7 +191,7 @@ func TestChatTurnRefusedWhileGenerating(t *testing.T) {
 
 	firstDone := make(chan error, 1)
 	go func() {
-		_, err := g.chat.SendMessageStream(chat.ID, "最初の質問", func() {}, func(string) {})
+		_, err := g.chat.SendMessageStream(chat.ID, "最初の質問", func() {}, func(StreamDelta) {})
 		firstDone <- err
 	}()
 	<-entered // the first turn is waiting on its completion
@@ -199,7 +200,7 @@ func TestChatTurnRefusedWhileGenerating(t *testing.T) {
 		t.Fatalf("SendMessage during a turn: err = %v, want ErrTurnInProgress", err)
 	}
 	started := false
-	if _, err := g.chat.SendMessageStream(chat.ID, "割り込み", func() { started = true }, func(string) {}); !errors.Is(err, ErrTurnInProgress) {
+	if _, err := g.chat.SendMessageStream(chat.ID, "割り込み", func() { started = true }, func(StreamDelta) {}); !errors.Is(err, ErrTurnInProgress) {
 		t.Fatalf("SendMessageStream during a turn: err = %v, want ErrTurnInProgress", err)
 	}
 	if started {
@@ -248,7 +249,7 @@ func TestChatTurnMemoryFailureLeavesNoUserMessage(t *testing.T) {
 		t.Fatal("SendMessage: want the memory failure, got nil")
 	}
 	started := false
-	if _, err := g.chat.SendMessageStream(chat.ID, content, func() { started = true }, func(string) {}); err == nil {
+	if _, err := g.chat.SendMessageStream(chat.ID, content, func() { started = true }, func(StreamDelta) {}); err == nil {
 		t.Fatal("SendMessageStream: want the memory failure, got nil")
 	}
 	if started {
@@ -261,5 +262,63 @@ func TestChatTurnMemoryFailureLeavesNoUserMessage(t *testing.T) {
 	}
 	if len(messages) != 0 {
 		t.Fatalf("%d messages stored, want none: %+v", len(messages), messages)
+	}
+}
+
+// TestChatStreamShowsStoredContent covers TASK-82 AC #2/#3 for a single-assistant
+// chat: what the stream has shown when it ends is the assistant message as
+// stored — when a tag fragment was shown and then withdrawn, and when the
+// completion broke after some text and the fallback took its place.
+func TestChatStreamShowsStoredContent(t *testing.T) {
+	cases := []struct {
+		name string
+		body func(t *testing.T) string
+	}{
+		{"tag fragment withdrawn", func(t *testing.T) string {
+			return sseBody(t, []string{"答えは<|en", "d|>ここ", "です"})
+		}},
+		{"fallback after a partial answer", func(t *testing.T) string {
+			return strings.TrimSuffix(sseBody(t, []string{"途中まで"}), "data: [DONE]\n\n") + "data: {not json\n\n"
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := tc.body(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, _ := io.ReadAll(r.Body)
+				if !strings.Contains(string(raw), `"stream":true`) {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, body)
+			}))
+			t.Cleanup(srv.Close)
+			g := newServiceGraph(t, srv.URL)
+
+			project, err := g.projects.CreateProject(repository.CreateProjectInput{Title: "Saga"})
+			if err != nil {
+				t.Fatalf("CreateProject: %v", err)
+			}
+			chat, err := g.chats.CreateChat(repository.CreateChatInput{ProjectID: project.ID})
+			if err != nil {
+				t.Fatalf("CreateChat: %v", err)
+			}
+
+			var shown streamDisplay
+			message, err := g.chat.SendMessageStream(chat.ID, "質問", func() {}, shown.apply)
+			if err != nil {
+				t.Fatalf("SendMessageStream: %v", err)
+			}
+			if shown.replaces == 0 {
+				t.Fatal("no replacement sent; the case does not exercise a withdrawn text")
+			}
+			if shown.text != message.Content {
+				t.Fatalf("shown = %q, want the stored message %q", shown.text, message.Content)
+			}
+			if strings.Contains(message.Content, "<|") {
+				t.Fatalf("stored message keeps markup: %q", message.Content)
+			}
+		})
 	}
 }

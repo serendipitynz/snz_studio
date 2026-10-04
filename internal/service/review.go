@@ -102,7 +102,7 @@ func (s *ReviewService) ReviewMessage(messageID string) (*ReviewResult, error) {
 }
 
 // ReviewMessageStream mirrors reviewMessageStream.
-func (s *ReviewService) ReviewMessageStream(messageID string, onDelta func(string)) (*ReviewResult, error) {
+func (s *ReviewService) ReviewMessageStream(messageID string, onDelta func(StreamDelta)) (*ReviewResult, error) {
 	prepared, err := s.prepareReview(messageID)
 	if err != nil {
 		return nil, err
