@@ -1,0 +1,71 @@
+# Fails when a dependency has a known vulnerability: `pnpm audit --prod` for what
+# the SPA bundles, govulncheck for the Go binary.
+#
+# Kept apart from build.yml so it can run automatically: it takes seconds, uses no
+# secrets, and needs nothing beyond a read-only checkout.
+name: audit
+
+# Advisories are published without any change to this repo, so a weekly run catches
+# the ones that land between pushes; the PR and push runs catch a change that
+# introduces one. Plain `pull_request` (never pull_request_target) gives a fork's PR
+# a read-only token and no secrets.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# Actions are referenced by tag, not commit SHA, as in build.yml. Neither workflow
+# holds a secret or a write token, so a moved tag could read only this public repo.
+# Pin both workflows to SHAs when the signing secrets land in build.yml.
+jobs:
+  pnpm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The pnpm version comes from package.json's packageManager field.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      # Reads pnpm-lock.yaml only, so no install is needed. devDependencies are left
+      # out because none of them ship in the app; a dev-only advisory still shows in
+      # a local `pnpm audit`.
+      - name: pnpm audit --prod
+        run: pnpm audit --prod
+
+  govulncheck:
+    name: govulncheck (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native runners for each shipped OS: Wails' darwin frontend is cgo-only,
+        # so a cross-GOOS scan from Linux would drop those files and miss whatever
+        # they reach.
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # govulncheck reports standard-library advisories against the Go it runs
+      # under, so pin it to go.mod's `toolchain` — the version scripts/wails.mjs
+      # builds the app with — rather than whatever setup-go resolved. The tags are
+      # the ones `wails build` compiles the shipped binary with.
+      - name: govulncheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GOTOOLCHAIN="$(sed -n 's/^toolchain //p' go.mod)"
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -tags desktop,production ./...
