@@ -90,6 +90,9 @@ func TestCreateImageDocumentRejectsNonImages(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doMultipart(t, h, base, map[string]string{"type": "image"}, "file", tc.fileName, tc.data, tc.contentType)
 			wantError(t, rec, http.StatusBadRequest, unsupportedImageUploadMessage)
+			if got := string(decodeJSONMap(t, rec)["code"]); got != `"unsupported_image"` {
+				t.Fatalf("code = %s, want \"unsupported_image\"", got)
+			}
 		})
 	}
 
@@ -136,6 +139,9 @@ func TestCreateDocumentRefusesOversizeUploads(t *testing.T) {
 			}
 			rec := serve(h, req)
 			wantError(t, rec, http.StatusRequestEntityTooLarge, "upload is too large")
+			if got := string(decodeJSONMap(t, rec)["limit"]); got != fmt.Sprint(maxDocumentUploadBytes) {
+				t.Fatalf("limit = %s, want %d", got, maxDocumentUploadBytes)
+			}
 		})
 	}
 

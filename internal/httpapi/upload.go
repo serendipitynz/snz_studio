@@ -25,6 +25,17 @@ const documentUploadLimit = maxDocumentUploadBytes + documentUploadMultipartSlac
 
 const unsupportedImageUploadMessage = "image must be PNG, JPEG, GIF or WebP"
 
+// The UI words these two refusals in the user's language. It reads the code and
+// the limit below rather than the English message, so the message can change
+// without the UI falling back to showing it raw.
+func writeUnsupportedImageUpload(w http.ResponseWriter) {
+	writeJSON(w, http.StatusBadRequest, map[string]any{"error": unsupportedImageUploadMessage, "code": "unsupported_image"})
+}
+
+func writeUploadTooLarge(w http.ResponseWriter) {
+	writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "upload is too large", "limit": maxDocumentUploadBytes})
+}
+
 // storedImageExtensions maps each image format a document may store to the
 // extension its file is saved under. It is an allowlist judged from the bytes by
 // http.DetectContentType, never from the client's filename or Content-Type:
