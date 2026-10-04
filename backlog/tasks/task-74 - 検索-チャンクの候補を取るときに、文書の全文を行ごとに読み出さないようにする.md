@@ -1,10 +1,10 @@
 ---
 id: TASK-74
 title: '検索: チャンクの候補を取るときに、文書の全文を行ごとに読み出さないようにする'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:22'
-updated_date: '2026-10-04 06:16'
+updated_date: '2026-10-04 06:20'
 labels: []
 dependencies: []
 references:
