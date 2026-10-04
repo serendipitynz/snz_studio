@@ -17,6 +17,7 @@ import (
 
 	"snzstudio/internal/config"
 	"snzstudio/internal/db"
+	"snzstudio/internal/repository"
 )
 
 // newTestServer builds a Server backed by a fresh temp SQLite DB and a config
@@ -819,6 +820,36 @@ func TestSendMessageTurnConflict(t *testing.T) {
 		t.Fatalf("%d messages stored, want 2 — the refused sends must store nothing", len(messages))
 	}
 	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": "next"}), http.StatusCreated)
+}
+
+// TestStartupRemovesUnfinishedAssistantMessage covers TASK-83 AC #2: the empty
+// assistant message a streaming turn leaves when the process ends mid-generation
+// is gone from the chat once the next process has run its startup tasks.
+func TestStartupRemovesUnfinishedAssistantMessage(t *testing.T) {
+	srv := newTestServer(t)
+	h := srv.Handler()
+	projectID := createProject(t, h, "Restart Project")
+	chatID := createChat(t, h, projectID)
+	for _, role := range []string{"user", "assistant"} {
+		content := ""
+		if role == "user" {
+			content = "question"
+		}
+		if _, err := srv.chats.AddMessage(repository.AddMessageInput{ChatID: chatID, Role: role, Content: content}); err != nil {
+			t.Fatalf("AddMessage(%s): %v", role, err)
+		}
+	}
+
+	srv.RunStartupTasks()
+
+	detail := decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil))
+	var messages []struct {
+		Role string `json:"role"`
+	}
+	unmarshalField(t, detail, "messages", &messages)
+	if len(messages) != 1 || messages[0].Role != "user" {
+		t.Fatalf("messages after startup = %+v, want only the user message", messages)
+	}
 }
 
 // TestReviewStreamError verifies that a failing review (dead LLM, no fallback)
