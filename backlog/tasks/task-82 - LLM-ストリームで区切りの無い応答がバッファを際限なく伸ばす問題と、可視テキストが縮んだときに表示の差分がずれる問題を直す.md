@@ -1,10 +1,10 @@
 ---
 id: TASK-82
 title: 'LLM: ストリームで区切りの無い応答がバッファを際限なく伸ばす問題と、可視テキストが縮んだときに表示の差分がずれる問題を直す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-04 10:09'
+updated_date: '2026-10-04 10:45'
 labels: []
 dependencies: []
 references:
