@@ -2,9 +2,11 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -248,5 +250,49 @@ func TestImageDescriptionSettings(t *testing.T) {
 	reloaded := Load(path).Get()
 	if reloaded.ImageDescriptionBaseURL != "http://vision/v1" || reloaded.ImageDescriptionModel != "gemma" {
 		t.Fatalf("reloaded = %q / %q, want trimmed persisted values", reloaded.ImageDescriptionBaseURL, reloaded.ImageDescriptionModel)
+	}
+}
+
+// Concurrent saves must leave the file holding the update applied last in memory,
+// with no temporary file left beside it.
+func TestConcurrentUpdateEditableKeepsLastAccepted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app-config.json")
+	c := New(Defaults(), path)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if _, err := c.UpdateEditable(Editable{LLMBaseURL: "http://h/v1", LLMModel: fmt.Sprintf("model-%d", i)}); err != nil {
+				t.Errorf("UpdateEditable %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read persisted config: %v", err)
+	}
+	var persisted Editable
+	if err := json.Unmarshal(raw, &persisted); err != nil {
+		t.Fatalf("persisted config is not valid JSON: %v\n%s", err, raw)
+	}
+	if want := c.GetEditable(); persisted != want {
+		t.Fatalf("persisted = %+v, want the last accepted update %+v", persisted, want)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 1 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("dir holds %v, want only app-config.json", names)
 	}
 }
