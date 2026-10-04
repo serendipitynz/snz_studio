@@ -236,6 +236,8 @@ SSE の書き込み失敗も無視される（[handlers.go](../internal/httpapi/
    確認を通ったら、選んだ話者を SSE の `speaker` イベントで通知する（§4.6.6）。
 3. プロンプトを組み立てる（§4.3）。
 4. `CompletionTarget{BaseURL, Model}` を渡して `CreateChatCompletionStream` を実行、delta を SSE 転送。
+   表示テキストが前回の続きにならないとき (テキストとして流れたタグの断片が取り除かれたとき) は、`delta` の
+   代わりに表示テキスト全体を `replace` で送る (TASK-82)。
 5. 完了した発言から呼びかけ先を検出し（末尾の指示子はここで剥がす、§4.6.5）、`messages` に保存
    （`participant_id`・`model_name`・`addressed_participant_ids`・既存の生成メトリクス列）。
 
@@ -1438,7 +1440,7 @@ G-fail は、途中の行の検出を足しながら gpt-oss-20b で 2 回測り
 | `PATCH /api/participants/{participantId}` | 参加者更新（表示名・役割プロンプト・接続先・モデル・順序・`receivesProjectMaterial`・`stateSheet`）。`stateSheet` は前後の空白を除いて 200 字まで、超えれば 400 |
 | `DELETE /api/participants/{participantId}` | 参加者の除籍（論理削除。過去の発言の帰属は残る、§3） |
 | `GET /api/chats/{chatId}/turns/next` | 次のターンが選ぶ参加者の読み取り（表示用、§4.6.6 の追記）。応答は `{ participant, historyLimit }`。`manual` と空の編成では `participant` が `null`。chat が無ければ 404、単独 assistant の chat は 400 |
-| `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。ターン前の拒否はステータスで返る: 実行中のターンと重なれば 409、chat・指名した参加者が無ければ 404、規則と指名の不整合・除籍済みの指名・空の編成は 400、接続先不通は 502。通れば `speaker`（§4.6.6）→ `delta`… → `done` を流し、それより後の失敗（生成・保存）はストリーム内の `error` になる |
+| `POST /api/chats/{chatId}/turns/stream` | 1 ターン実行（SSE）。body: `{ "participantId"?: string }`（`manual` 時必須）。ターン前の拒否はステータスで返る: 実行中のターンと重なれば 409、chat・指名した参加者が無ければ 404、規則と指名の不整合・除籍済みの指名・空の編成は 400、接続先不通は 502。通れば `speaker`（§4.6.6）→ `delta`…（間に `replace` が入りうる、§4.2 手順 4）→ `done` を流し、それより後の失敗（生成・保存）はストリーム内の `error` になる |
 | `GET /api/messages/{messageId}/memory-draft` | 発言のメモリ保存の下書き `{ draft: { content, kind } }`（§4.4。content は本文 + 判定の記録の `🎲` 行 + 効果の記録の `📝` 行）。発言が無ければ 404、単独 assistant の chat は 400、一時チャットは 409 |
 | `POST /api/chats/{chatId}/conclusion-draft` | 結論の下書きを既定 LLM で生成する（§4.4）。body: `{ fromMessageId? }`（省略時は会話全体）。応答は `{ draft: { content, kind: "semantic" }, anchorMessageId, messageCount }`（`anchorMessageId` は範囲の最後の発言で、保存はこの id で下の保存ルートを呼ぶ）。何も永続化しない。単独 assistant の chat は 400、`fromMessageId` がその chat に無ければ 404、発言 0 件は 409、範囲が 12000 字を超えれば 422（`{ error, chars, limit }`）、生成失敗は 502。一時チャットでも生成できる |
 | `POST /api/messages/{messageId}/memory` | 発言のメモリ保存。body: `{ content, kind?, locked? }`（`kind` 省略時は推定、`locked` 既定 `true`）。拒否は下書きと同じ。応答は `{ memory }`（`source = multi_agent`、`sharedWithAll` は真） |

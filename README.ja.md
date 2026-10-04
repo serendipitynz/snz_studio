@@ -360,7 +360,9 @@ Windows では、PowerShell で `$env:LLM_API_KEY = "..."` のように設定し
 - `GET /api/chats/:chatId/export/preset`（会話の編成を接続先ごとプリセットとして返す）
 - `GET / POST /api/chats/:chatId/participants`
 - `PATCH / DELETE /api/participants/:participantId`
-- `POST /api/chats/:chatId/turns/stream`（1 ターン実行・SSE。`speaker` → `delta` … → `done` の順に流す。実行中の重複呼び出しは 409）
+- `POST /api/chats/:chatId/turns/stream`（1 ターン実行・SSE。`speaker` → `delta` … → `done` の順に流す。実行中の重複呼び出しは 409）。
+  `delta` の間に `replace` が来ることがある。テキストとして流れたタグの断片が取り除かれたときに送り、それまでの
+  `delta` で足した内容に代えて、その時点の表示テキスト全体を運ぶ。チャットとレビューのストリームも同じ。
 - `GET /api/messages/:messageId/memory-draft` / `POST /api/messages/:messageId/memory`（多人数会話の発言 1 件を
   プロジェクトのメモリとして保存。多人数会話は自動でメモリを抽出しない）
 - `POST /api/chats/:chatId/conclusion-draft`（会話全体または選んだ発言以降の結論を既定 LLM で下書きする。
