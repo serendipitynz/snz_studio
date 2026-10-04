@@ -17,6 +17,7 @@ import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { useConfirm } from "../components/ConfirmDialog";
 import { Dialog, DialogActions, DialogBody, DialogForm, DialogHeader, DialogTitle } from "../components/Dialog";
+import { describeUploadFailure, detectDocumentType, DOCUMENT_INPUT_ACCEPT, isDocumentMime } from "../components/documentFiles";
 import { FailureNotice } from "../components/FailureNotice";
 import { DropZoneProgress, FileDropZone } from "../components/FileDropZone";
 import {
@@ -433,7 +434,9 @@ export function ProjectDetailPage() {
           formData.set("type", nextType);
           formData.set("title", file.name);
           formData.set("file", file);
-          const response = await api.createDocument(projectId, formData);
+          const response = await api.createDocument(projectId, formData).catch((error: unknown) => {
+            throw describeUploadFailure(t, error, file.name);
+          });
           currentDocuments = [response.document, ...currentDocuments];
         }
       } finally {
@@ -665,7 +668,7 @@ export function ProjectDetailPage() {
                     acceptWords={t("project.dropAccept")}
                     accepts={(file) => detectDocumentType(file) !== null}
                     acceptsType={isDocumentMime}
-                    inputAccept=".md,.markdown,.txt,image/*"
+                    inputAccept={DOCUMENT_INPUT_ACCEPT}
                     multiple
                     chooseLabel={t("project.chooseFiles")}
                     chooseIcon={<FilePlusIcon />}
@@ -1303,30 +1306,6 @@ function focusIfLost(trigger: HTMLElement, target: HTMLElement | null) {
     }
   };
   requestAnimationFrame(step);
-}
-
-function detectDocumentType(file: File): "markdown" | "text" | "image" | null {
-  const lowerName = file.name.toLowerCase();
-
-  if (file.type.startsWith("image/")) {
-    return "image";
-  }
-
-  if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown")) {
-    return "markdown";
-  }
-
-  if (lowerName.endsWith(".txt")) {
-    return "text";
-  }
-
-  return null;
-}
-
-// Only a MIME type seen while dragging, before any name is known: a Markdown file
-// often has none, which the drop zone reads as "not known yet" rather than refused.
-function isDocumentMime(mime: string) {
-  return mime.startsWith("image/") || mime === "text/plain" || mime === "text/markdown" || mime === "text/x-markdown";
 }
 
 const DOCUMENT_CATEGORIES: DocumentCategory[] = ["world", "character", "rule", "plot", "timeline", "index", "story", "misc"];

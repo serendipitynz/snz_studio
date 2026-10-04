@@ -5,6 +5,7 @@ import { Field, Input, Row, Subtle, Textarea } from "../styles/ui";
 import { ActionButton } from "./ActionButton";
 import { useConfirm } from "./ConfirmDialog";
 import { Dialog, DialogActions, DialogBody, DialogForm, DialogHeader, DialogTitle } from "./Dialog";
+import { describeUploadFailure, IMAGE_INPUT_ACCEPT, isStoredImageType } from "./documentFiles";
 import { FailureNotice } from "./FailureNotice";
 import { FileDropZone } from "./FileDropZone";
 import { ImageIcon, PlusIcon, SparklesIcon } from "./icons";
@@ -145,7 +146,8 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
       await api.createDocument(projectId, formData);
       onCreated();
     } catch (nextError) {
-      setSaveError(nextError instanceof Error ? nextError.message : t("project.uploadError"));
+      const failure = describeUploadFailure(t, nextError, file.name);
+      setSaveError(failure instanceof Error ? failure.message : t("project.uploadError"));
     } finally {
       setSaving(false);
     }
@@ -206,9 +208,9 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
           <FileDropZone
             label={t("imageDialog.dropLabel")}
             acceptWords={t("imageDialog.dropAccept")}
-            accepts={(candidate) => candidate.type.startsWith("image/")}
-            acceptsType={(mime) => mime.startsWith("image/")}
-            inputAccept="image/*"
+            accepts={(candidate) => isStoredImageType(candidate.type)}
+            acceptsType={isStoredImageType}
+            inputAccept={IMAGE_INPUT_ACCEPT}
             chooseLabel={file ? t("imageDialog.changeFile") : t("imageDialog.chooseFile")}
             chooseIcon={<ImageIcon />}
             autoFocusChoose
