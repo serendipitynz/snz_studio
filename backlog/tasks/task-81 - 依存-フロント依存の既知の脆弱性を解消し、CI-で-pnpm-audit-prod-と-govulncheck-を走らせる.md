@@ -1,10 +1,10 @@
 ---
 id: TASK-81
 title: '依存: フロント依存の既知の脆弱性を解消し、CI で pnpm audit --prod と govulncheck を走らせる'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-03 23:47'
+updated_date: '2026-10-04 00:45'
 labels:
   - security
 dependencies: []
@@ -40,7 +40,7 @@ ordinal: 81000
 <!-- AC:BEGIN -->
 - [x] #1 pnpm audit の high が 0 件になっている。残る moderate / low は理由とともに記録されている
 - [x] #2 vite のメジャーバージョンを上げた後も、pnpm dev・wails dev・配布ビルドが動く
-- [ ] #3 CI で pnpm audit --prod と govulncheck が走り、脆弱性が見つかったら失敗する。走らせる契機が記録されている
+- [x] #3 CI で pnpm audit --prod と govulncheck が走り、脆弱性が見つかったら失敗する。走らせる契機が記録されている
 - [x] #4 CI の actions をコミット SHA で固定するか、署名のシークレットを入れるまで見送るかが記録されている
 <!-- AC:END -->
 
@@ -74,4 +74,6 @@ ordinal: 81000
 
 - govulncheck は macOS と Windows の native runner で走らせる。Wails の darwin 向け frontend は cgo のファイルだけでできているので、Linux runner から GOOS=darwin でスキャンすると、そのファイルが落ちて到達解析から漏れる。
 - `pnpm audit --prod` は lockfile しか読まないので、CI ではインストールを省いた。dev 依存は app に含まれないので CI の失敗条件からは外し、ローカルの `pnpm audit` で見る。
+
+- #3: PR #80 の CI (run 37162919793) で pnpm-audit・govulncheck (macos-latest / windows-latest) の 3 ジョブが走り、すべて成功した。govulncheck は setup-go が入れた go1.27.1 で動いた。マージ後の push でも audit.yml が起動している (run 37165887167)。
 <!-- SECTION:NOTES:END -->
