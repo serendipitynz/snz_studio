@@ -153,7 +153,6 @@ type documentCandidateRow struct {
 	sourceID     string
 	label        string
 	category     string
-	fullContent  string
 	chunkContent string
 	chunkID      string
 	chunkIndex   int
@@ -193,7 +192,7 @@ func (r *RetrievalService) SearchDocuments(projectID, query string, limit, chunk
 		return nil, err
 	}
 	if len(ranked) >= limit || queryEmbedding == nil {
-		return sliceDocRefs(ranked, limit), nil
+		return r.attachFullDocumentContent(sliceDocRefs(ranked, limit))
 	}
 
 	seen := make(map[string]bool, len(ranked))
@@ -204,7 +203,41 @@ func (r *RetrievalService) SearchDocuments(projectID, query string, limit, chunk
 	if err != nil {
 		return nil, err
 	}
-	return sliceDocRefs(append(ranked, fallback...), limit), nil
+	return r.attachFullDocumentContent(sliceDocRefs(append(ranked, fallback...), limit))
+}
+
+// attachFullDocumentContent reads the full text of the adopted documents only. The
+// candidate queries leave it out because they return one row per chunk: selecting
+// it there copied a large document once for every chunk that matched, which for a
+// 1MB manuscript meant hundreds of megabytes per search.
+func (r *RetrievalService) attachFullDocumentContent(refs []model.RetrievedDocumentReference) ([]model.RetrievedDocumentReference, error) {
+	if len(refs) == 0 {
+		return refs, nil
+	}
+	args := make([]any, len(refs))
+	for i, ref := range refs {
+		args[i] = ref.SourceID
+	}
+	rows, err := r.db.Query(`SELECT id, content_text FROM documents WHERE id IN (`+placeholders(len(refs))+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	contentByID := make(map[string]string, len(refs))
+	for rows.Next() {
+		var id, content string
+		if err := rows.Scan(&id, &content); err != nil {
+			return nil, err
+		}
+		contentByID[id] = content
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range refs {
+		refs[i].FullDocumentContent = contentByID[refs[i].SourceID]
+	}
+	return refs, nil
 }
 
 func sliceDocRefs(refs []model.RetrievedDocumentReference, limit int) []model.RetrievedDocumentReference {
@@ -323,7 +356,6 @@ func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string
 			d.id AS source_id,
 			d.title AS label,
 			d.category AS category,
-			d.content_text AS full_content,
 			c.content AS chunk_content,
 			c.id AS chunk_id,
 			c.chunk_index AS chunk_index,
@@ -344,7 +376,7 @@ func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string
 	out := []documentCandidateRow{}
 	for rows.Next() {
 		var row documentCandidateRow
-		if err := rows.Scan(&row.sourceID, &row.label, &row.category, &row.fullContent, &row.chunkContent, &row.chunkID, &row.chunkIndex, &row.note, &row.derivedText, &row.score); err != nil {
+		if err := rows.Scan(&row.sourceID, &row.label, &row.category, &row.chunkContent, &row.chunkID, &row.chunkIndex, &row.note, &row.derivedText, &row.score); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -384,7 +416,6 @@ func (r *RetrievalService) fetchMemoryFtsCandidates(projectID, ftsQuery string, 
 type docGroup struct {
 	label        string
 	category     string
-	fullContent  string
 	fallbackText string
 	chunks       []model.RetrievedDocumentChunk
 	bestScore    float64
@@ -461,7 +492,6 @@ func (r *RetrievalService) rankDocumentCandidates(rows []documentCandidateRow, q
 			groups[row.sourceID] = &docGroup{
 				label:        row.label,
 				category:     row.category,
-				fullContent:  row.fullContent,
 				fallbackText: fallbackText,
 				chunks:       []model.RetrievedDocumentChunk{chunk},
 				bestScore:    weightedScore,
@@ -564,7 +594,6 @@ func buildDocumentReference(sourceID string, group *docGroup, chunksPerDocument 
 		Category:            categoryOrMisc(group.category),
 		Chunks:              byIndex,
 		IncludeFullDocument: false,
-		FullDocumentContent: group.fullContent,
 		RetrievalMode:       retrievalMode,
 	}
 }
@@ -584,7 +613,6 @@ func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbe
 			e.embedding_json,
 			d.title,
 			d.category,
-			d.content_text AS full_content,
 			d.note,
 			d.derived_text,
 			c.content AS chunk_content,
@@ -602,7 +630,6 @@ func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbe
 		chunkID      string
 		title        string
 		category     string
-		fullContent  string
 		note         string
 		derivedText  string
 		chunkContent string
@@ -614,7 +641,7 @@ func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbe
 	for rows.Next() {
 		var sr semRow
 		var raw string
-		if err := rows.Scan(&sr.documentID, &sr.chunkID, &raw, &sr.title, &sr.category, &sr.fullContent, &sr.note, &sr.derivedText, &sr.chunkContent, &sr.chunkIndex); err != nil {
+		if err := rows.Scan(&sr.documentID, &sr.chunkID, &raw, &sr.title, &sr.category, &sr.note, &sr.derivedText, &sr.chunkContent, &sr.chunkIndex); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -655,7 +682,6 @@ func (r *RetrievalService) searchDocumentsBySemantic(projectID string, queryEmbe
 			groups[row.documentID] = &docGroup{
 				label:        row.title,
 				category:     row.category,
-				fullContent:  row.fullContent,
 				fallbackText: fallbackText,
 				chunks:       []model.RetrievedDocumentChunk{chunk},
 				bestScore:    row.score,
@@ -708,7 +734,6 @@ func buildSemanticDocumentReference(documentID string, group *docGroup, chunksPe
 		Category:            categoryOrMisc(group.category),
 		Chunks:              chunks,
 		IncludeFullDocument: false,
-		FullDocumentContent: group.fullContent,
 		RetrievalMode:       "search",
 	}
 }
