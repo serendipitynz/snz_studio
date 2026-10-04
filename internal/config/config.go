@@ -15,7 +15,11 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -214,10 +218,21 @@ func (c *Config) applyOverrides(path string) {
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			log.Printf("config: cannot read %s, starting from defaults: %v", path, err)
+		}
 		return
 	}
 	var overrides map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &overrides); err != nil {
+		// Moving the file aside keeps the user's settings recoverable: the next save
+		// would otherwise overwrite them with the defaults this launch falls back to.
+		backup := path + ".bak"
+		if renameErr := os.Rename(path, backup); renameErr != nil {
+			log.Printf("config: %s is not valid JSON (%v) and could not be moved to %s (%v); starting from defaults", path, err, backup, renameErr)
+			return
+		}
+		log.Printf("config: %s is not valid JSON (%v); moved it to %s and started from defaults", path, err, backup)
 		return
 	}
 
@@ -331,6 +346,7 @@ func (c *Config) GetEditable() Editable {
 // trailing newline).
 func (c *Config) UpdateEditable(input Editable) (Editable, error) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.settings.LLMBaseURL = strings.TrimSpace(input.LLMBaseURL)
 	c.settings.LLMModel = strings.TrimSpace(input.LLMModel)
 	c.settings.LLMResponseFormat = normalizeResponseFormat(input.LLMResponseFormat)
@@ -347,18 +363,55 @@ func (c *Config) UpdateEditable(input Editable) (Editable, error) {
 		c.settings.EmbeddingMode = m
 	}
 	editable := c.settings.Editable
-	path := c.appConfigPath
-	c.mu.Unlock()
 
-	if path != "" {
+	// The write stays under the lock so the file always ends with the update that
+	// was applied last in memory; writing after Unlock let two concurrent saves land
+	// in the opposite order. The file is a few hundred bytes, so readers blocked on
+	// Get for the duration of the write wait only briefly.
+	if c.appConfigPath != "" {
 		encoded, err := json.MarshalIndent(editable, "", "  ")
 		if err != nil {
 			return editable, err
 		}
 		encoded = append(encoded, '\n')
-		if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		if err := writeFileAtomic(c.appConfigPath, encoded, 0o644); err != nil {
 			return editable, err
 		}
 	}
 	return editable, nil
+}
+
+// writeFileAtomic replaces path with data via a temporary file in the same
+// directory and a rename, so a crash mid-write leaves either the old file or the
+// new one — never a truncated file that the next launch would fail to parse.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if err := writeAndSync(tmp, data, perm); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+func writeAndSync(f *os.File, data []byte, perm os.FileMode) (err error) {
+	defer func() {
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
+	if err = f.Chmod(perm); err != nil {
+		return err
+	}
+	return f.Sync()
 }
