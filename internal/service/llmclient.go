@@ -277,6 +277,12 @@ type StreamDelta struct {
 	Replace bool
 }
 
+// maxStreamEventBytes bounds the bytes held while waiting for an SSE event's
+// "\n\n" separator. Every read resets the sliding timeout, so without a bound an
+// endpoint that keeps sending data with no separator grows the buffer for as long
+// as it keeps sending.
+const maxStreamEventBytes = 1 << 20
+
 // CreateChatCompletionStream performs a streaming completion, invoking onDelta
 // whenever the visible text changes. Mirrors createChatCompletionStream, including
 // the sliding timeout that resets on every received chunk.
@@ -408,6 +414,9 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 						return nil, err
 					}
 				}
+			}
+			if len(buffer) > maxStreamEventBytes {
+				return nil, fmt.Errorf("LLM stream sent more than %d bytes without an event separator", maxStreamEventBytes)
 			}
 		}
 		if readErr != nil {

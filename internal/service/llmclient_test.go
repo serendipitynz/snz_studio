@@ -274,6 +274,50 @@ func TestCreateChatCompletionStreamFollowsVisibleText(t *testing.T) {
 	}
 }
 
+// TestCreateChatCompletionStreamBoundsUnseparatedData covers TASK-82 AC #1: an
+// endpoint that keeps sending data with no "\n\n" separator fails the stream
+// once the pending bytes pass the bound, instead of being buffered for as long
+// as it keeps sending.
+func TestCreateChatCompletionStreamBoundsUnseparatedData(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		line := strings.Repeat("x", 64<<10) + "\n"
+		for sent := 0; sent <= 4*maxStreamEventBytes; sent += len(line) {
+			if _, err := io.WriteString(w, line); err != nil {
+				return // the client gave up, as it should
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	client := NewLLMClient(testConfig(streamSettings(srv.URL, llmresponse.FormatStandard)))
+
+	_, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi"}, func(StreamDelta) {})
+	if err == nil || !strings.Contains(err.Error(), "without an event separator") {
+		t.Fatalf("err = %v, want the unseparated-data bound", err)
+	}
+}
+
+// TestCreateChatCompletionStreamLongResponse checks the bound applies to one
+// pending event, not to the response: a stream whose events add up to well past
+// it still completes.
+func TestCreateChatCompletionStreamLongResponse(t *testing.T) {
+	fragment := strings.Repeat("あ", 32<<10)
+	var fragments []string
+	for len(fragments)*len(fragment) <= maxStreamEventBytes+maxStreamEventBytes/4 {
+		fragments = append(fragments, fragment)
+	}
+	srv := sseServer(t, sseBody(t, fragments))
+	client := NewLLMClient(testConfig(streamSettings(srv.URL, llmresponse.FormatStandard)))
+
+	result, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi"}, func(StreamDelta) {})
+	if err != nil {
+		t.Fatalf("stream error: %v", err)
+	}
+	if want := strings.Join(fragments, ""); result.Content != want {
+		t.Fatalf("content has %d bytes, want %d", len(result.Content), len(want))
+	}
+}
+
 func TestCreateChatCompletionNonStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"  Final answer  "}}],"usage":{"completion_tokens":3}}`)
