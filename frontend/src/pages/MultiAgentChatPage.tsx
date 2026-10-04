@@ -2,6 +2,7 @@ import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { useParams } from "react-router-dom";
 import { api, ApiError, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
+import { applyStreamText, isStreamTextEvent } from "../api/streamText";
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
@@ -368,11 +369,8 @@ export function MultiAgentChatPage() {
             return;
           }
 
-          if (event === "delta") {
-            const delta = typeof payload.content === "string" ? payload.content : "";
-            if (delta) {
-              setStreamedContent((current) => `${current}${delta}`);
-            }
+          if (isStreamTextEvent(event)) {
+            setStreamedContent((current) => applyStreamText(current, event, payload.content));
             return;
           }
 
