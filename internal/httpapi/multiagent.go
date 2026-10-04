@@ -177,9 +177,9 @@ func (s *Server) handleRunTurnStream(w http.ResponseWriter, r *http.Request) {
 		if sse != nil {
 			_ = sse.Event("speaker", choice)
 		}
-	}, func(chunk string) {
+	}, func(delta service.StreamDelta) {
 		if sse != nil {
-			_ = sse.Event("delta", map[string]string{"content": chunk})
+			_ = sse.StreamDelta(delta)
 		}
 	})
 	if sseErr != nil {

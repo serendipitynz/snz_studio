@@ -734,8 +734,9 @@ func TestSendMessageFallback(t *testing.T) {
 }
 
 // TestSendMessageStream verifies the SSE wiring of the streaming chat route end
-// to end (delta frames followed by a done frame carrying chat/messages/summary),
-// using the dead-LLM fallback as the delta source.
+// to end (text frames followed by a done frame carrying chat/messages/summary),
+// using the dead-LLM fallback as the text source. The fallback is the whole
+// stored message, so it arrives as a replace frame rather than a delta.
 func TestSendMessageStream(t *testing.T) {
 	h := newTestServer(t).Handler()
 	projectID := createProject(t, h, "Stream Project")
@@ -751,8 +752,8 @@ func TestSendMessageStream(t *testing.T) {
 	}
 
 	events := parseSSE(t, rec.Body.String())
-	if _, ok := events["delta"]; !ok {
-		t.Fatalf("expected at least one delta event, got events=%v", mapEventNames(events))
+	if _, ok := events["replace"]; !ok {
+		t.Fatalf("expected the fallback as a replace event, got events=%v", mapEventNames(events))
 	}
 	done, ok := events["done"]
 	if !ok {

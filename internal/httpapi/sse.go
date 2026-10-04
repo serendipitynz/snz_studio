@@ -14,6 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"snzstudio/internal/service"
 )
 
 // SSEWriter writes Server-Sent Events and flushes after each one.
@@ -53,4 +55,15 @@ func (s *SSEWriter) Event(event string, data any) error {
 	}
 	s.f.Flush()
 	return nil
+}
+
+// StreamDelta writes one change to a streamed text: a "delta" frame appends its
+// content, a "replace" frame shows its content instead of everything streamed
+// before it (see service.StreamDelta).
+func (s *SSEWriter) StreamDelta(delta service.StreamDelta) error {
+	event := "delta"
+	if delta.Replace {
+		event = "replace"
+	}
+	return s.Event(event, map[string]string{"content": delta.Text})
 }

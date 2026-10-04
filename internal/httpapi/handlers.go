@@ -1249,9 +1249,9 @@ func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request)
 		var sseErr error
 		_, streamErr := s.chatService.SendMessageStream(chatID, content, func() {
 			sse, sseErr = NewSSEWriter(w)
-		}, func(chunk string) {
+		}, func(delta service.StreamDelta) {
 			if sse != nil {
-				_ = sse.Event("delta", map[string]string{"content": chunk})
+				_ = sse.StreamDelta(delta)
 			}
 		})
 		if sseErr != nil {
@@ -1333,8 +1333,8 @@ func (s *Server) handleReviewMessageStream(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	result, streamErr := s.reviewService.ReviewMessageStream(r.PathValue("messageId"), func(chunk string) {
-		_ = sse.Event("delta", map[string]string{"content": chunk})
+	result, streamErr := s.reviewService.ReviewMessageStream(r.PathValue("messageId"), func(delta service.StreamDelta) {
+		_ = sse.StreamDelta(delta)
 	})
 	if streamErr != nil {
 		_ = sse.Event("error", map[string]string{"message": streamErr.Error()})

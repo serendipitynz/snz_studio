@@ -127,7 +127,7 @@ func TestLLMKeyStaysWithDefaultOrigin(t *testing.T) {
 			}
 			wantAuth(t, "completion (review)", tc.server.take(), tc.want)
 
-			if _, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi", Target: target}, func(string) {}); err != nil {
+			if _, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi", Target: target}, func(StreamDelta) {}); err != nil {
 				t.Fatalf("stream: %v", err)
 			}
 			wantAuth(t, "stream (participant, review)", tc.server.take(), tc.want)
