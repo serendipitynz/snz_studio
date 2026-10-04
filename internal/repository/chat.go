@@ -458,6 +458,21 @@ func (r *ChatRepository) UpdateMessageContent(messageID, content string) (*model
 	return r.GetMessage(messageID)
 }
 
+// DeleteUnfinishedAssistantMessages removes the empty assistant messages a
+// streaming turn creates before its first delta, left behind when the process
+// ended mid-generation. It is for startup only, when no turn can be running.
+// response_ms tells them from a finished reply that was empty: a completion
+// that returned sets it, and the fallback reply is never empty.
+func (r *ChatRepository) DeleteUnfinishedAssistantMessages() (int64, error) {
+	res, err := r.db.Exec(`
+		DELETE FROM messages
+		WHERE role = 'assistant' AND content = '' AND response_ms IS NULL`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // FinalizeMessageInput carries the fields for FinalizeMessage.
 type FinalizeMessageInput struct {
 	MessageID       string

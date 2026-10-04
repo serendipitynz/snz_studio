@@ -1152,7 +1152,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		assistantMessage, err = s.chatService.SendMessage(chatID, content)
 		if err != nil {
-			fail(w, err)
+			failChatTurn(w, err)
 			return
 		}
 	}
@@ -1235,17 +1235,34 @@ func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	sse, err := NewSSEWriter(w)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-
-	if !isMultiAgent {
-		_, streamErr := s.chatService.SendMessageStream(chatID, content, func(chunk string) {
-			_ = sse.Event("delta", map[string]string{"content": chunk})
+	// A single-assistant turn opens the stream only when the service says it has
+	// started, so an overlapping turn (409) or a failed memory store keeps a status
+	// of its own instead of becoming an error frame on a 200.
+	var sse *SSEWriter
+	if isMultiAgent {
+		sse, err = NewSSEWriter(w)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+	} else {
+		var sseErr error
+		_, streamErr := s.chatService.SendMessageStream(chatID, content, func() {
+			sse, sseErr = NewSSEWriter(w)
+		}, func(chunk string) {
+			if sse != nil {
+				_ = sse.Event("delta", map[string]string{"content": chunk})
+			}
 		})
+		if sseErr != nil {
+			fail(w, sseErr)
+			return
+		}
 		if streamErr != nil {
+			if sse == nil {
+				failChatTurn(w, streamErr)
+				return
+			}
 			_ = sse.Event("error", map[string]string{"message": streamErr.Error()})
 			return
 		}
@@ -1286,6 +1303,16 @@ func (s *Server) handleSendMessageStream(w http.ResponseWriter, r *http.Request)
 		done["participants"] = participants
 	}
 	_ = sse.Event("done", done)
+}
+
+// failChatTurn answers a single-assistant turn that failed before any response
+// was written: 409 when another turn of the chat is running, 500 otherwise.
+func failChatTurn(w http.ResponseWriter, err error) {
+	if errors.Is(err, service.ErrTurnInProgress) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	fail(w, err)
 }
 
 // --- Messages / review -------------------------------------------------------

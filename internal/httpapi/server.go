@@ -164,7 +164,16 @@ func (s *Server) onEmbeddingLost() {
 // embeddings are enabled, rebuild embeddings in the background. The FTS work runs
 // synchronously so the API never serves a half-rebuilt index; embedding rebuild
 // is fire-and-forget (it needs a live endpoint and may legitimately fail).
+//
+// It first deletes the empty assistant messages a turn cut short by the previous
+// process left behind. That relies on running before the server accepts
+// requests: a turn in flight holds the same kind of message.
 func (s *Server) RunStartupTasks() {
+	if removed, err := s.chats.DeleteUnfinishedAssistantMessages(); err != nil {
+		log.Printf("startup: delete unfinished assistant messages: %v", err)
+	} else if removed > 0 {
+		log.Printf("startup: deleted %d unfinished assistant messages", removed)
+	}
 	if err := s.documents.BackfillInferredCategories(); err != nil {
 		log.Printf("startup: backfill document categories: %v", err)
 	}
