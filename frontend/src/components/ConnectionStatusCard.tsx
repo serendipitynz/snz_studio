@@ -3,6 +3,7 @@ import { api, EmbeddingStatus, WorkspaceConfiguration } from "../api/client";
 import { MessageKey, useLanguage } from "../i18n";
 import { Card, Grid, Row, SectionTitle, Stack, StateBadge, Subtle, VisuallyHidden } from "../styles/ui";
 import { ActionButton } from "./ActionButton";
+import { isEmbeddingPreparing, pollEmbeddingStatus } from "./embeddingStatusPoll";
 import { FailureNotice } from "./FailureNotice";
 import { SettingsIcon, SpinnerIcon } from "./icons";
 import { SettingsModal } from "./SettingsModal";
@@ -64,6 +65,17 @@ export function ConnectionStatusCard() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Right after launch the sidecar is still downloading or starting, so the first
+  // load sees it preparing. Only the embedding status is re-read until it settles:
+  // getConfiguration checks every endpoint and is too heavy to repeat.
+  const embeddingPreparing = configuration?.embeddingMode === "internal" && isEmbeddingPreparing(embeddingStatus);
+  useEffect(() => {
+    if (!embeddingPreparing) {
+      return;
+    }
+    return pollEmbeddingStatus(api.getEmbeddingStatus, setEmbeddingStatus);
+  }, [embeddingPreparing]);
 
   const entries: Entry[] = configuration
     ? [
