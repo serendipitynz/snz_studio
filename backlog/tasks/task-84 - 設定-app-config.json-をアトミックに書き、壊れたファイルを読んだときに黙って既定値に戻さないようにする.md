@@ -1,10 +1,10 @@
 ---
 id: TASK-84
 title: '設定: app-config.json をアトミックに書き、壊れたファイルを読んだときに黙って既定値に戻さないようにする'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-04 05:39'
+updated_date: '2026-10-04 05:45'
 labels: []
 dependencies: []
 references:
