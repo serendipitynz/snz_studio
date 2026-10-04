@@ -1,10 +1,10 @@
 ---
 id: TASK-87
 title: 'ドキュメント: 画像の受付を PNG / JPEG / GIF / WebP に絞り、アップロードの拒否理由を日本語で出す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-02 10:12'
-updated_date: '2026-10-04 04:05'
+updated_date: '2026-10-04 05:00'
 labels: []
 dependencies:
   - TASK-76
