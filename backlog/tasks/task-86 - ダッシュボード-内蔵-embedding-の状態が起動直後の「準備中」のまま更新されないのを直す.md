@@ -1,10 +1,10 @@
 ---
 id: TASK-86
 title: 'ダッシュボード: 内蔵 embedding の状態が起動直後の「準備中」のまま更新されないのを直す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-02 00:39'
-updated_date: '2026-10-04 02:16'
+updated_date: '2026-10-04 02:34'
 labels: []
 dependencies: []
 references:
@@ -33,7 +33,7 @@ TASK-67 の Windows 実機での確認 (2026-10-02) で見つかった。配布�
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 配布版を起動した直後にダッシュボードを開いたままにすると、サイドカーが ready になった時点で、内蔵 embedding の表示が「準備中」から「利用可能」に変わる
+- [x] #1 配布版を起動した直後にダッシュボードを開いたままにすると、サイドカーが ready になった時点で、内蔵 embedding の表示が「準備中」から「利用可能」に変わる
 - [x] #2 サイドカーが error になった場合は「利用できません」に変わる
 - [x] #3 状態の読み直しは downloading / starting のあいだだけ行い、接続先の確認 (getConfiguration) は繰り返さない
 <!-- AC:END -->
@@ -66,4 +66,9 @@ TASK-67 の Windows 実機での確認 (2026-10-02) で見つかった。配布�
 
 ## 補足
 - サイドカーは起動に失敗すると error を出したあと、backoff 後に starting に戻り再試行する (internal/embed/manager.go superviseSidecar)。カードは方針どおり error で読み直しを止めるので、その後に回復しても、設定画面を閉じるか表示し直すまで「利用できません」のままになる。設定画面も同じ挙動。
+
+## AC #1 の確認 (マージ後)
+- ユーザーが macOS の pnpm dev で、SNZ_LLAMA_SERVER_BIN に起動を 15 秒遅らせるラッパーを指定して確認した。「準備中」から「利用可能」に変わった。
+- 配布版の実機では再確認していない。Windows でもこのブランチの pnpm dev はすぐに ready になり、準備中にならなかった。カードの処理は OS に依存しないので、上の確認をもって AC #1 を満たしたとユーザーが判断した。
+- error の確認には、/health には応答し embedding の確認リクエストだけを失敗させる偽サイドカーが要る。起動直後に終了するだけの偽物では、waitHealthy がプロセスの終了に気づかず 90 秒「starting」が続く。また error は再試行の合間 (1〜8 秒) だけ出るので、カードが読み逃すことがある。
 <!-- SECTION:NOTES:END -->
