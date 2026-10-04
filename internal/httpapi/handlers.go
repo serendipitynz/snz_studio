@@ -643,14 +643,14 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 	// Checked before reading anything, so an oversized upload is refused without
 	// buffering it; MaxBytesReader covers a body that declares no length.
 	if r.ContentLength > documentUploadLimit {
-		writeError(w, http.StatusRequestEntityTooLarge, "upload is too large")
+		writeUploadTooLarge(w)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, documentUploadLimit)
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "upload is too large")
+			writeUploadTooLarge(w)
 			return
 		}
 		writeError(w, http.StatusBadRequest, "invalid multipart form")
@@ -688,7 +688,7 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !ok {
-			writeError(w, http.StatusBadRequest, unsupportedImageUploadMessage)
+			writeUnsupportedImageUpload(w)
 			return
 		}
 		name := uuid.NewString() + ext
