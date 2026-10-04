@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"snzstudio/internal/config"
@@ -765,6 +766,59 @@ func TestSendMessageStream(t *testing.T) {
 			t.Fatalf("done payload missing %q (payload=%s)", key, done)
 		}
 	}
+}
+
+// TestSendMessageTurnConflict covers TASK-83 AC #1 over HTTP: while a
+// single-assistant turn is generating, a second send to the same chat is a real
+// 409 on both routes — a JSON error, not an SSE error frame on a 200 — and the
+// chat accepts sends again once the turn finishes.
+func TestSendMessageTurnConflict(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	llm := newMultiAgentLLM(t, func() {
+		once.Do(func() {
+			close(entered)
+			<-release
+		})
+	})
+	srv := newTestServer(t)
+	editable := srv.cfg.GetEditable()
+	editable.LLMBaseURL = llm.URL + "/v1"
+	if _, err := srv.cfg.UpdateEditable(editable); err != nil {
+		t.Fatalf("UpdateEditable: %v", err)
+	}
+	h := srv.Handler()
+	projectID := createProject(t, h, "Conflict Project")
+	chatID := createChat(t, h, projectID)
+
+	firstDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		firstDone <- doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages/stream", map[string]any{"content": "first"})
+	}()
+	<-entered
+
+	for _, route := range []string{"/messages/stream", "/messages"} {
+		overlapping := doJSON(t, h, "POST", "/api/chats/"+chatID+route, map[string]any{"content": "overlap"})
+		wantStatus(t, overlapping, http.StatusConflict)
+		if ct := overlapping.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			t.Fatalf("%s refusal content-type = %q, want JSON", route, ct)
+		}
+	}
+	close(release)
+	first := <-firstDone
+	wantStatus(t, first, http.StatusOK)
+	if _, ok := parseSSE(t, first.Body.String())["done"]; !ok {
+		t.Fatalf("first turn did not finish: %s", first.Body.String())
+	}
+
+	detail := decodeJSONMap(t, doJSON(t, h, "GET", "/api/chats/"+chatID, nil))
+	var messages []json.RawMessage
+	unmarshalField(t, detail, "messages", &messages)
+	if len(messages) != 2 {
+		t.Fatalf("%d messages stored, want 2 — the refused sends must store nothing", len(messages))
+	}
+	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/messages", map[string]any{"content": "next"}), http.StatusCreated)
 }
 
 // TestReviewStreamError verifies that a failing review (dead LLM, no fallback)

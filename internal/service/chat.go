@@ -25,6 +25,11 @@ type ChatService struct {
 	memoryService *MemoryService
 	embeddingSync *EmbeddingSyncService
 	cfg           *config.Config
+
+	// turns holds the chats with a turn in flight. Two overlapping turns would
+	// each fold their own exchange into the summary they both read at the start,
+	// and the later UpsertSummary would drop the other's exchange.
+	turns *turnSlots
 }
 
 // NewChatService builds a ChatService.
@@ -37,6 +42,7 @@ func NewChatService(chats *repository.ChatRepository, context *ContextService, l
 		memoryService: memoryService,
 		embeddingSync: embeddingSync,
 		cfg:           cfg,
+		turns:         newTurnSlots(),
 	}
 }
 
@@ -68,8 +74,14 @@ type preparedTurn struct {
 	systemPrompt string
 }
 
-// SendMessage mirrors sendMessage: a non-streaming turn.
+// SendMessage mirrors sendMessage: a non-streaming turn. It answers
+// ErrTurnInProgress while another turn of the chat is running.
 func (s *ChatService) SendMessage(chatID, content string) (*model.Message, error) {
+	if !s.turns.acquire(chatID) {
+		return nil, ErrTurnInProgress
+	}
+	defer s.turns.release(chatID)
+
 	prepared, err := s.prepareTurn(chatID, content)
 	if err != nil {
 		return nil, err
@@ -95,11 +107,22 @@ func (s *ChatService) SendMessage(chatID, content string) (*model.Message, error
 
 // SendMessageStream mirrors sendMessageStream: a streaming turn that persists deltas
 // as they arrive.
-func (s *ChatService) SendMessageStream(chatID, content string, onDelta func(string)) (*model.Message, error) {
+//
+// onStart is called once the turn has passed everything that can refuse it —
+// another turn running (ErrTurnInProgress) and storing the user message and its
+// memories — and before any assistant message exists, so a caller that opens its
+// stream there can still answer those failures with a status of their own.
+func (s *ChatService) SendMessageStream(chatID, content string, onStart func(), onDelta func(string)) (*model.Message, error) {
+	if !s.turns.acquire(chatID) {
+		return nil, ErrTurnInProgress
+	}
+	defer s.turns.release(chatID)
+
 	prepared, err := s.prepareTurn(chatID, content)
 	if err != nil {
 		return nil, err
 	}
+	onStart()
 
 	assistantMessage, err := s.chats.AddMessage(repository.AddMessageInput{
 		ChatID:  chatID,
@@ -144,15 +167,9 @@ func (s *ChatService) prepareTurn(chatID, content string) (*preparedTurn, error)
 		return nil, err
 	}
 
-	userMessage, err := s.chats.AddMessage(repository.AddMessageInput{
-		ChatID:  chatID,
-		Role:    "user",
-		Content: content,
-	})
-	if err != nil {
-		return nil, err
-	}
-
+	// Memories are stored before the user message so that a failure here leaves
+	// no user message without a reply. One transaction across both is not an
+	// option: the explicit-request extraction calls the LLM in between.
 	var createdMemories []model.Memory
 	var explicitMemory *model.Memory
 	if !assembled.Chat.IsTemporary {
@@ -177,6 +194,15 @@ func (s *ChatService) prepareTurn(chatID, content string) (*preparedTurn, error)
 		if err := s.embeddingSync.SyncMemories(ids); err != nil {
 			return nil, err
 		}
+	}
+
+	userMessage, err := s.chats.AddMessage(repository.AddMessageInput{
+		ChatID:  chatID,
+		Role:    "user",
+		Content: content,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	settings := s.cfg.Get()
