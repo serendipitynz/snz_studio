@@ -1,10 +1,10 @@
 ---
 id: TASK-83
 title: 'チャット: 単独アシスタントのチャットで同時の送信を排他し、失敗したときに空の発言や応答の無い発言が残らないようにする'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-09-28 20:23'
-updated_date: '2026-10-04 06:58'
+updated_date: '2026-10-04 08:21'
 labels: []
 dependencies: []
 references:
