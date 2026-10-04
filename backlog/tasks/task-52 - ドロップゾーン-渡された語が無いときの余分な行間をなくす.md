@@ -4,8 +4,10 @@ title: 'ドロップゾーン: 渡された語が無いときの余分な行間�
 status: To Do
 assignee: []
 created_date: '2026-09-25 12:45'
+updated_date: '2026-10-04 22:26'
 labels:
   - design
+milestone: m-2
 dependencies: []
 ordinal: 52000
 ---
