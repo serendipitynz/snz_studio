@@ -1,8 +1,12 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -294,5 +298,51 @@ func TestConcurrentUpdateEditableKeepsLastAccepted(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Fatalf("dir holds %v, want only app-config.json", names)
+	}
+}
+
+func TestLoadMovesCorruptFileAsideAndUsesDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	corrupt := []byte(`{"llmModel":"half-writ`)
+	if err := os.WriteFile(path, corrupt, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	got := Load(path).GetEditable()
+
+	if want := New(Defaults(), "").GetEditable(); got != want {
+		t.Fatalf("loaded %+v, want the defaults %+v", got, want)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("corrupt app-config.json still in place (stat err = %v)", err)
+	}
+	backup, err := os.ReadFile(path + ".bak")
+	if err != nil {
+		t.Fatalf("read backup: %v", err)
+	}
+	if !bytes.Equal(backup, corrupt) {
+		t.Fatalf("backup = %q, want the corrupt content %q", backup, corrupt)
+	}
+	if !strings.Contains(logs.String(), path) || !strings.Contains(logs.String(), path+".bak") {
+		t.Fatalf("log does not name the file and its backup: %q", logs.String())
+	}
+}
+
+func TestLoadMissingFileIsSilent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	Load(path)
+
+	if logs.Len() != 0 {
+		t.Fatalf("a missing app-config.json (first launch) logged %q", logs.String())
+	}
+	if _, err := os.Stat(path + ".bak"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a missing app-config.json produced a backup (stat err = %v)", err)
 	}
 }

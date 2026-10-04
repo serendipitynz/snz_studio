@@ -15,6 +15,9 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -215,10 +218,21 @@ func (c *Config) applyOverrides(path string) {
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			log.Printf("config: cannot read %s, starting from defaults: %v", path, err)
+		}
 		return
 	}
 	var overrides map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &overrides); err != nil {
+		// Moving the file aside keeps the user's settings recoverable: the next save
+		// would otherwise overwrite them with the defaults this launch falls back to.
+		backup := path + ".bak"
+		if renameErr := os.Rename(path, backup); renameErr != nil {
+			log.Printf("config: %s is not valid JSON (%v) and could not be moved to %s (%v); starting from defaults", path, err, backup, renameErr)
+			return
+		}
+		log.Printf("config: %s is not valid JSON (%v); moved it to %s and started from defaults", path, err, backup)
 		return
 	}
 
