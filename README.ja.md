@@ -1,3 +1,5 @@
+<img src="docs/assets/appicon-256.png" alt="" width="128">
+
 # SNZ Studio（日本語版）
 
 > English: [README.md](README.md)
