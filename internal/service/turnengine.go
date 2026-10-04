@@ -68,18 +68,18 @@ type TurnEngine struct {
 	cfg          *config.Config
 	material     TurnMaterialAssembler
 
-	// running holds the chats with a turn in flight. The speaker is derived from
+	// turns holds the chats with a turn in flight. The speaker is derived from
 	// the last stored message and only becomes visible to the next request once
 	// the turn finishes, so two overlapping requests would otherwise pick the same
 	// participant and make it speak twice (§4.2 step 0).
-	mu      sync.Mutex
-	running map[string]bool
+	turns *turnSlots
 
 	// messageWrites holds one lock per chat for the writes that must not
 	// interleave with each other: storing a human message, and applying a preset.
 	// A lock is never removed once created — dropping one another goroutine is
 	// about to take would need refcounting, to save a mutex per chat that has been
 	// written to in this process.
+	mu            sync.Mutex
 	messageWrites map[string]*sync.Mutex
 
 	// rollDie throws one die for a /roll; a test replaces it to fix the outcome.
@@ -94,26 +94,18 @@ func NewTurnEngine(chats *repository.ChatRepository, participants *repository.Pa
 		llm:           llm,
 		cfg:           cfg,
 		material:      material,
-		running:       map[string]bool{},
+		turns:         newTurnSlots(),
 		messageWrites: map[string]*sync.Mutex{},
 		rollDie:       commands.RollDie,
 	}
 }
 
 func (e *TurnEngine) acquireTurn(chatID string) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.running[chatID] {
-		return false
-	}
-	e.running[chatID] = true
-	return true
+	return e.turns.acquire(chatID)
 }
 
 func (e *TurnEngine) releaseTurn(chatID string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	delete(e.running, chatID)
+	e.turns.release(chatID)
 }
 
 // WithTurnExcluded runs fn while holding the chat's turn slot, and answers
