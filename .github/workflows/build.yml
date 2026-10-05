@@ -23,9 +23,9 @@ on:
   workflow_dispatch: {}
   workflow_call:
     inputs:
-      # The commit to build. release.yml passes the tag so that a manual release
-      # run cannot build a different commit than the tag names; empty builds the
-      # triggering ref, as a manual dispatch does.
+      # The commit to build. release.yml passes the commit its tag resolved to, so
+      # a manual release run cannot build a different commit than the tag names;
+      # empty builds the triggering ref, as a manual dispatch does.
       ref:
         type: string
         default: ""
