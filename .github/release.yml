@@ -1,0 +1,19 @@
+# Groups the notes GitHub generates for a release, which the `prepare` job in
+# .github/workflows/release.yml requests with generate_release_notes=true.
+#
+# The labels named below are ones this repository defines. Pull requests here are
+# mostly unlabelled, so the catch-all is what keeps them in the notes at all.
+changelog:
+  categories:
+    - title: Features
+      labels:
+        - enhancement
+    - title: Bug Fixes
+      labels:
+        - bug
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Other Changes
+      labels:
+        - "*"
