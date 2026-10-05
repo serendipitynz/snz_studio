@@ -21,18 +21,19 @@ on:
 permissions:
   contents: read
 
-# Actions are referenced by tag, not commit SHA, as in build.yml. Neither workflow
-# holds a secret or a write token, so a moved tag could read only this public repo.
-# Pin both workflows to SHAs when the signing secrets land in build.yml.
+# Actions are pinned to commit SHAs, as in build.yml and release.yml, which hold
+# the signing secrets: a moved tag there could read them. This workflow holds
+# neither a secret nor a write token, but pins the same way so the three stay
+# upgraded together.
 jobs:
   pnpm-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The pnpm version comes from package.json's packageManager field.
       - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       # Reads pnpm-lock.yaml only, so no install is needed. devDependencies are left
       # out because none of them ship in the app; a dev-only advisory still shows in
@@ -51,10 +52,10 @@ jobs:
         # they reach.
         os: [macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
