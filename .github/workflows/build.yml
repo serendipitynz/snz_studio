@@ -4,21 +4,47 @@
 # the WebView2 toolchain on Windows), so each OS is built on its own native runner
 # via the matrix below.
 #
-# Code signing and notarization are intentionally NOT wired up yet — they require
-# user-provided certificates/secrets. The unsigned artifacts build and upload
-# today; the signing steps are documented inline and guarded on secrets so they
-# activate without changing the build once those secrets exist.
+# The macOS build is signed and notarized only when release.yml calls this
+# workflow with `sign: true` and the APPLE_* secrets; a manual dispatch produces
+# unsigned artifacts. Windows is never signed (no Authenticode certificate yet).
+# Keeping one workflow for both is what keeps the release build and the manual
+# build from drifting apart.
 name: build
 
-# Manual-only trigger: this repo is public, so GitHub-hosted standard runners cost
-# nothing and minutes are not the reason. A full matrix build takes tens of minutes
-# and produces unsigned artifacts nobody consumes automatically, so it runs only on
-# an explicit dispatch from the Actions tab — never automatically on a push or tag.
+# Manual dispatch, or a call from release.yml. Not on push: this repo is public, so
+# GitHub-hosted standard runners cost nothing and minutes are not the reason — a
+# full matrix build takes tens of minutes and its unsigned artifacts are consumed by
+# nobody automatically.
 #
-# Keep it that way when signing secrets land: no fork-reachable trigger
-# (pull_request_target and friends) may be added, or a fork's PR could read them.
+# The signing secrets reach this workflow through workflow_call. No fork-reachable
+# trigger (pull_request_target and friends) may be added, or a fork's PR could
+# read them.
 on:
   workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      # The commit to build. release.yml passes the commit its tag resolved to, so
+      # a manual release run cannot build a different commit than the tag names;
+      # empty builds the triggering ref, as a manual dispatch does.
+      ref:
+        type: string
+        default: ""
+      sign:
+        type: boolean
+        default: false
+    secrets:
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
 
 permissions:
   contents: read
@@ -39,21 +65,25 @@ jobs:
             platform: windows/amd64
 
     steps:
-      - uses: actions/checkout@v7
+      # Actions are pinned to commit SHAs because this workflow can hold the signing
+      # secrets (see audit.yml for the same rule); the comment names the release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10.30.3
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -107,11 +137,60 @@ jobs:
       # its dylibs (extra unsigned exes fail notarization). The GGUF is the verified
       # release asset pinned in internal/embed/modelspec.go.
       # NOTE: ships the arm64 sidecar; a universal sidecar needs lipo of both arches'
-      # binary + dylibs (TODO). Signing the sidecar is part of the notarization TODO
-      # below; scripts/build-mac-signed.sh is the verified local recipe.
+      # binary + dylibs (TODO), so built-in embedding does not start on an Intel Mac.
       - name: Stage built-in embedding (macOS)
         if: runner.os == 'macOS'
         run: pnpm sidecar --app --arch arm64
+
+      # TinySegmenter's modified BSD requires its notice to accompany a binary
+      # redistribution, so the notices ride inside the .app rather than only in
+      # the repo. Staged before signing, as scripts/build-mac-signed.sh does: like
+      # the GGUF they are data files the .app's signature seals.
+      - name: Stage license notices (macOS)
+        if: runner.os == 'macOS'
+        run: cp LICENSE THIRD_PARTY_NOTICES.md "build/bin/snz-studio.app/Contents/Resources/"
+
+      # A temporary keychain holds the Developer ID certificate for this job only;
+      # the partition list lets codesign use the key without a GUI prompt.
+      - name: Import the signing certificate (macOS)
+        if: runner.os == 'macOS' && inputs.sign
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -f pkcs12 \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+      # The order and flags are build-mac-signed.sh's, the recipe notarization has
+      # accepted: the sidecar's dylibs, then llama-server with the JIT entitlements,
+      # then the .app without them — inner code first, never --deep. Signed before
+      # the smoke test below, so the test runs the binaries that ship.
+      - name: Sign the sidecar and the app (macOS)
+        if: runner.os == 'macOS' && inputs.sign
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          app=build/bin/snz-studio.app
+          res="$app/Contents/Resources"
+          find "$res" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' lib; do
+            codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$lib"
+          done
+          codesign --force --options runtime --timestamp --entitlements build/darwin/entitlements.plist \
+            --sign "$APPLE_SIGNING_IDENTITY" "$res/llama-server"
+          codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$app"
+          codesign --verify --strict --verbose=2 "$app"
 
       # Launch the built app on an empty data dir with every proxied request sent to a
       # closed port, so a model download cannot succeed (loopback is never proxied, so
@@ -146,21 +225,44 @@ jobs:
           ls -la "$data/models"
           echo "2a6cb2d9889140cd214bc4eaee14114f276a52afcf0a2fe65fae3d467f7480fe  $data/models/ruri-v3-30m-q8_0.gguf" | shasum -a 256 -c
 
-      # TinySegmenter's modified BSD requires its notice to accompany a binary
-      # redistribution, so the notices ride inside the .app rather than only in
-      # the repo. scripts/build-mac-signed.sh stages them at the same point.
-      - name: Stage license notices (macOS)
-        if: runner.os == 'macOS'
-        run: cp LICENSE THIRD_PARTY_NOTICES.md "build/bin/snz-studio.app/Contents/Resources/"
-
+      # The volume holds the .app beside a symlink to /Applications, which Finder
+      # shows as the drag-to-install target — the same layout build-mac-signed.sh
+      # makes. ditto keeps the bundle's signature intact.
       - name: Package .dmg (macOS)
         if: runner.os == 'macOS'
         run: |
-          hdiutil create \
-            -volname "SNZ Studio" \
-            -srcfolder "build/bin/snz-studio.app" \
-            -ov -format UDZO \
-            "build/bin/SNZ-Studio.dmg"
+          set -euo pipefail
+          stage="$(mktemp -d)"
+          ditto build/bin/snz-studio.app "$stage/snz-studio.app"
+          ln -s /Applications "$stage/Applications"
+          hdiutil create -volname "SNZ Studio" -srcfolder "$stage" -ov -format UDZO build/bin/SNZ-Studio.dmg
+
+      # The outcome is read from notarytool's JSON status rather than its exit code,
+      # and anything but Accepted prints the notary log, which names the binary at
+      # fault. spctl is the Gatekeeper check a downloaded .dmg goes through.
+      - name: Sign, notarize and staple the .dmg (macOS)
+        if: runner.os == 'macOS' && inputs.sign
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          dmg=build/bin/SNZ-Studio.dmg
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$dmg"
+          result="$(xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait --output-format json)" || true
+          echo "$result"
+          if [ "$(jq -r .status <<< "$result")" != "Accepted" ]; then
+            xcrun notarytool log "$(jq -r '.id // empty' <<< "$result" || true)" --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
+            echo "::error::notarization was not accepted"
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose "$dmg"
 
       # The installer takes the sidecar and the GGUF from where this leaves them
       # (build/sidecar/windows-amd64/ and build/sidecar/.downloads/), so it runs before
@@ -260,32 +362,13 @@ jobs:
         shell: bash
         run: cp LICENSE THIRD_PARTY_NOTICES.md build/bin/
 
-      # --- Signing & notarization (TODO: needs user-provided secrets) -----------
-      #
-      # macOS (Developer ID):
-      #   - Import the Developer ID Application cert from a base64 .p12 secret into
-      #     a temporary keychain.
-      #   - Sign the staged sidecar FIRST (do not rely on --deep): each
-      #     Contents/Resources/*.dylib with --options runtime --timestamp, then
-      #     Contents/Resources/llama-server additionally with
-      #     --entitlements build/darwin/entitlements.plist; then sign the .app.
-      #     scripts/build-mac-signed.sh is the verified local implementation.
-      #   - Re-create the .dmg and submit it with `xcrun notarytool submit --wait`,
-      #     then `xcrun stapler staple` the .dmg.
-      #   Secrets: APPLE_CERT_P12_BASE64, APPLE_CERT_PASSWORD, APPLE_DEVELOPER_ID,
-      #            APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
-      #
-      # Windows (Authenticode):
+      # --- Windows signing (TODO: needs a code-signing certificate) ---------------
       #   - signtool sign /fd sha256 /tr <timestamp> /td sha256 the installer with
-      #     the code-signing cert.
+      #     the code-signing cert, guarded on `inputs.sign` like the macOS steps.
       #   Secrets: WINDOWS_CERT_PFX_BASE64, WINDOWS_CERT_PASSWORD
-      #
-      # Each signing step should be guarded like:
-      #   if: runner.os == 'macOS' && secrets.APPLE_CERT_P12_BASE64 != ''
-      # so the workflow keeps producing unsigned builds until the secrets land.
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: snz-studio-${{ runner.os }}
           path: |
