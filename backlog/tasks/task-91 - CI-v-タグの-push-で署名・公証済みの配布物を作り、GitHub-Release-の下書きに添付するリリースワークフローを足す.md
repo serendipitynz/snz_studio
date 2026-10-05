@@ -1,10 +1,10 @@
 ---
 id: TASK-91
 title: 'CI: v タグの push で署名・公証済みの配布物を作り、GitHub Release の下書きに添付するリリースワークフローを足す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-05 00:13'
-updated_date: '2026-10-05 03:08'
+updated_date: '2026-10-05 03:16'
 labels: []
 milestone: m-1
 dependencies: []
