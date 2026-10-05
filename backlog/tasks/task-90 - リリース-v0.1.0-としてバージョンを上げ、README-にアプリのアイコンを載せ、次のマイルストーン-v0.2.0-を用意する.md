@@ -1,10 +1,10 @@
 ---
 id: TASK-90
 title: 'リリース: v0.1.0 としてバージョンを上げ、README にアプリのアイコンを載せ、次のマイルストーン v0.2.0 を用意する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-04 22:26'
-updated_date: '2026-10-04 22:30'
+updated_date: '2026-10-05 00:18'
 labels: []
 milestone: m-1
 dependencies: []
