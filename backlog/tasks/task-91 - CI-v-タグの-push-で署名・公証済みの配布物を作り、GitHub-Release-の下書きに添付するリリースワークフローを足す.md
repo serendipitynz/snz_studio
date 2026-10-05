@@ -1,10 +1,10 @@
 ---
 id: TASK-91
 title: 'CI: v タグの push で署名・公証済みの配布物を作り、GitHub Release の下書きに添付するリリースワークフローを足す'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-05 00:13'
-updated_date: '2026-10-05 00:18'
+updated_date: '2026-10-05 00:27'
 labels: []
 milestone: m-1
 dependencies: []
@@ -51,6 +51,14 @@ v0.1.0 はこのワークフローで出す (TASK-90 のあと、このタスク
 - [ ] #1 v* タグを push すると、署名・公証済みの macOS .dmg と Windows のインストーラが添付された Release の下書きができる
 - [ ] #2 secrets の欠け、タグとバージョンの不一致、公開済みの Release のどれかがあると、ビルドの前に理由を示して失敗する
 - [ ] #3 リリースノートが前のタグ以降の PR から自動生成され、.github/release.yml の分類で並ぶ
-- [ ] #4 scripts/setup-ci-signing-secrets.sh で APPLE_* secrets 6 つを登録でき、.env.signing は git の追跡から外れている
-- [ ] #5 README / README.ja にリリースの手順と配布物の入手方法が書かれている
+- [x] #4 scripts/setup-ci-signing-secrets.sh で APPLE_* secrets 6 つを登録でき、.env.signing は git の追跡から外れている
+- [x] #5 README / README.ja にリリースの手順と配布物の入手方法が書かれている
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- 署名と公証は build.yml に `workflow_call` の入力 `sign` を足して入れ、release.yml はそれを呼ぶ形にした (ビルド手順を 1 か所に保つため)。手動の build.yml は未署名のまま。
+- AC #1〜#3 は CI 上で `v0.1.0` タグを打った最初の実行で確かめる。下書きは非公開なので、失敗したら下書きとタグを消して直す。
+- secrets 6 つは 2026-10-05 に setup-ci-signing-secrets.sh で登録済み。
+<!-- SECTION:NOTES:END -->
