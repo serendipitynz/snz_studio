@@ -142,9 +142,11 @@ jobs:
             # notes were cut against one and listed only the pull requests merged
             # since it. So name the version tag just below this one; with none (a
             # first release) GitHub's default stays.
-            previous="$(gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name' \
-              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | { cat; echo "$TAG"; } | sort -uV \
-              | grep -B1 -x "$TAG" | grep -vx "$TAG" || true)"
+            # Fetched on its own so a failed API call stops the run; the `|| true`
+            # below only covers grep finding no earlier version tag.
+            tags="$(gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name')"
+            previous="$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | { cat; echo "$TAG"; } \
+              | sort -uV | grep -B1 -x "$TAG" | grep -vx "$TAG" || true)"
             notes_args=(-f tag_name="$TAG")
             if [ -n "$previous" ]; then
               notes_args+=(-f previous_tag_name="$previous")
