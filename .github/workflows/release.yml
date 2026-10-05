@@ -3,7 +3,7 @@
 #
 # Trigger by pushing a version tag (`v0.1.0`), or run it from the Actions tab with
 # a tag that already exists. The draft's notes are generated from the pull
-# requests merged since the previous tag, grouped by .github/release.yml. Read the
+# requests merged since the previous version tag, grouped by .github/release.yml. Read the
 # notes, check the assets and publish the release by hand: nothing here publishes.
 #
 # The build is build.yml itself, called with `sign: true`, so a release can never
@@ -135,12 +135,30 @@ jobs:
           id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq ".[] | select(.tag_name == \"$TAG\" and .draft) | .id" | head -1)"
           if [ -z "$id" ]; then
+            # Notes are generated first and passed as the body, because only the
+            # generate-notes endpoint takes previous_tag_name. Left to itself GitHub
+            # compares against the newest earlier release, and this repository also
+            # releases model assets under other tags (ruri-v3-30m-q8_0-…): v0.1.0's
+            # notes were cut against one and listed only the pull requests merged
+            # since it. So name the version tag just below this one; with none (a
+            # first release) GitHub's default stays.
+            # Fetched on its own so a failed API call stops the run; the `|| true`
+            # below only covers grep finding no earlier version tag.
+            tags="$(gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name')"
+            previous="$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | { cat; echo "$TAG"; } \
+              | sort -uV | grep -B1 -x "$TAG" | grep -vx "$TAG" || true)"
+            notes_args=(-f tag_name="$TAG")
+            if [ -n "$previous" ]; then
+              notes_args+=(-f previous_tag_name="$previous")
+              echo "Release notes compare $previous...$TAG"
+            fi
+            body="$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${notes_args[@]}" --jq .body)"
             id="$(gh api "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$TAG" \
               -f name="SNZ Studio $TAG" \
+              -f body="$body" \
               -F draft=true \
               -F prerelease=false \
-              -F generate_release_notes=true \
               --jq .id)"
             echo "Created draft release $id for $TAG"
           else

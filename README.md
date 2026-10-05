@@ -292,7 +292,7 @@ To cut a release:
 
 3. The workflow stops before building when a secret is missing, the tag does not match the two
    versions, or a release for the tag is already published. Otherwise it creates the draft with
-   notes generated from the pull requests merged since the previous tag (grouped by
+   notes generated from the pull requests merged since the previous version tag (grouped by
    `.github/release.yml`) and attaches the `.dmg`, the Windows installer and `SHA256SUMS.txt`.
 4. Read the notes, check the assets, and publish the draft on GitHub. Nothing publishes it
    automatically.
