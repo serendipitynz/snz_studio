@@ -39,6 +39,23 @@ filesystem** — a standalone desktop app you install and launch.
   - Ollama's OpenAI-compatible endpoint
   - Other compatible servers
 
+## Installation
+
+Download the installer for your OS from the
+[Releases](https://github.com/serendipitynz/snz_studio/releases) page. `SHA256SUMS.txt` beside them
+lists their checksums.
+
+- macOS: `SNZ-Studio-<version>-macOS.dmg` (universal). It is signed with a Developer ID and
+  notarized, so it opens without a Gatekeeper warning. Drag the app onto the Applications folder.
+  The bundled embedding sidecar is arm64 only, so on an Intel Mac built-in embedding does not
+  start; point embeddings at an external endpoint instead (see "LLM connection").
+- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`. It is not code-signed, so
+  SmartScreen warns on first launch ("More info" → "Run anyway"). The installer fetches the WebView2
+  runtime when it is missing.
+
+An LLM endpoint (LM Studio, Ollama or another OpenAI-compatible server) is still needed; see
+"LLM connection".
+
 ## Structure
 
 The Go backend is split into layers under `internal/`. The frontend stays plain React and talks
@@ -233,12 +250,55 @@ Main env overrides: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_AR
 `amd64`). The sidecar's release is pinned in `scripts/sidecar.mjs`, the GGUF in
 `internal/embed/modelspec.go`.
 
-> Windows signing is not supported yet (unsigned distribution for now). CI
-> (`.github/workflows/build.yml`) is a scaffold: `workflow_dispatch` only, with signing deferred
-> behind secrets gates.
+> Windows signing is not supported yet (unsigned distribution for now).
 >
 > `.github/workflows/audit.yml` runs `pnpm audit --prod` and `govulncheck` on PRs and pushes to
 > `main`, weekly, and on manual dispatch, and fails on any known vulnerability.
+
+### 3. Releases (GitHub Actions)
+
+`.github/workflows/release.yml` builds a version tag and attaches the installers to a **draft**
+GitHub release. The build is `.github/workflows/build.yml` called with signing on: the macOS
+`.app` and `.dmg` are signed, notarized and stapled in CI with the same steps as
+`scripts/build-mac-signed.sh`; Windows stays unsigned. A manual run of `build.yml` alone still
+produces unsigned artifacts.
+
+One-time setup — register the six `APPLE_*` repository secrets the macOS build signs with:
+
+1. Export the "Developer ID Application" certificate from Keychain Access as a password-protected
+   `.p12`.
+2. Copy `.env.signing.example` to `.env.signing` (git-ignored) and fill in `APPLE_ID`,
+   `APPLE_PASSWORD` (an app-specific password) and `APPLE_TEAM_ID`.
+3. Run the script below and type the `.p12`'s export password. It prints the target repository
+   first and never prints a secret value.
+
+```bash
+./scripts/setup-ci-signing-secrets.sh path/to/DeveloperID.p12
+```
+
+To cut a release:
+
+1. Set the new version in `package.json` (`version`) and `wails.json` (`info.productVersion`) and
+   merge that to `main`.
+2. Tag the merged commit and push the tag (`vMAJOR.MINOR.PATCH`):
+
+   ```bash
+   git tag v0.1.0
+   ```
+
+   ```bash
+   git push origin v0.1.0
+   ```
+
+3. The workflow stops before building when a secret is missing, the tag does not match the two
+   versions, or a release for the tag is already published. Otherwise it creates the draft with
+   notes generated from the pull requests merged since the previous tag (grouped by
+   `.github/release.yml`) and attaches the `.dmg`, the Windows installer and `SHA256SUMS.txt`.
+4. Read the notes, check the assets, and publish the draft on GitHub. Nothing publishes it
+   automatically.
+
+A failed run can be repeated from the Actions tab (`release` → "Run workflow" with the tag): it
+reuses the draft rather than creating a second one.
 
 ### Regenerating the built-in embedding model (GGUF)
 

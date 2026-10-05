@@ -32,6 +32,20 @@ ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS �
   - Ollama の OpenAI 互換 endpoint
   - その他互換サーバ
 
+## インストール
+
+[Releases](https://github.com/serendipitynz/snz_studio/releases) ページから、OS に合ったインストーラを
+ダウンロードします。同じ場所の `SHA256SUMS.txt` に、各ファイルのチェックサムがあります。
+
+- macOS: `SNZ-Studio-<version>-macOS.dmg`（universal）。Developer ID で署名して公証してあるので、
+  Gatekeeper の警告なしに開けます。アプリを Applications フォルダへドラッグしてください。
+  同梱の embedding サイドカーは arm64 版だけなので、Intel Mac では内蔵 embedding が起動しません。
+  embedding には外部の接続先を指定してください（「LLM 接続」）。
+- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`。コード署名をしていないので、初回起動時に
+  SmartScreen の警告が出ます（「詳細情報」→「実行」）。WebView2 ランタイムが無ければ、インストーラが取得します。
+
+LLM の接続先（LM Studio・Ollama などの OpenAI 互換サーバ）は別に必要です。「LLM 接続」を参照してください。
+
 ## 構成
 
 Go バックエンドは `internal/` 配下にレイヤ分割されています。フロントは React のまま、ローカル
@@ -217,11 +231,52 @@ dylib）とモデル GGUF の staging → サイドカーの署名 → hardened 
 主な env 上書き: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_ARCH`（`arm64` / `amd64`）。
 サイドカーの版は `scripts/sidecar.mjs` で、GGUF は `internal/embed/modelspec.go` で固定しています。
 
-> Windows の署名は未対応です（当面は未署名配布）。CI（`.github/workflows/build.yml`）は雛形で、
-> `workflow_dispatch` 実行のみ・署名は secrets ゲートで後送りです。
+> Windows の署名は未対応です（当面は未署名配布）。
 >
 > `.github/workflows/audit.yml` は `main` への PR と push、週 1 回、手動実行で `pnpm audit --prod` と
 > `govulncheck` を走らせ、既知の脆弱性が 1 件でもあれば失敗します。
+
+### 3. リリース（GitHub Actions）
+
+`.github/workflows/release.yml` が、バージョンのタグをビルドし、インストーラを GitHub Release の**下書き**に
+添付します。ビルドは、`.github/workflows/build.yml` を署名ありで呼び出したものです。macOS の `.app` と
+`.dmg` は、`scripts/build-mac-signed.sh` と同じ手順で CI 上で署名・公証・staple します。Windows は未署名の
+ままです。`build.yml` を単独で手動実行したときは、これまでどおり未署名の成果物ができます。
+
+最初に一度だけ、macOS の署名に使う `APPLE_*` の secrets 6 つをリポジトリに登録します。
+
+1. キーチェーンアクセスから「Developer ID Application」証明書を、パスワード付きの `.p12` として書き出します。
+2. `.env.signing.example` を `.env.signing`（git の追跡外）にコピーし、`APPLE_ID`、`APPLE_PASSWORD`
+   （App 用パスワード）、`APPLE_TEAM_ID` を埋めます。
+3. 次のスクリプトを実行し、`.p12` の書き出し時のパスワードを入力します。最初に登録先のリポジトリを表示し、
+   secrets の値は表示しません。
+
+```bash
+./scripts/setup-ci-signing-secrets.sh path/to/DeveloperID.p12
+```
+
+リリースの手順:
+
+1. `package.json`（`version`）と `wails.json`（`info.productVersion`）を新しいバージョンにして、`main` に
+   マージします。
+2. マージしたコミットにタグ（`vMAJOR.MINOR.PATCH`）を打ち、push します。
+
+   ```bash
+   git tag v0.1.0
+   ```
+
+   ```bash
+   git push origin v0.1.0
+   ```
+
+3. secrets が欠けている、タグが 2 つのバージョンと一致しない、そのタグの Release がすでに公開されている、
+   のどれかに当てはまると、ワークフローはビルドの前に止まります。そうでなければ、前のタグ以降にマージされた
+   PR から自動生成したノート（分類は `.github/release.yml`）で下書きを作り、`.dmg`、Windows のインストーラ、
+   `SHA256SUMS.txt` を添付します。
+4. ノートと添付ファイルを確認し、GitHub 上で下書きを公開します。自動では公開されません。
+
+失敗した実行は、Actions タブから（`release` →「Run workflow」でタグを指定）やり直せます。下書きは
+作り直さず、既存のものを使います。
 
 ### 内蔵 embedding モデル（GGUF）の再生成
 
