@@ -4,7 +4,7 @@ title: 'CI: v タグの push で署名・公証済みの配布物を作り、Git
 status: In Review
 assignee: []
 created_date: '2026-10-05 00:13'
-updated_date: '2026-10-05 00:27'
+updated_date: '2026-10-05 03:08'
 labels: []
 milestone: m-1
 dependencies: []
@@ -48,9 +48,9 @@ v0.1.0 はこのワークフローで出す (TASK-90 のあと、このタスク
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 v* タグを push すると、署名・公証済みの macOS .dmg と Windows のインストーラが添付された Release の下書きができる
-- [ ] #2 secrets の欠け、タグとバージョンの不一致、公開済みの Release のどれかがあると、ビルドの前に理由を示して失敗する
-- [ ] #3 リリースノートが前のタグ以降の PR から自動生成され、.github/release.yml の分類で並ぶ
+- [x] #1 v* タグを push すると、署名・公証済みの macOS .dmg と Windows のインストーラが添付された Release の下書きができる
+- [x] #2 secrets の欠け、タグとバージョンの不一致、公開済みの Release のどれかがあると、ビルドの前に理由を示して失敗する
+- [x] #3 リリースノートが前のタグ以降の PR から自動生成され、.github/release.yml の分類で並ぶ
 - [x] #4 scripts/setup-ci-signing-secrets.sh で APPLE_* secrets 6 つを登録でき、.env.signing は git の追跡から外れている
 - [x] #5 README / README.ja にリリースの手順と配布物の入手方法が書かれている
 <!-- AC:END -->
@@ -61,4 +61,8 @@ v0.1.0 はこのワークフローで出す (TASK-90 のあと、このタスク
 - 署名と公証は build.yml に `workflow_call` の入力 `sign` を足して入れ、release.yml はそれを呼ぶ形にした (ビルド手順を 1 か所に保つため)。手動の build.yml は未署名のまま。
 - AC #1〜#3 は CI 上で `v0.1.0` タグを打った最初の実行で確かめる。下書きは非公開なので、失敗したら下書きとタグを消して直す。
 - secrets 6 つは 2026-10-05 に setup-ci-signing-secrets.sh で登録済み。
+
+- 2026-10-05: `v0.1.0` の実行 (run 37253626980) で全ジョブ成功。下書きに .dmg / Windows インストーラ / SHA256SUMS.txt が付き、.dmg は stapler validate と spctl (Notarized Developer ID) を通った。
+- 存在しないタグ `v0.0.99` での手動実行 (run 37258005022) は「Verify the tag exists」でビルド前に失敗し、下書きは作られなかった。
+- 自動生成ノートの比較元が直前のタグ `ruri-v3-30m-q8_0-2a6cb2d9` になり、#79 以降しか載らなかった。generate-notes に直前の `v*` タグを previous_tag_name として渡すよう直した (この修正の実地確認は次のリリースで行う)。v0.1.0 のノートは手で書き直した。
 <!-- SECTION:NOTES:END -->
