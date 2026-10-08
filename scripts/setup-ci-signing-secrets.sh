@@ -14,6 +14,15 @@
 #
 # Usage:
 #   ./scripts/setup-ci-signing-secrets.sh path/to/DeveloperID.p12
+#   ./scripts/setup-ci-signing-secrets.sh --update-key path/to/update-signing.key
+#
+# The second form registers only UPDATE_SIGNING_KEY, the Ed25519 key that signs
+# the update files (create it with `go run ./tools/updatesig keygen`). It is its
+# own path because the two rotate independently: replacing the update key must
+# not require the certificate and its password, nor rewrite the Apple secrets.
+# The key is checked against the public key committed in internal/updatesig
+# before it is registered, since a mismatched key signs updates no client accepts
+# and the release would not otherwise notice.
 #
 # Export the certificate first: Keychain Access > login > My Certificates >
 # "Developer ID Application: <Name> (<TEAMID>)" > right-click > Export…, save as
@@ -25,22 +34,37 @@ set -eu
 
 root=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 env_file="$root/.env.signing"
-p12="${1:-}"
 
-if [ -z "$p12" ]; then
+usage() {
   echo "usage: $0 path/to/DeveloperID.p12" >&2
-  exit 1
-fi
-[ -f "$p12" ] || { echo "error: certificate '$p12' not found." >&2; exit 1; }
-# Pin the path now, before the `cd "$root"` below. A relative argument — which is
-# how the usage line above writes it — would otherwise pass this check and then
-# stop resolving, and openssl's discarded stderr turns that into "wrong export
-# password?" for a password that was right.
-case "$p12" in /*) ;; *) p12="$PWD/$p12" ;; esac
-[ -f "$env_file" ] || {
-  echo "error: $env_file not found — copy .env.signing.example and fill it in." >&2
+  echo "       $0 --update-key path/to/update-signing.key" >&2
   exit 1
 }
+
+update_key=''
+p12=''
+case "${1:-}" in
+  '') usage ;;
+  --update-key)
+    update_key="${2:-}"
+    [ -n "$update_key" ] || usage
+    [ -f "$update_key" ] || { echo "error: key file '$update_key' not found." >&2; exit 1; }
+    case "$update_key" in /*) ;; *) update_key="$PWD/$update_key" ;; esac
+    ;;
+  *)
+    p12="$1"
+    [ -f "$p12" ] || { echo "error: certificate '$p12' not found." >&2; exit 1; }
+    # Pin the path now, before the `cd "$root"` below. A relative argument — which is
+    # how the usage line above writes it — would otherwise pass this check and then
+    # stop resolving, and openssl's discarded stderr turns that into "wrong export
+    # password?" for a password that was right.
+    case "$p12" in /*) ;; *) p12="$PWD/$p12" ;; esac
+    [ -f "$env_file" ] || {
+      echo "error: $env_file not found — copy .env.signing.example and fill it in." >&2
+      exit 1
+    }
+    ;;
+esac
 
 # Six secrets are written one after another, so an unauthenticated `gh` would
 # leave the repository holding a partial set. Check before writing any.
@@ -59,6 +83,14 @@ repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || {
   exit 1
 }
 echo "Target repository: $repo"
+
+if [ -n "$update_key" ]; then
+  go run ./tools/updatesig check-key -key-file "$update_key"
+  tr -d '\n' < "$update_key" | gh secret set UPDATE_SIGNING_KEY --repo "$repo"
+  echo "Registered UPDATE_SIGNING_KEY on $repo."
+  echo "Verify with: gh secret list --repo $repo"
+  exit 0
+fi
 
 # Load APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID without echoing them.
 # (APPLE_SIGNING_IDENTITY is derived from the .p12 below, not from this file.)

@@ -225,9 +225,46 @@ jobs:
           ls -la "$data/models"
           echo "2a6cb2d9889140cd214bc4eaee14114f276a52afcf0a2fe65fae3d467f7480fe  $data/models/ruri-v3-30m-q8_0.gguf" | shasum -a 256 -c
 
+      # An update replaces the installed .app with the one in the update archive, so
+      # the .app itself has to carry a stapled ticket: the one stapled to the .dmg
+      # never reaches it. notarytool takes a zip rather than a bundle; the zip only
+      # carries the submission, and the ticket is stapled onto the .app.
+      - name: Notarize and staple the .app (macOS)
+        if: runner.os == 'macOS' && inputs.sign
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          app=build/bin/snz-studio.app
+          submission="$RUNNER_TEMP/snz-studio-notarize.zip"
+          ditto -c -k --keepParent "$app" "$submission"
+          scripts/ci-notarize.sh "$submission"
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+
+      # The macOS update file, which release.yml signs and lists in latest.json.
+      # ditto keeps the bundle's symlinks and extended attributes, which a plain zip
+      # would drop, breaking the seal of the signature.
+      - name: Package the update archive (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent build/bin/snz-studio.app build/bin/SNZ-Studio.app.zip
+
+      # Checked the way an update uses it: extracted, then assessed by Gatekeeper.
+      - name: Verify the update archive passes Gatekeeper (macOS)
+        if: runner.os == 'macOS' && inputs.sign
+        run: |
+          set -euo pipefail
+          check="$RUNNER_TEMP/update-check"
+          ditto -x -k build/bin/SNZ-Studio.app.zip "$check"
+          xcrun stapler validate "$check/snz-studio.app"
+          spctl --assess --type execute --verbose=2 "$check/snz-studio.app"
+
       # The volume holds the .app beside a symlink to /Applications, which Finder
       # shows as the drag-to-install target — the same layout build-mac-signed.sh
-      # makes. ditto keeps the bundle's signature intact.
+      # makes. ditto keeps the bundle's signature, and on a signed build the ticket
+      # stapled above, intact.
       - name: Package .dmg (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -237,9 +274,7 @@ jobs:
           ln -s /Applications "$stage/Applications"
           hdiutil create -volname "SNZ Studio" -srcfolder "$stage" -ov -format UDZO build/bin/SNZ-Studio.dmg
 
-      # The outcome is read from notarytool's JSON status rather than its exit code,
-      # and anything but Accepted prints the notary log, which names the binary at
-      # fault. spctl is the Gatekeeper check a downloaded .dmg goes through.
+      # spctl is the Gatekeeper check a downloaded .dmg goes through.
       - name: Sign, notarize and staple the .dmg (macOS)
         if: runner.os == 'macOS' && inputs.sign
         env:
@@ -251,15 +286,7 @@ jobs:
           set -euo pipefail
           dmg=build/bin/SNZ-Studio.dmg
           codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$dmg"
-          result="$(xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" --wait --output-format json)" || true
-          echo "$result"
-          if [ "$(jq -r .status <<< "$result")" != "Accepted" ]; then
-            xcrun notarytool log "$(jq -r '.id // empty' <<< "$result" || true)" --apple-id "$APPLE_ID" \
-              --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
-            echo "::error::notarization was not accepted"
-            exit 1
-          fi
+          scripts/ci-notarize.sh "$dmg"
           xcrun stapler staple "$dmg"
           xcrun stapler validate "$dmg"
           spctl --assess --type open --context context:primary-signature --verbose "$dmg"
@@ -373,6 +400,7 @@ jobs:
           name: snz-studio-${{ runner.os }}
           path: |
             build/bin/*.dmg
+            build/bin/*.app.zip
             build/bin/*.exe
             build/bin/*.dll
             build/bin/*.gguf
