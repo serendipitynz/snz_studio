@@ -4,7 +4,7 @@ title: '自動更新: アプリ内で新しい版を確認し、承認後にダ�
 status: To Do
 assignee: []
 created_date: '2026-10-07 22:52'
-updated_date: '2026-10-07 22:57'
+updated_date: '2026-10-08 22:20'
 labels: []
 dependencies: []
 references:
@@ -66,4 +66,7 @@ v0.1.0 には更新の手段がない。新しい版が出ても、利用者が 
 - [ ] #1 サブタスクがすべて Done になっている
 - [ ] #2 インストール済みの版から次の版へ、macOS と Windows の両方でアプリ内から更新でき、再起動後に新しい版が動く (更新機能を載せたリリースが 2 つ続けて公開された後に確かめる)
 - [ ] #3 更新署名鍵の秘密鍵がこのマシン以外にも保管されていて、失くしたときに何が起きるかが書かれている
+- [ ] #4 (TASK-92.1 から移した確認) 更新機能を載せた最初のリリースで、公証・staple 済みの .app を固めた macOS の更新用アーカイブ (SNZ-Studio-vX.Y.Z-macOS.app.zip) が Release に添付され、それを展開した .app が spctl の検査を通る
+- [ ] #5 (TASK-92.1 から移した確認) そのリリースの実行で、prepare の鍵の一致確認 (updatesig check-key) が通り、attach の verify ステップが更新用アーカイブと Windows インストーラの署名を添付前にリポジトリの公開鍵で検証している
+- [ ] #6 (TASK-92.1 から移した確認) そのリリースに latest.json が添付され、darwin-universal と windows-amd64 の URL と署名を持ち、URL はタグに固定されている
 <!-- DOD:END -->

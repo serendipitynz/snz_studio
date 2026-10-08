@@ -1,10 +1,10 @@
 ---
 id: TASK-92.1
 title: 'リリース: 更新署名鍵を作り、署名付きの更新用ファイルと latest.json を Release に添付する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-07 22:52'
-updated_date: '2026-10-08 19:52'
+updated_date: '2026-10-08 22:20'
 labels: []
 dependencies: []
 references:
@@ -42,11 +42,8 @@ TASK-92 のリリース側。インストール済みのアプリが新しい版
 <!-- AC:BEGIN -->
 - [x] #1 更新署名鍵が作られ、公開鍵がリポジトリに、秘密鍵が repo secret にあり、秘密鍵はコミットされていない
 - [x] #2 secret が欠けていると、release.yml がビルド前に理由を示して止まる
-- [ ] #3 公証・staple 済みの .app を固めた macOS の更新用アーカイブが Release に添付され、それを展開した .app が spctl の検査を通る
-- [ ] #4 更新用アーカイブと Windows インストーラの署名が、添付の前にリポジトリの公開鍵で検証されている
-- [ ] #5 Release に latest.json が添付され、darwin-universal と windows-amd64 の URL と署名を持ち、URL はタグに固定されている
-- [x] #6 latest.json の notes を入れるかどうかが決まって記録されている
-- [x] #7 scripts/setup-ci-signing-secrets.sh で更新署名鍵だけを登録でき、手元の scripts/build-mac-signed.sh が鍵なしでも最後まで動く
+- [x] #3 latest.json の notes を入れるかどうかが決まって記録されている
+- [x] #4 scripts/setup-ci-signing-secrets.sh で更新署名鍵だけを登録でき、手元の scripts/build-mac-signed.sh が鍵なしでも最後まで動く
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -77,4 +74,6 @@ TASK-92 のリリース側。インストール済みのアプリが新しい版
   - 署名ツール: 本物の鍵で sign → verify が通り、ファイル改ざん・版の不一致・対でない鍵・空の鍵はどれも失敗した。`go vet ./...` と `go test ./...` は通過。
 - 未確認 (次の正式リリースの下書きで確かめる): AC #3 (Release 上の .app.zip が spctl を通る)、AC #4 (attach の verify ステップの実行)、AC #5 (添付された latest.json の中身)。prepare の check-key ステップも CI ではまだ一度も走っていない (v0.0.99 はその前のステップで止まるため)。
 - このタスクより前のコミットを指すタグでは release.yml が `tools/updatesig` を見つけられず失敗する。v0.1.0 などの再ビルドはしない前提。
+
+- 2026-10-09: PR #90 のマージ後、AC #3〜#5 (Release への添付と CI 上での署名検証・latest.json の中身) は次の正式リリースまで確かめられないため、ユーザーの判断でこのタスクから外し、TASK-92 の DoD に移して Done にした。TASK-92.2 がこのタスクの完了を前提に着手できるようにするため。prepare の check-key ステップの CI 上での確認も同じ DoD 項目に含めた。
 <!-- SECTION:NOTES:END -->
