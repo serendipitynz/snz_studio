@@ -1,10 +1,10 @@
 ---
 id: TASK-92.2
 title: '更新: Go で新しい版の確認・ダウンロード・署名検証・入れ替え・再起動を行い、UI にバインドする'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-07 22:53'
-updated_date: '2026-10-09 11:43'
+updated_date: '2026-10-09 11:47'
 labels: []
 dependencies:
   - TASK-92.1
