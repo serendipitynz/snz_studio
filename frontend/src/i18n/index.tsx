@@ -711,7 +711,7 @@ const ja: Record<MessageKey, string> = {
   "settings.notConnected": "未接続",
   "settings.displayLanguage": "表示言語",
   "settings.storedChoiceUnknown":
-    "保存されている配色の選択はこの版にないため、標準・自動（OSに従う）で表示しています。保存値は、ここで選び直すまでそのまま残ります。",
+    "保存されている配色の選択はこのバージョンにないため、標準・自動（OSに従う）で表示しています。保存値は、ここで選び直すまでそのまま残ります。",
   "settings.themeSaveFailed": "選んだ配色はアプリを終了するまで効きますが、保存できませんでした。",
   "settings.embedPreparing": "同梱の埋め込みモデルを準備中です… その間はキーワード検索が有効です。",
   "settings.embedDownloadingLabel": "埋め込みモデルをダウンロード中です",
