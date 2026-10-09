@@ -26,7 +26,8 @@ import (
 )
 
 // Editable mirrors EditableAppConfiguration: the fields the configuration endpoint
-// can read and write, and the only fields persisted to app-config.json.
+// can read and write. They are persisted to app-config.json together with
+// autoCheckUpdates (see persistedFile).
 type Editable struct {
 	LLMBaseURL        string `json:"llmBaseUrl"`
 	LLMModel          string `json:"llmModel"`
@@ -83,7 +84,20 @@ type Config struct {
 	internalEmbedURL   string
 	internalEmbedModel string
 	internalEmbedKey   string
+
+	// autoCheckUpdates is persisted beside the editable fields but saved on its own
+	// (SetAutoCheckUpdates): it is an app choice, not a connection setting, and the
+	// configuration endpoint's save also warms models and may start a rebuild.
+	autoCheckUpdates bool
 }
+
+// persistedFile is the shape UpdateEditable writes to app-config.json.
+type persistedFile struct {
+	Editable
+	AutoCheckUpdates bool `json:"autoCheckUpdates"`
+}
+
+const autoCheckUpdatesKey = "autoCheckUpdates"
 
 func getenv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok {
@@ -198,7 +212,9 @@ func New(settings Settings, appConfigPath string) *Config {
 	} else {
 		settings.EmbeddingMode = "internal"
 	}
-	return &Config{settings: settings, appConfigPath: appConfigPath}
+	// On unless app-config.json says otherwise (decided in TASK-92): with the check
+	// off by default, almost nobody would learn that a newer version exists.
+	return &Config{settings: settings, appConfigPath: appConfigPath, autoCheckUpdates: true}
 }
 
 // Load builds Config from the environment defaults and then applies the persisted
@@ -267,6 +283,12 @@ func (c *Config) applyOverrides(path string) {
 	applyString("embeddingModel", &c.settings.EmbeddingModel, true)
 	applyString("imageDescriptionBaseUrl", &c.settings.ImageDescriptionBaseURL, true)
 	applyString("imageDescriptionModel", &c.settings.ImageDescriptionModel, true)
+	if v, ok := overrides[autoCheckUpdatesKey]; ok {
+		var enabled bool
+		if json.Unmarshal(v, &enabled) == nil {
+			c.autoCheckUpdates = enabled
+		}
+	}
 
 	// embeddingMode override + migration. When the key is present we honour a
 	// valid value; an invalid value keeps the env default. When the key is ABSENT
@@ -369,7 +391,7 @@ func (c *Config) UpdateEditable(input Editable) (Editable, error) {
 	// in the opposite order. The file is a few hundred bytes, so readers blocked on
 	// Get for the duration of the write wait only briefly.
 	if c.appConfigPath != "" {
-		encoded, err := json.MarshalIndent(editable, "", "  ")
+		encoded, err := json.MarshalIndent(persistedFile{Editable: editable, AutoCheckUpdates: c.autoCheckUpdates}, "", "  ")
 		if err != nil {
 			return editable, err
 		}
@@ -379,6 +401,49 @@ func (c *Config) UpdateEditable(input Editable) (Editable, error) {
 		}
 	}
 	return editable, nil
+}
+
+// AutoCheckUpdates reports whether the app checks for a newer version at startup.
+func (c *Config) AutoCheckUpdates() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.autoCheckUpdates
+}
+
+// SetAutoCheckUpdates saves whether the app checks for a newer version at startup.
+// Only that key of app-config.json is rewritten: writing the whole editable view
+// would pin the environment's connection defaults into a file that had none, and
+// they would then outlive a later change to the environment. On error nothing
+// changes, on disk or in memory.
+func (c *Config) SetAutoCheckUpdates(enabled bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.appConfigPath != "" {
+		var fields map[string]json.RawMessage
+		raw, err := os.ReadFile(c.appConfigPath)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if err == nil {
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				return err
+			}
+		}
+		if fields == nil {
+			fields = map[string]json.RawMessage{}
+		}
+		fields[autoCheckUpdatesKey] = json.RawMessage(strconv.FormatBool(enabled))
+		encoded, err := json.MarshalIndent(fields, "", "  ")
+		if err != nil {
+			return err
+		}
+		encoded = append(encoded, '\n')
+		if err := writeFileAtomic(c.appConfigPath, encoded, 0o644); err != nil {
+			return err
+		}
+	}
+	c.autoCheckUpdates = enabled
+	return nil
 }
 
 // writeFileAtomic replaces path with data via a temporary file in the same

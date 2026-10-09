@@ -71,6 +71,24 @@ func (a *App) GetVersion() string {
 	return appVersion
 }
 
+// GetAutoCheckUpdates is bound to the frontend: whether to check for a newer version
+// at startup.
+func (a *App) GetAutoCheckUpdates() bool {
+	return a.cfg != nil && a.cfg.AutoCheckUpdates()
+}
+
+// SetAutoCheckUpdates is bound to the frontend and saves the choice to app-config.json.
+func (a *App) SetAutoCheckUpdates(enabled bool) error {
+	if a.cfg == nil {
+		return errors.New("the configuration is not loaded")
+	}
+	if err := a.cfg.SetAutoCheckUpdates(enabled); err != nil {
+		log.Printf("update: save the startup check choice: %v", err)
+		return err
+	}
+	return nil
+}
+
 // CheckForUpdate is bound to the frontend. Every failure (offline, rate-limited,
 // no release yet, unstamped build) comes back as status "failed" rather than an
 // error, so that the automatic check at startup can drop it without a word.

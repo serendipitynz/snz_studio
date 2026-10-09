@@ -346,3 +346,92 @@ func TestLoadMissingFileIsSilent(t *testing.T) {
 		t.Fatalf("a missing app-config.json produced a backup (stat err = %v)", err)
 	}
 }
+
+func TestAutoCheckUpdatesDefaultsOn(t *testing.T) {
+	dir := t.TempDir()
+	if !Load(filepath.Join(dir, "missing.json")).AutoCheckUpdates() {
+		t.Fatal("a first launch (no app-config.json) should check for updates")
+	}
+	path := filepath.Join(dir, "app-config.json")
+	if err := os.WriteFile(path, []byte(`{"llmModel":"m"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !Load(path).AutoCheckUpdates() {
+		t.Fatal("an app-config.json written before the setting existed should check for updates")
+	}
+	if err := os.WriteFile(path, []byte(`{"autoCheckUpdates":"no"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !Load(path).AutoCheckUpdates() {
+		t.Fatal("a value that is not a boolean should leave the default")
+	}
+}
+
+func TestSetAutoCheckUpdatesRewritesOnlyItsKey(t *testing.T) {
+	t.Setenv("LLM_MODEL", "from-env")
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	if err := os.WriteFile(path, []byte(`{"llmBaseUrl":"http://saved/v1"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	c := Load(path)
+
+	if err := c.SetAutoCheckUpdates(false); err != nil {
+		t.Fatalf("SetAutoCheckUpdates: %v", err)
+	}
+	if c.AutoCheckUpdates() {
+		t.Fatal("the in-memory value did not follow the save")
+	}
+	var fields map[string]any
+	raw, _ := os.ReadFile(path)
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("persisted config is not valid JSON: %v", err)
+	}
+	want := map[string]any{"llmBaseUrl": "http://saved/v1", "autoCheckUpdates": false}
+	if fmt.Sprint(fields) != fmt.Sprint(want) {
+		t.Fatalf("app-config.json = %v, want %v (the environment's model must not be pinned)", fields, want)
+	}
+	if Load(path).AutoCheckUpdates() {
+		t.Fatal("a reload did not read the saved choice")
+	}
+
+	// Saving the connection settings afterwards keeps the choice.
+	if _, err := c.UpdateEditable(Editable{LLMBaseURL: "http://h/v1"}); err != nil {
+		t.Fatalf("UpdateEditable: %v", err)
+	}
+	if Load(path).AutoCheckUpdates() {
+		t.Fatal("saving the connection settings turned the update check back on")
+	}
+}
+
+func TestSetAutoCheckUpdatesCreatesTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	c := Load(path)
+	if err := c.SetAutoCheckUpdates(false); err != nil {
+		t.Fatalf("SetAutoCheckUpdates: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.TrimSpace(string(raw)) != "{\n  \"autoCheckUpdates\": false\n}" {
+		t.Fatalf("app-config.json = %q", raw)
+	}
+}
+
+func TestSetAutoCheckUpdatesLeavesAnUnreadableFileAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	c := Load(path)
+	broken := []byte(`{"llmModel":`)
+	if err := os.WriteFile(path, broken, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := c.SetAutoCheckUpdates(false); err == nil {
+		t.Fatal("a file that is not JSON was overwritten without an error")
+	}
+	if raw, _ := os.ReadFile(path); !bytes.Equal(raw, broken) {
+		t.Fatalf("app-config.json changed to %q", raw)
+	}
+	if !c.AutoCheckUpdates() {
+		t.Fatal("a failed save changed the in-memory value")
+	}
+}
