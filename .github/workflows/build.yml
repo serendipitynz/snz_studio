@@ -335,6 +335,46 @@ jobs:
             if (-not (Test-Path (Join-Path $dest $f))) { throw "$f is missing from the installed directory" }
           }
 
+      # The installer is per user (build/windows/installer/project.nsi), which is what lets
+      # the in-app updater run it without an administrator. The runner's account is an
+      # administrator, so no prompt would show here either way; what can be asserted is
+      # what decides it: a manifest that runs the installer as the invoking user, the
+      # default directory under %LOCALAPPDATA%, and an uninstall entry under HKCU only.
+      # Then /UPDATE, the updater's flag, must start the installed app afterwards.
+      - name: Verify the installer installs per user and relaunches on update (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Get-ChildItem build/bin/*-installer.exe | Select-Object -First 1).FullName
+          $manifest = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($installer))
+          if (-not $manifest.Contains('level="asInvoker"')) { throw "the installer's manifest does not run it as the invoking user" }
+
+          $p = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode)" }
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\SNZ Studio'
+          if (-not (Test-Path (Join-Path $dir 'uninstall.exe'))) { throw "nothing was installed under $dir" }
+          $key = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\SNZ StudioSNZ Studio'
+          if (-not (Test-Path "HKCU:\$key")) { throw "no uninstall entry under HKCU" }
+          if (Test-Path "HKLM:\$key") { throw "an uninstall entry was written under HKLM" }
+          if (Get-Process | Where-Object { $_.Path -like "$dir\*" }) { throw "a plain silent install started the app" }
+
+          # Not -Wait: it waits for the process's descendants too, and the app the
+          # installer starts never exits on its own.
+          $dest = Join-Path $env:RUNNER_TEMP 'update-check'
+          $p = Start-Process -FilePath $installer -ArgumentList '/S', '/UPDATE', "/D=$dest" -PassThru
+          $null = $p.Handle # without an open handle, ExitCode reads as empty after the exit
+          if (-not $p.WaitForExit(300000)) { throw "the installer did not finish within 5 minutes under /UPDATE" }
+          if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode) under /UPDATE" }
+          $started = $null
+          for ($i = 0; $i -lt 30 -and -not $started; $i++) {
+            Start-Sleep -Milliseconds 500
+            $started = Get-Process | Where-Object { $_.Path -like "$dest\*" -and $_.Name -ne 'llama-server' }
+          }
+          if (-not $started) { throw "the installer did not start the app after an /UPDATE install" }
+          Get-Process | Where-Object { $_.Path -like "$dest\*" } | Stop-Process -Force
+
       # Same check as the macOS smoke test, against the installed copy: an empty data
       # dir, proxied requests sent to a closed port, and a sidecar that must still
       # answer /health a few seconds after it first does.
