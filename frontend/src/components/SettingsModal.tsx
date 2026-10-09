@@ -159,12 +159,16 @@ function UpdatesSection({ t }: { t: Translate }) {
     let active = true;
     Promise.all([GetVersion(), GetAutoCheckUpdates()])
       .then(([running, enabled]) => {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         setVersion(running);
         setAutoCheck(enabled);
       })
       .catch(() => {
-        if (active) setLoadFailed(true);
+        if (active) {
+          setLoadFailed(true);
+        }
       });
     return () => {
       active = false;
