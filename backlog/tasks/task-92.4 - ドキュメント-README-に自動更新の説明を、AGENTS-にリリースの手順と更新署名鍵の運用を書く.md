@@ -1,10 +1,10 @@
 ---
 id: TASK-92.4
 title: 'ドキュメント: README に自動更新の説明を、AGENTS にリリースの手順と更新署名鍵の運用を書く'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-07 22:53'
-updated_date: '2026-10-09 22:21'
+updated_date: '2026-10-09 22:24'
 labels: []
 dependencies:
   - TASK-92.1
