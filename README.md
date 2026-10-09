@@ -293,11 +293,11 @@ Main env overrides: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_AR
 
 ### 3. Releases (GitHub Actions)
 
-`.github/workflows/release.yml` builds a version tag and attaches the installers to a **draft**
-GitHub release. The build is `.github/workflows/build.yml` called with signing on: the macOS
-`.app` and `.dmg` are signed, notarized and stapled in CI with the same steps as
-`scripts/build-mac-signed.sh`; Windows stays unsigned. A manual run of `build.yml` alone still
-produces unsigned artifacts.
+`.github/workflows/release.yml` builds a version tag and attaches the installers, the update files
+and `latest.json` to a **draft** GitHub release. The build is `.github/workflows/build.yml` called
+with signing on: the macOS `.app` and `.dmg` are signed, notarized and stapled in CI with the same
+steps as `scripts/build-mac-signed.sh`; Windows stays unsigned. A manual run of `build.yml` alone
+still produces unsigned artifacts.
 
 One-time setup — register the six `APPLE_*` repository secrets the macOS build signs with:
 
@@ -310,6 +310,14 @@ One-time setup — register the six `APPLE_*` repository secrets the macOS build
 
 ```bash
 ./scripts/setup-ci-signing-secrets.sh path/to/DeveloperID.p12
+```
+
+Then register `UPDATE_SIGNING_KEY`, the Ed25519 private key that signs the update files. The script
+first checks the key against the public key committed in `internal/updatesig/update-signing-key.pub`
+and refuses one that does not match it, and registers nothing else:
+
+```bash
+./scripts/setup-ci-signing-secrets.sh --update-key ~/.config/snz-studio/update-signing.key
 ```
 
 To cut a release:
@@ -326,15 +334,56 @@ To cut a release:
    git push origin v0.1.0
    ```
 
-3. The workflow stops before building when a secret is missing, the tag does not match the two
-   versions, or a release for the tag is already published. Otherwise it creates the draft with
-   notes generated from the pull requests merged since the previous version tag (grouped by
-   `.github/release.yml`) and attaches the `.dmg`, the Windows installer and `SHA256SUMS.txt`.
+3. The workflow stops before building when a secret is missing, `UPDATE_SIGNING_KEY` does not
+   match the committed public key, the tag does not match the two versions, or a release for the
+   tag is already published. Otherwise it creates the draft with notes generated from the pull
+   requests merged since the previous version tag (grouped by `.github/release.yml`) and attaches
+   the `.dmg`, the macOS update archive (`.app.zip`), the Windows installer, `latest.json` and
+   `SHA256SUMS.txt`. The update archive and the installer are signed with `UPDATE_SIGNING_KEY` and
+   checked against the committed public key before anything is uploaded.
 4. Read the notes, check the assets, and publish the draft on GitHub. Nothing publishes it
-   automatically.
+   automatically. **Publishing is what starts the update:** installed apps see only published
+   releases that are not marked as a pre-release, so a draft stays invisible to them, and every app
+   with the check on offers the new version from its next launch.
 
 A failed run can be repeated from the Actions tab (`release` → "Run workflow" with the tag): it
 reuses the draft rather than creating a second one.
+
+For the first release that carries in-app updates, add the paragraph below to the English half of
+the draft's notes, and its Japanese counterpart (in README.ja.md) to the Japanese half, before
+publishing. v0.1.0 users read it there, since v0.1.0 never offers the update:
+
+> **Moving from v0.1.0.** v0.1.0 cannot update itself, so install this version by hand once. From
+> this version on, the app checks for new versions and updates itself; the check can be turned off
+> in Settings. **On Windows**, this version installs for the current user into
+> `%LOCALAPPDATA%\Programs\SNZ Studio` instead of `Program Files`, and its installer does not remove
+> v0.1.0. Uninstall v0.1.0 first from Settings → Apps (Installed apps, or Apps & features on
+> Windows 10). Your projects, chats and settings are stored elsewhere and are kept.
+
+#### The update signing key
+
+The installed app accepts an update only when its signature verifies against the public key built
+into the app's own binary. `UPDATE_SIGNING_KEY` is the matching private key. It is kept in two
+places: `~/.config/snz-studio/update-signing.key` on the release machine and a password manager.
+
+**Losing or replacing the private key cuts off every installed copy.** A new key signs updates
+that the public key inside already-installed apps rejects, so none of them can update again, and
+every user has to install a new version by hand. Nothing in the release process can recover from
+that, so the key is a backup matter, not an incident to handle later: keep both copies, and do not
+generate a new key (`go run ./tools/updatesig keygen`) unless the old one is gone or exposed.
+
+#### Rules for changing the release workflow
+
+- **Only the `attach` job writes `latest.json`.** It runs after both platform builds, so the file
+  always lists both `darwin-universal` and `windows-amd64`. Writing it from the parallel build jobs
+  would let one platform's entry overwrite or drop the other's.
+- **Every URL is pinned to the tag** (`releases/download/vX.Y.Z/…`), both the one the app reads
+  `latest.json` from and the ones inside it. A `releases/latest/…` URL moves when a later release is
+  published, and then stops naming the file whose signature sits beside it.
+- **Model releases do not affect the update check.** This repository also publishes model assets
+  under other tags (`ruri-v3-30m-q8_0-…`), which can become GitHub's "latest" release. The app
+  therefore ignores `releases/latest`, lists the published releases and takes the highest
+  `vMAJOR.MINOR.PATCH` tag, so a model release is never offered as an update.
 
 ### Regenerating the built-in embedding model (GGUF)
 
