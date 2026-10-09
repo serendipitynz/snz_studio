@@ -343,6 +343,7 @@ jobs:
       # Then /UPDATE, the updater's flag, must start the installed app afterwards.
       - name: Verify the installer installs per user and relaunches on update (Windows)
         if: runner.os == 'Windows'
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -359,8 +360,12 @@ jobs:
           if (Test-Path "HKLM:\$key") { throw "an uninstall entry was written under HKLM" }
           if (Get-Process | Where-Object { $_.Path -like "$dir\*" }) { throw "a plain silent install started the app" }
 
+          # Not -Wait: it waits for the process's descendants too, and the app the
+          # installer starts never exits on its own.
           $dest = Join-Path $env:RUNNER_TEMP 'update-check'
-          $p = Start-Process -FilePath $installer -ArgumentList '/S', '/UPDATE', "/D=$dest" -Wait -PassThru
+          $p = Start-Process -FilePath $installer -ArgumentList '/S', '/UPDATE', "/D=$dest" -PassThru
+          $null = $p.Handle # without an open handle, ExitCode reads as empty after the exit
+          if (-not $p.WaitForExit(300000)) { throw "the installer did not finish within 5 minutes under /UPDATE" }
           if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode) under /UPDATE" }
           $started = $null
           for ($i = 0; $i -lt 30 -and -not $started; $i++) {
