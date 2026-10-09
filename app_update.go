@@ -102,9 +102,14 @@ func (a *App) CheckForUpdate() UpdateCheck {
 	ctx, cancel := context.WithTimeout(a.ctx, updateCheckTimeout)
 	defer cancel()
 	release, err := u.Check(ctx)
-	a.update.mu.Lock()
-	a.update.found = release
-	a.update.mu.Unlock()
+	// A failed check keeps what the last successful one found: the startup check and a
+	// manual one can overlap, and a failure finishing last would otherwise take away
+	// the update the dialog is still offering, failing every press of Update.
+	if err == nil {
+		a.update.mu.Lock()
+		a.update.found = release
+		a.update.mu.Unlock()
+	}
 	switch {
 	case err != nil:
 		log.Printf("update: check: %v", err)
