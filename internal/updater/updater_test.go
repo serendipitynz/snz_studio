@@ -5,11 +5,14 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"snzstudio/internal/updatesig"
 )
@@ -231,5 +234,66 @@ func TestNewUsesCompiledKeyAndBaseOverride(t *testing.T) {
 	key, _ := updatesig.PublicKey()
 	if !u.PublicKey.Equal(key) || u.APIBase != "http://127.0.0.1:9" || u.DownloadBase != u.APIBase {
 		t.Fatalf("got %+v", u)
+	}
+}
+
+func TestDownloadEndsAStalledTransferAndCanBeRetried(t *testing.T) {
+	src, srv, u := startFake(t, "0.1.0")
+	body := []byte(strings.Repeat("update file ", 1000))
+	src.publish(srv, "v0.2.0", "0.2.0", "0.2.0", body)
+	r, err := u.Check(context.Background())
+	if err != nil || r == nil {
+		t.Fatalf("Check = %+v, %v", r, err)
+	}
+
+	// Sends half the file, then holds the connection open without sending more.
+	stalling := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.Write(body[:len(body)/2])
+		w.(http.Flusher).Flush()
+		<-req.Context().Done()
+	}))
+	defer stalling.Close()
+	stalled := *r
+	stalled.Asset.URL = stalling.URL + "/update-file"
+	u.StallTimeout = 200 * time.Millisecond
+
+	dir := t.TempDir()
+	start := time.Now()
+	_, err = u.Download(context.Background(), &stalled, dir, nil)
+	if !errors.Is(err, errStalled) {
+		t.Fatalf("got %v, want the stall error", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("took %v to give up", elapsed)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("left %d file(s) behind", len(entries))
+	}
+	if _, err := u.Download(context.Background(), r, dir, nil); err != nil {
+		t.Fatalf("retry after the stall: %v", err)
+	}
+}
+
+func TestDownloadKeepsASlowButSteadyTransfer(t *testing.T) {
+	src, srv, u := startFake(t, "0.1.0")
+	body := []byte(strings.Repeat("x", 4000))
+	src.publish(srv, "v0.2.0", "0.2.0", "0.2.0", body)
+	r, _ := u.Check(context.Background())
+
+	// Takes longer in total than the stall timeout, but never pauses that long.
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		for i := 0; i < len(body); i += 1000 {
+			w.Write(body[i : i+1000])
+			w.(http.Flusher).Flush()
+			time.Sleep(100 * time.Millisecond)
+		}
+	}))
+	defer slow.Close()
+	steady := *r
+	steady.Asset.URL = slow.URL + "/update-file"
+	u.StallTimeout = 250 * time.Millisecond
+	if _, err := u.Download(context.Background(), &steady, t.TempDir(), nil); err != nil {
+		t.Fatalf("a steady transfer was cut off: %v", err)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"snzstudio/internal/updatesig"
 )
@@ -30,7 +31,13 @@ const (
 	// maxUpdateSize bounds a download whose server keeps sending. The macOS archive,
 	// built-in model included, is about 64MB.
 	maxUpdateSize = 1 << 30
+
+	// defaultStallTimeout ends a download that receives nothing for this long. A
+	// deadline on the whole download would cut off a slow but working connection.
+	defaultStallTimeout = 60 * time.Second
 )
+
+var errStalled = errors.New("updater: the download stopped receiving data")
 
 // Updater checks one release source. Both bases name the same repository: APIBase
 // serves the release list (/releases), DownloadBase the assets
@@ -42,6 +49,9 @@ type Updater struct {
 	PublicKey    ed25519.PublicKey
 	// Current is the running version, "MAJOR.MINOR.PATCH" without the "v".
 	Current string
+	// StallTimeout ends a download that receives nothing for this long, including
+	// while it waits for the response. Zero means defaultStallTimeout.
+	StallTimeout time.Duration
 }
 
 // New returns an Updater for this repository's GitHub releases.
@@ -241,9 +251,20 @@ func (u *Updater) getJSON(ctx context.Context, url string, v any) error {
 // unverified is left for a later step to pick up. progress may be nil.
 func (u *Updater) Download(ctx context.Context, r *Release, dir string, progress func(done, total int64)) (string, error) {
 	platform := Platform()
+	stall := u.StallTimeout
+	if stall <= 0 {
+		stall = defaultStallTimeout
+	}
+	// Without this, a server that stops sending but keeps the connection open holds
+	// the download, and the caller's guard against a second install, forever.
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	watchdog := time.AfterFunc(stall, func() { cancel(errStalled) })
+	defer watchdog.Stop()
+
 	resp, err := u.get(ctx, r.Asset.URL)
 	if err != nil {
-		return "", err
+		return "", errors.Join(err, context.Cause(ctx))
 	}
 	defer resp.Body.Close()
 
@@ -253,10 +274,14 @@ func (u *Updater) Download(ctx context.Context, r *Release, dir string, progress
 		return "", err
 	}
 	h := sha256.New()
-	w := &progressWriter{hash: h, total: max(resp.ContentLength, 0), report: progress}
+	w := &progressWriter{hash: h, total: max(resp.ContentLength, 0), report: progress,
+		received: func() { watchdog.Reset(stall) }}
 	n, copyErr := io.Copy(io.MultiWriter(f, w), io.LimitReader(resp.Body, maxUpdateSize+1))
 	w.finish()
 	closeErr := f.Close()
+	if copyErr != nil {
+		copyErr = errors.Join(copyErr, context.Cause(ctx))
+	}
 	if err := errors.Join(copyErr, closeErr); err != nil {
 		os.Remove(path)
 		return "", fmt.Errorf("updater: download %s: %w", r.Asset.URL, err)
@@ -286,16 +311,20 @@ func updateFileName(platform string) string {
 // crosses another percent (or MiB, when the size is unknown), so a fast download
 // does not flood the UI with events. total is 0 when the server sent no length.
 type progressWriter struct {
-	hash   hash.Hash
-	total  int64
-	done   int64
-	last   int64
-	report func(done, total int64)
+	hash     hash.Hash
+	total    int64
+	done     int64
+	last     int64
+	report   func(done, total int64)
+	received func()
 }
 
 func (p *progressWriter) Write(b []byte) (int, error) {
 	p.hash.Write(b)
 	p.done += int64(len(b))
+	if p.received != nil {
+		p.received()
+	}
 	if p.report != nil {
 		step := p.total / 100
 		if step <= 0 {
