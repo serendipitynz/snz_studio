@@ -79,6 +79,21 @@ const en = {
   "settings.rebuildRunningReason": "A rebuild is already running. You can press this again once it finishes.",
   "settings.rebuildEmbeddingsError": "Failed to start the rebuild",
   "settings.rebuildNeedsSave": "Save or discard the connection changes first; the rebuild uses the saved settings.",
+  "settings.updates": "Updates",
+  "settings.runningVersion": "Running version: v{version}",
+  "settings.runningVersionUnknown": "Running version: unknown (built without a version)",
+  "settings.autoCheckUpdates": "Check for a new version at startup",
+  "settings.autoCheckUpdatesNote":
+    "The check asks GitHub once per launch. When GitHub cannot be reached, nothing is shown.",
+  "settings.autoCheckSaveFailed": "The choice could not be saved. The setting is unchanged.",
+  "settings.updateSettingsLoadFailed": "The update settings could not be read.",
+  "settings.checkForUpdates": "Check now",
+  "settings.checkingForUpdates": "Checking for a new version…",
+  "settings.upToDate": "You have the latest version.",
+  "settings.updateAvailable": "A new version, v{version}, is available.",
+  "settings.updateCheckFailed":
+    "Could not check for a new version. Make sure you are connected to the internet and try again.",
+  "settings.openUpdate": "Update…",
   "settings.save": "Save configuration",
   "settings.saving": "Saving...",
   "settings.loadError": "Failed to load configuration",
@@ -573,7 +588,33 @@ const en = {
   "category.timeline": "timeline",
   "category.index": "index",
   "category.story": "story",
-  "category.misc": "misc"
+  "category.misc": "misc",
+
+  "update.heading": "A new version is available",
+  "update.versions": "SNZ Studio v{version} is available. You are running v{current}.",
+  "update.howItWorks":
+    "Updating downloads the new version and puts it in place. The app then quits and starts again as the new version.",
+  "update.systemMayAsk": "The system may ask for your password or an administrator's approval.",
+  "update.releaseNotes": "What changed in this version (Releases page)",
+  "update.later": "Later",
+  "update.install": "Update",
+  "update.downloading": "Downloading the new version",
+  "update.downloadAmount": "{done} MB / {total} MB ({pct}%)",
+  "update.installing": "Checking the download and putting it in place",
+  "update.restarting": "Starting again as the new version",
+  "update.busyClose": "The update is under way and cannot be stopped here.",
+  "update.failed": "The update was not made.",
+  "update.manualHeading": "Update from the Releases page",
+  "update.manualLead": "This copy of the app cannot update itself. Download v{version} from the Releases page and install it.",
+  "update.manualTranslocated":
+    "The app is running from where it was downloaded. Move it to the Applications folder and start it from there, and later versions can be updated from inside the app.",
+  "update.manualReadOnlyVolume":
+    "The app is running from a read-only place, such as the disk image it came in. Copy it to the Applications folder and start it from there.",
+  "update.manualNotWritable": "This account cannot replace the app where it is installed.",
+  "update.manualNotInstalled": "This copy was not installed with the installer, so it cannot replace itself.",
+  "update.manualUnsupportedPlatform": "Updating from inside the app is not available on this system.",
+  "update.manualDevBuild": "A development build does not update itself.",
+  "update.openReleases": "Open the Releases page"
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -644,6 +685,21 @@ const ja: Record<MessageKey, string> = {
   "settings.rebuildRunningReason": "作り直している最中です。終わると、もう一度押せます。",
   "settings.rebuildEmbeddingsError": "作り直しを開始できませんでした",
   "settings.rebuildNeedsSave": "作り直しは保存済みの設定で行います。先に接続設定の変更を保存するか、元に戻してください。",
+  "settings.updates": "更新",
+  "settings.runningVersion": "実行中のバージョン: v{version}",
+  "settings.runningVersionUnknown": "実行中のバージョン: 不明 (バージョンを埋め込まずにビルドしたもの)",
+  "settings.autoCheckUpdates": "起動時に新しいバージョンを確認する",
+  "settings.autoCheckUpdatesNote":
+    "確認では、起動のたびに GitHub へ 1 回問い合わせます。問い合わせられなかったときは何も表示しません。",
+  "settings.autoCheckSaveFailed": "選択を保存できませんでした。設定は変わっていません。",
+  "settings.updateSettingsLoadFailed": "更新の設定を読み込めませんでした。",
+  "settings.checkForUpdates": "今すぐ確認",
+  "settings.checkingForUpdates": "新しいバージョンを確認しています…",
+  "settings.upToDate": "最新バージョンです。",
+  "settings.updateAvailable": "新しいバージョン v{version} があります。",
+  "settings.updateCheckFailed":
+    "新しいバージョンを確認できませんでした。インターネットに接続しているか確かめて、もう一度試してください。",
+  "settings.openUpdate": "更新する…",
   "settings.save": "設定を保存",
   "settings.saving": "保存中...",
   "settings.loadError": "設定の読み込みに失敗しました",
@@ -1128,7 +1184,33 @@ const ja: Record<MessageKey, string> = {
   "category.timeline": "年表",
   "category.index": "索引",
   "category.story": "ストーリー",
-  "category.misc": "その他"
+  "category.misc": "その他",
+
+  "update.heading": "新しいバージョンがあります",
+  "update.versions": "SNZ Studio の新しいバージョン v{version} が公開されています。実行中のバージョンは v{current} です。",
+  "update.howItWorks": "更新すると、新しいバージョンをダウンロードして入れ替えます。そのあとアプリを終了し、新しいバージョンで起動し直します。",
+  "update.systemMayAsk": "システムがパスワードや管理者の承認を求めることがあります。",
+  "update.releaseNotes": "このバージョンの変更内容 (Releases ページ)",
+  "update.later": "後で",
+  "update.install": "更新する",
+  "update.downloading": "新しいバージョンをダウンロードしています",
+  "update.downloadAmount": "{done} MB / {total} MB ({pct}%)",
+  "update.installing": "ダウンロードしたファイルを確かめて入れ替えています",
+  "update.restarting": "新しいバージョンで起動し直しています",
+  "update.busyClose": "更新の途中なので、ここでは止められません。",
+  "update.failed": "更新は行われませんでした。",
+  "update.manualHeading": "Releases ページから更新してください",
+  "update.manualLead":
+    "このアプリは、アプリの中からは更新できません。Releases ページから v{version} をダウンロードして入れてください。",
+  "update.manualTranslocated":
+    "ダウンロードした場所から直接起動しています。「アプリケーション」フォルダへ移して起動し直すと、次のバージョンからはアプリの中で更新できます。",
+  "update.manualReadOnlyVolume":
+    "ディスクイメージなど、読み取り専用の場所から起動しています。「アプリケーション」フォルダへコピーし、そこから起動してください。",
+  "update.manualNotWritable": "このアカウントでは、インストールされている場所のアプリを入れ替えられません。",
+  "update.manualNotInstalled": "このアプリはインストーラで入れたものではないため、自分自身を入れ替えられません。",
+  "update.manualUnsupportedPlatform": "この環境では、アプリの中から更新できません。",
+  "update.manualDevBuild": "開発用のビルドは自分自身を更新しません。",
+  "update.openReleases": "Releases ページを開く"
 };
 
 const dictionaries = { en, ja };

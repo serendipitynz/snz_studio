@@ -3,14 +3,18 @@ import { api, EmbeddingRebuildState, EmbeddingStatus, WorkspaceConfiguration } f
 import { Language, MessageKey, useLanguage } from "../i18n";
 import { ThemeMode, useThemeController } from "../styles/ThemeController";
 import type { ThemeFamily } from "../styles/themes";
+import { CheckForUpdate, GetAutoCheckUpdates, GetVersion, SetAutoCheckUpdates } from "../wailsjs/go/main/App";
 import { ActionButton } from "./ActionButton";
 import { announce } from "./announce";
+import { Checkbox } from "./Checkbox";
 import { useConfirm } from "./ConfirmDialog";
 import { Dialog, DialogBody, DialogHeader, DialogTitle } from "./Dialog";
 import { FailureNotice, InfoNotice } from "./FailureNotice";
 import { CheckIcon, RotateCwIcon } from "./icons";
 import { Progress } from "./Progress";
 import { pollRebuildState } from "./rebuildPoll";
+import { useUpdateOffer } from "./UpdateDialog";
+import { AvailableUpdate, availableUpdate } from "./updateCheck";
 import {
   Card,
   Field,
@@ -136,6 +140,111 @@ function embeddingStatusLabel(t: Translate, status: EmbeddingStatus | null): str
     default:
       return t("settings.embedKeywordOnly");
   }
+}
+
+type CheckOutcome = { kind: "upToDate" } | { kind: "available"; update: AvailableUpdate } | { kind: "failed" };
+
+// The running version, the startup check's switch, and a check on demand. The
+// switch saves as it is changed, like the theme and the language above it.
+function UpdatesSection({ t }: { t: Translate }) {
+  const offerUpdate = useUpdateOffer();
+  const [version, setVersion] = useState<string | null>(null);
+  const [autoCheck, setAutoCheck] = useState<boolean | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [autoCheckSaveFailed, setAutoCheckSaveFailed] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [outcome, setOutcome] = useState<CheckOutcome | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([GetVersion(), GetAutoCheckUpdates()])
+      .then(([running, enabled]) => {
+        if (!active) return;
+        setVersion(running);
+        setAutoCheck(enabled);
+      })
+      .catch(() => {
+        if (active) setLoadFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function changeAutoCheck(enabled: boolean) {
+    const previous = autoCheck;
+    setAutoCheck(enabled);
+    setAutoCheckSaveFailed(false);
+    try {
+      await SetAutoCheckUpdates(enabled);
+    } catch {
+      setAutoCheck(previous);
+      setAutoCheckSaveFailed(true);
+    }
+  }
+
+  async function checkNow() {
+    setChecking(true);
+    setOutcome(null);
+    announce(t("settings.checkingForUpdates"));
+    let next: CheckOutcome;
+    try {
+      const check = await CheckForUpdate();
+      const update = availableUpdate(check);
+      next = update ? { kind: "available", update } : check.status === "upToDate" ? { kind: "upToDate" } : { kind: "failed" };
+    } catch {
+      next = { kind: "failed" };
+    }
+    setChecking(false);
+    setOutcome(next);
+    if (next.kind === "upToDate") {
+      announce(t("settings.upToDate"));
+    } else if (next.kind === "available") {
+      offerUpdate(next.update);
+    }
+  }
+
+  return (
+    <Card>
+      <Stack>
+        <SubsectionTitle>{t("settings.updates")}</SubsectionTitle>
+        {loadFailed ? <FailureNotice>{t("settings.updateSettingsLoadFailed")}</FailureNotice> : null}
+        {version !== null ? (
+          <Subtle>
+            {version ? t("settings.runningVersion", { version }) : t("settings.runningVersionUnknown")}
+          </Subtle>
+        ) : null}
+        {autoCheck !== null ? (
+          <Checkbox checked={autoCheck} onChange={(enabled) => void changeAutoCheck(enabled)}>
+            {t("settings.autoCheckUpdates")}
+          </Checkbox>
+        ) : null}
+        <Subtle>{t("settings.autoCheckUpdatesNote")}</Subtle>
+        {autoCheckSaveFailed ? <FailureNotice>{t("settings.autoCheckSaveFailed")}</FailureNotice> : null}
+        {outcome?.kind === "upToDate" ? <Subtle>{t("settings.upToDate")}</Subtle> : null}
+        {outcome?.kind === "available" ? (
+          <Subtle>{t("settings.updateAvailable", { version: outcome.update.version })}</Subtle>
+        ) : null}
+        {outcome?.kind === "failed" ? <FailureNotice>{t("settings.updateCheckFailed")}</FailureNotice> : null}
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 10 }}>
+          {outcome?.kind === "available" ? (
+            <ActionButton type="button" variant="normal" onClick={() => offerUpdate(outcome.update)}>
+              {t("settings.openUpdate")}
+            </ActionButton>
+          ) : null}
+          <ActionButton
+            type="button"
+            variant="normal"
+            icon={<RotateCwIcon />}
+            busy={checking}
+            onClick={() => void checkNow()}
+          >
+            {t("settings.checkForUpdates")}
+          </ActionButton>
+        </div>
+      </Stack>
+    </Card>
+  );
 }
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
@@ -710,6 +819,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             </div>
           </Stack>
         </Card>
+
+        <UpdatesSection t={t} />
       </DialogBody>
     </Dialog>
   );
