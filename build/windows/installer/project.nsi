@@ -30,6 +30,16 @@ Unicode true
 ####
 ## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
 ####
+# Per-user install: %LOCALAPPDATA%\Programs, the uninstall entry under HKCU and the
+# current user's shortcuts, so neither installing nor the in-app update asks for an
+# administrator. The two have to move together: wails_tools.nsh picks the install
+# directory and the registry hive from WAILS_INSTALL_SCOPE but the shell context
+# and the manifest's execution level from REQUEST_EXECUTION_LEVEL, and either one
+# left at its admin default makes an unelevated installer write to Program Files or
+# HKLM and fail.
+!define WAILS_INSTALL_SCOPE "user"
+!define REQUEST_EXECUTION_LEVEL "user"
+####
 ## Include the wails tools
 ####
 !include "wails_tools.nsh"
@@ -83,14 +93,56 @@ OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the inst
 !endif # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
+# /UPDATE is passed only by the app's own updater (internal/updater/install_windows.go),
+# together with /S and /D=<the running install>. It makes the installer wait for the
+# app to exit before writing over it and start the new version afterwards; a silent
+# install without it (CI's own check, a scripted install) behaves as before.
+Var IsUpdate
+
 Function .onInit
    !insertmacro wails.checkArchitecture
+   ${GetParameters} $R0
+   ClearErrors
+   ${GetOptions} $R0 "/UPDATE" $R1
+   ${IfNot} ${Errors}
+       StrCpy $IsUpdate "1"
+   ${EndIf}
+FunctionEnd
+
+# The app launches the installer as the last thing it does before exiting, so the exe
+# can still be held open for a moment. A running exe cannot be opened for writing;
+# retry until it can, for up to 30 seconds, after which File reports the failure.
+Function WaitForAppExit
+    StrCpy $R2 0
+    ${DoWhile} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        ClearErrors
+        FileOpen $R3 "$INSTDIR\${PRODUCT_EXECUTABLE}" a
+        ${IfNot} ${Errors}
+            FileClose $R3
+            ${Break}
+        ${EndIf}
+        IntOp $R2 $R2 + 1
+        ${If} $R2 >= 60
+            ${Break}
+        ${EndIf}
+        Sleep 500
+    ${Loop}
+FunctionEnd
+
+Function .onInstSuccess
+    ${If} $IsUpdate == "1"
+        Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+    ${EndIf}
 FunctionEnd
 
 Section
     !insertmacro wails.setShellContext
 
     !insertmacro wails.webview2runtime
+
+    ${If} $IsUpdate == "1"
+        Call WaitForAppExit
+    ${EndIf}
 
     SetOutPath $INSTDIR
 
