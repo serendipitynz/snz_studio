@@ -13,6 +13,12 @@
 // on Windows, which would treat it as a command and fail before Wails starts.
 //
 // The pin is read from go.mod so that the floor and the cap cannot drift apart.
+//
+// It also stamps wails.json's info.productVersion into the binary
+// (-ldflags -X main.appVersion), the only place the running app can read its own
+// version from: Wails writes that field into Info.plist and the Windows resources,
+// neither of which Go reads. release.yml checks the field against the tag, so a
+// release build always reports the version it was tagged with.
 
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -21,6 +27,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const goModPath = join(repoRoot, "go.mod");
+const wailsJSONPath = join(repoRoot, "wails.json");
 
 const toolchain = readFileSync(goModPath, "utf8").match(
   /^toolchain\s+(go\d[0-9A-Za-z.\-]*)\s*$/m,
@@ -34,7 +41,24 @@ if (!toolchain) {
   process.exit(1);
 }
 
-const child = spawn("wails", process.argv.slice(2), {
+const version = JSON.parse(readFileSync(wailsJSONPath, "utf8")).info?.productVersion;
+if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) {
+  console.error(`${wailsJSONPath}: info.productVersion must be MAJOR.MINOR.PATCH, got ${JSON.stringify(version)}.`);
+  process.exit(1);
+}
+
+const args = process.argv.slice(2);
+if (args[0] === "build" || args[0] === "dev") {
+  const stamp = `-X main.appVersion=${version}`;
+  const i = args.indexOf("-ldflags");
+  if (i >= 0 && i + 1 < args.length) {
+    args[i + 1] = `${stamp} ${args[i + 1]}`;
+  } else {
+    args.push("-ldflags", stamp);
+  }
+}
+
+const child = spawn("wails", args, {
   stdio: "inherit",
   env: { ...process.env, GOTOOLCHAIN: toolchain },
 });
