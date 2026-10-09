@@ -49,12 +49,50 @@ lists their checksums.
   notarized, so it opens without a Gatekeeper warning. Drag the app onto the Applications folder.
   The bundled embedding sidecar is arm64 only, so on an Intel Mac built-in embedding does not
   start; point embeddings at an external endpoint instead (see "LLM connection").
-- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`. It is not code-signed, so
-  SmartScreen warns on first launch ("More info" → "Run anyway"). The installer fetches the WebView2
-  runtime when it is missing.
+- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`. It installs for the current user into
+  `%LOCALAPPDATA%\Programs\SNZ Studio`, without asking for administrator approval. It is not
+  code-signed, so SmartScreen warns on first launch ("More info" → "Run anyway"). The installer
+  fetches the WebView2 runtime when it is missing.
 
 An LLM endpoint (LM Studio, Ollama or another OpenAI-compatible server) is still needed; see
 "LLM connection".
+
+## Updates
+
+The app updates itself from the [Releases](https://github.com/serendipitynz/snz_studio/releases)
+page.
+
+- About five seconds after launch, the app asks GitHub once whether a newer version has been
+  published. When there is one, a dialog shows its version number; nothing is downloaded until you
+  choose "Update". When GitHub cannot be reached, nothing is shown. This check is the only time the
+  app connects to the internet without being asked to.
+- To turn the check off, open Settings and clear "Check for a new version at startup" under
+  "Updates". The same section shows the running version and has "Check now" for checking by hand.
+- After you choose "Update", the app downloads the new version, checks its signature against the
+  public key built into the app, and replaces itself only when the check passes. It then quits and
+  starts again as the new version. When the download or the signature check fails, or macOS cannot
+  replace the `.app`, the dialog says the update was not made, and the installed version stays as it
+  was. Once the app has quit, nothing reports back: if no new version starts, start the app yourself
+  and check the running version in Settings.
+- macOS replaces the `.app` where it is installed. When it cannot — the app is running from the
+  disk image or from where it was downloaded, or your account cannot write to the folder holding it
+  — the dialog points you to the Releases page instead. Keep the app in the Applications folder.
+- Windows runs the new version's installer, which replaces the copy installed for the current user.
+- The system may ask for your password or an administrator's approval during an update. On
+  Windows, neither installing nor updating asked for administrator approval in testing.
+
+### Moving from v0.1.0
+
+v0.1.0 cannot update itself, so it never learns about a new version. Replace it by hand once:
+download the new installer from the Releases page and install it as described under
+"Installation". Later versions update from inside the app.
+
+On Windows the install location has changed as well. v0.1.0 installed into `Program Files`; later
+versions install for the current user into `%LOCALAPPDATA%\Programs\SNZ Studio`, and their installer
+does not remove the old copy. Before installing the new version, uninstall v0.1.0 from Settings →
+Apps (Installed apps, or Apps & features on Windows 10). Your projects, chats and settings are kept:
+they live under `%AppData%\snz-studio` (see "Data location and migration"), which neither the
+uninstaller nor the installer touches.
 
 ## Structure
 
@@ -257,11 +295,11 @@ Main env overrides: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_AR
 
 ### 3. Releases (GitHub Actions)
 
-`.github/workflows/release.yml` builds a version tag and attaches the installers to a **draft**
-GitHub release. The build is `.github/workflows/build.yml` called with signing on: the macOS
-`.app` and `.dmg` are signed, notarized and stapled in CI with the same steps as
-`scripts/build-mac-signed.sh`; Windows stays unsigned. A manual run of `build.yml` alone still
-produces unsigned artifacts.
+`.github/workflows/release.yml` builds a version tag and attaches the installers, the update files
+and `latest.json` to a **draft** GitHub release. The build is `.github/workflows/build.yml` called
+with signing on: the macOS `.app` and `.dmg` are signed, notarized and stapled in CI with the same
+steps as `scripts/build-mac-signed.sh`; Windows stays unsigned. A manual run of `build.yml` alone
+still produces unsigned artifacts.
 
 One-time setup — register the six `APPLE_*` repository secrets the macOS build signs with:
 
@@ -274,6 +312,14 @@ One-time setup — register the six `APPLE_*` repository secrets the macOS build
 
 ```bash
 ./scripts/setup-ci-signing-secrets.sh path/to/DeveloperID.p12
+```
+
+Then register `UPDATE_SIGNING_KEY`, the Ed25519 private key that signs the update files. The script
+first checks the key against the public key committed in `internal/updatesig/update-signing-key.pub`
+and refuses one that does not match it, and registers nothing else:
+
+```bash
+./scripts/setup-ci-signing-secrets.sh --update-key ~/.config/snz-studio/update-signing.key
 ```
 
 To cut a release:
@@ -290,15 +336,56 @@ To cut a release:
    git push origin v0.1.0
    ```
 
-3. The workflow stops before building when a secret is missing, the tag does not match the two
-   versions, or a release for the tag is already published. Otherwise it creates the draft with
-   notes generated from the pull requests merged since the previous version tag (grouped by
-   `.github/release.yml`) and attaches the `.dmg`, the Windows installer and `SHA256SUMS.txt`.
+3. The workflow stops before building when a secret is missing, `UPDATE_SIGNING_KEY` does not
+   match the committed public key, the tag does not match the two versions, or a release for the
+   tag is already published. Otherwise it creates the draft with notes generated from the pull
+   requests merged since the previous version tag (grouped by `.github/release.yml`) and attaches
+   the `.dmg`, the macOS update archive (`.app.zip`), the Windows installer, `latest.json` and
+   `SHA256SUMS.txt`. The update archive and the installer are signed with `UPDATE_SIGNING_KEY` and
+   checked against the committed public key before anything is uploaded.
 4. Read the notes, check the assets, and publish the draft on GitHub. Nothing publishes it
-   automatically.
+   automatically. **Publishing is what starts the update:** installed apps see only published
+   releases that are not marked as a pre-release, so a draft stays invisible to them, and every app
+   with the check on offers the new version from its next launch.
 
 A failed run can be repeated from the Actions tab (`release` → "Run workflow" with the tag): it
 reuses the draft rather than creating a second one.
+
+For the first release that carries in-app updates, add the paragraph below to the English half of
+the draft's notes, and its Japanese counterpart (in README.ja.md) to the Japanese half, before
+publishing. v0.1.0 users read it there, since v0.1.0 never offers the update:
+
+> **Moving from v0.1.0.** v0.1.0 cannot update itself, so install this version by hand once. From
+> this version on, the app checks for new versions and updates itself; the check can be turned off
+> in Settings. **On Windows**, this version installs for the current user into
+> `%LOCALAPPDATA%\Programs\SNZ Studio` instead of `Program Files`, and its installer does not remove
+> v0.1.0. Uninstall v0.1.0 first from Settings → Apps (Installed apps, or Apps & features on
+> Windows 10). Your projects, chats and settings are stored elsewhere and are kept.
+
+#### The update signing key
+
+The installed app accepts an update only when its signature verifies against the public key built
+into the app's own binary. `UPDATE_SIGNING_KEY` is the matching private key. It is kept in two
+places: `~/.config/snz-studio/update-signing.key` on the release machine and a password manager.
+
+**Losing or replacing the private key cuts off every installed copy.** A new key signs updates
+that the public key inside already-installed apps rejects, so none of them can update again, and
+every user has to install a new version by hand. Nothing in the release process can recover from
+that, so the key is a backup matter, not an incident to handle later: keep both copies, and do not
+generate a new key (`go run ./tools/updatesig keygen`) unless the old one is gone or exposed.
+
+#### Rules for changing the release workflow
+
+- **Only the `attach` job writes `latest.json`.** It runs after both platform builds, so the file
+  always lists both `darwin-universal` and `windows-amd64`. Writing it from the parallel build jobs
+  would let one platform's entry overwrite or drop the other's.
+- **Every URL is pinned to the tag** (`releases/download/vX.Y.Z/…`), both the one the app reads
+  `latest.json` from and the ones inside it. A `releases/latest/…` URL moves when a later release is
+  published, and then stops naming the file whose signature sits beside it.
+- **Model releases do not affect the update check.** This repository also publishes model assets
+  under other tags (`ruri-v3-30m-q8_0-…`), which can become GitHub's "latest" release. The app
+  therefore ignores `releases/latest`, lists the published releases and takes the highest
+  `vMAJOR.MINOR.PATCH` tag, so a model release is never offered as an update.
 
 ### Regenerating the built-in embedding model (GGUF)
 

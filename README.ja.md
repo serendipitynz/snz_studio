@@ -41,10 +41,49 @@ ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS �
   Gatekeeper の警告なしに開けます。アプリを Applications フォルダへドラッグしてください。
   同梱の embedding サイドカーは arm64 版だけなので、Intel Mac では内蔵 embedding が起動しません。
   embedding には外部の接続先を指定してください（「LLM 接続」）。
-- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`。コード署名をしていないので、初回起動時に
-  SmartScreen の警告が出ます（「詳細情報」→「実行」）。WebView2 ランタイムが無ければ、インストーラが取得します。
+- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`。現在のユーザー用に
+  `%LOCALAPPDATA%\Programs\SNZ Studio` へインストールし、管理者の承認は求めません。コード署名をしていないので、
+  初回起動時に SmartScreen の警告が出ます（「詳細情報」→「実行」）。WebView2 ランタイムが無ければ、
+  インストーラが取得します。
 
 LLM の接続先（LM Studio・Ollama などの OpenAI 互換サーバ）は別に必要です。「LLM 接続」を参照してください。
+
+## 更新
+
+アプリは [Releases](https://github.com/serendipitynz/snz_studio/releases) ページから自分で更新します。
+
+- 起動して 5 秒ほどたつと、新しいバージョンが公開されているかを GitHub に 1 回だけ問い合わせます。
+  あれば、そのバージョン番号をダイアログで示します。「更新する」を選ぶまでは何もダウンロードしません。
+  GitHub につながらないときは何も表示しません。利用者に頼まれずにアプリがインターネットへ接続するのは、
+  この確認だけです。
+- 確認をオフにするには、設定を開き、「更新」の「起動時に新しいバージョンを確認する」のチェックを外します。
+  同じ区画に実行中のバージョンが表示され、手動で確認する「今すぐ確認」もあります。
+- 「更新する」を選ぶと、新しいバージョンをダウンロードし、アプリに組み込まれた公開鍵で署名を確かめ、
+  確かめられたときだけ入れ替えます。そのあとアプリを終了し、新しいバージョンで起動し直します。
+  ダウンロードや署名の確認に失敗したとき、macOS で `.app` を入れ替えられなかったときは、ダイアログが
+  「更新は行われませんでした」と伝え、インストール済みのバージョンはそのまま残ります。アプリが終了した
+  あとのことは、どこにも知らされません。新しいバージョンが起動しなかったときは、自分でアプリを起動し、
+  設定で実行中のバージョンを確かめてください。
+- macOS では、インストールされている場所の `.app` を入れ替えます。入れ替えられないとき（ディスクイメージや
+  ダウンロードした場所から起動している、そのフォルダにアカウントが書き込めない）は、代わりに Releases
+  ページへ案内します。アプリは Applications フォルダに置いてください。
+- Windows では、新しいバージョンのインストーラを実行し、現在のユーザー用にインストールされたものを
+  入れ替えます。
+- 更新のとき、システムがパスワードや管理者の承認を求めることがあります。Windows では、確認した範囲では
+  インストールでも更新でも管理者の承認は求められませんでした。
+
+### v0.1.0 からの移行
+
+v0.1.0 には自分で更新する機能が無いので、新しいバージョンが出ても気づきません。一度だけ手で入れ替えて
+ください。Releases ページから新しいインストーラをダウンロードし、「インストール」のとおりに入れます。
+それ以降のバージョンは、アプリの中から更新できます。
+
+Windows では、インストール先も変わりました。v0.1.0 は `Program Files` にインストールしていましたが、
+それ以降のバージョンは現在のユーザー用に `%LOCALAPPDATA%\Programs\SNZ Studio` へインストールし、
+インストーラは古いほうを消しません。新しいバージョンを入れる前に、設定 → アプリ（「インストールされている
+アプリ」、Windows 10 では「アプリと機能」）から v0.1.0 をアンインストールしてください。プロジェクト・チャット・
+設定は引き継がれます。これらは `%AppData%\snz-studio`（「データ保存先と移行」）にあり、アンインストーラも
+インストーラも触れないためです。
 
 ## 構成
 
@@ -108,7 +147,7 @@ SQLite には最低限以下を持たせています。
 
 ## 必要なツール
 
-- Go 1.26.3 以上（手元に無い版は `go` コマンドが自動で取得するため、事前に特定の版を
+- Go 1.26.3 以上（手元に無いバージョンは `go` コマンドが自動で取得するため、事前に特定のバージョンを
   入れておく必要はありません）
 - Node 22 / pnpm（フロントのビルドに使用。`wails` が自動で実行します）
 - [Wails CLI v2](https://wails.io/)（`go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0`）
@@ -117,7 +156,7 @@ SQLite には最低限以下を持たせています。
 > 埋め込まれていて go.mod からは差し替えられないため、CLI が読めるより新しい Go で
 > ビルドすると `internal error: package "math" without types was imported from ...` で
 > バインド生成が落ちます。そこで **`wails` は直接ではなく下記の pnpm スクリプト経由で
-> 起動してください** — スクリプト（`scripts/wails.mjs`）が `GOTOOLCHAIN` に使用する版を
+> 起動してください** — スクリプト（`scripts/wails.mjs`）が `GOTOOLCHAIN` に使用するバージョンを
 > 厳密指定するので、手元にどの Go が入っていても結果が変わりません。
 >
 > go.mod の `toolchain` ディレクティブは**下限**（これ未満ではビルドしない）であって
@@ -196,15 +235,15 @@ pnpm sidecar --app    # 配布用: どちらも pnpm build:app の成果物に�
   アプリがモデルをダウンロードすることはありません。
 - 置くのは `llama-server` と共有ライブラリ（dylib / DLL）だけです（macOS では、署名していない実行ファイルが
   あると公証に通らないため）。
-- 同じ版と GGUF が置いてあれば何もしません。取得したファイルは `build/sidecar/.downloads/` に残るので、
+- 同じバージョンと GGUF が置いてあれば何もしません。取得したファイルは `build/sidecar/.downloads/` に残るので、
   `pnpm build:app` をやり直した後の `pnpm sidecar --app` では取得し直しません。
 - `--arch arm64|amd64` で CPU を指定できます（例: universal の `.app` に arm64 のサイドカーを置く）。
-- 同梱する llama.cpp の版と sha256 は `scripts/sidecar.mjs` の 1 か所で、GGUF の URL・サイズ・sha256 は
+- 同梱する llama.cpp のバージョンと sha256 は `scripts/sidecar.mjs` の 1 か所で、GGUF の URL・サイズ・sha256 は
   `internal/embed/modelspec.go` の 1 か所で固定しています。CI と `scripts/build-mac-signed.sh` もこの
   スクリプトで両方を置きます。
 - macOS の `pnpm dev` は `build/bin/` の `.app` からアプリを起動します。その `.app` にサイドカーが置いて
   あると（`pnpm sidecar --app` や署名ビルドの後）、`build/sidecar/` より先にそちらが使われます。
-- 版を変えても、保存済みのベクトルは計算し直されません。新しい版でベクトルが変わり得るときは、内蔵
+- バージョンを変えても、保存済みのベクトルは計算し直されません。新しいバージョンでベクトルが変わり得るときは、内蔵
   embedding の準備が整った後に、設定画面の「埋め込みの作り直し」で「作り直す」を押します
   （`POST /api/embedding/rebuild`）。設定の保存で全件を作り直すのは、埋め込みソース（モード、外部の
   エンドポイントかモデル）を変えたときだけです。この区画には、作り直しの最中か（終わるまで「作り直す」は
@@ -229,7 +268,7 @@ dylib）とモデル GGUF の staging → サイドカーの署名 → hardened 
 - notarytool の保存済みプロファイル（既定名 `snzstudio`。`xcrun notarytool store-credentials` で一度だけ作成）
 
 主な env 上書き: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_ARCH`（`arm64` / `amd64`）。
-サイドカーの版は `scripts/sidecar.mjs` で、GGUF は `internal/embed/modelspec.go` で固定しています。
+サイドカーのバージョンは `scripts/sidecar.mjs` で、GGUF は `internal/embed/modelspec.go` で固定しています。
 
 > Windows の署名は未対応です（当面は未署名配布）。
 >
@@ -238,8 +277,8 @@ dylib）とモデル GGUF の staging → サイドカーの署名 → hardened 
 
 ### 3. リリース（GitHub Actions）
 
-`.github/workflows/release.yml` が、バージョンのタグをビルドし、インストーラを GitHub Release の**下書き**に
-添付します。ビルドは、`.github/workflows/build.yml` を署名ありで呼び出したものです。macOS の `.app` と
+`.github/workflows/release.yml` が、バージョンのタグをビルドし、インストーラ・更新用ファイル・`latest.json` を
+GitHub Release の**下書き**に添付します。ビルドは、`.github/workflows/build.yml` を署名ありで呼び出したものです。macOS の `.app` と
 `.dmg` は、`scripts/build-mac-signed.sh` と同じ手順で CI 上で署名・公証・staple します。Windows は未署名の
 ままです。`build.yml` を単独で手動実行したときは、これまでどおり未署名の成果物ができます。
 
@@ -253,6 +292,14 @@ dylib）とモデル GGUF の staging → サイドカーの署名 → hardened 
 
 ```bash
 ./scripts/setup-ci-signing-secrets.sh path/to/DeveloperID.p12
+```
+
+続けて、更新用ファイルに署名する Ed25519 の秘密鍵 `UPDATE_SIGNING_KEY` を登録します。スクリプトは
+先に、コミット済みの公開鍵 `internal/updatesig/update-signing-key.pub` と対になっているかを確かめ、
+対でない鍵は登録しません。ほかの secrets には触れません。
+
+```bash
+./scripts/setup-ci-signing-secrets.sh --update-key ~/.config/snz-studio/update-signing.key
 ```
 
 リリースの手順:
@@ -269,14 +316,55 @@ dylib）とモデル GGUF の staging → サイドカーの署名 → hardened 
    git push origin v0.1.0
    ```
 
-3. secrets が欠けている、タグが 2 つのバージョンと一致しない、そのタグの Release がすでに公開されている、
-   のどれかに当てはまると、ワークフローはビルドの前に止まります。そうでなければ、前のバージョンのタグ以降にマージされた
-   PR から自動生成したノート（分類は `.github/release.yml`）で下書きを作り、`.dmg`、Windows のインストーラ、
-   `SHA256SUMS.txt` を添付します。
+3. secrets が欠けている、`UPDATE_SIGNING_KEY` がコミット済みの公開鍵と対でない、タグが 2 つのバージョンと
+   一致しない、そのタグの Release がすでに公開されている、のどれかに当てはまると、ワークフローはビルドの前に
+   止まります。そうでなければ、前のバージョンのタグ以降にマージされた PR から自動生成したノート（分類は
+   `.github/release.yml`）で下書きを作り、`.dmg`、macOS の更新用アーカイブ（`.app.zip`）、Windows の
+   インストーラ、`latest.json`、`SHA256SUMS.txt` を添付します。更新用アーカイブとインストーラには
+   `UPDATE_SIGNING_KEY` で署名し、アップロードの前にコミット済みの公開鍵で検証します。
 4. ノートと添付ファイルを確認し、GitHub 上で下書きを公開します。自動では公開されません。
+   **公開した時点で更新が配られ始めます。** インストール済みのアプリが見るのは、公開済みで pre-release の
+   印が付いていないリリースだけなので、下書きのあいだは見えません。公開すると、確認をオンにしているアプリは
+   次の起動から新しいバージョンを案内します。
 
 失敗した実行は、Actions タブから（`release` →「Run workflow」でタグを指定）やり直せます。下書きは
 作り直さず、既存のものを使います。
+
+アプリ内の更新を載せた最初のリリースでは、公開する前に、下書きのノートの日本語の半分に次の段落を、
+英語の半分にその英語の文面（README.md にあります）を足します。v0.1.0 は更新を案内しないので、v0.1.0 の利用者は
+ここで知ることになります。
+
+> **v0.1.0 からの移行。** v0.1.0 には自分で更新する機能が無いので、このバージョンは一度だけ手でインストール
+> してください。このバージョンからは、アプリが新しいバージョンを確認して自分で更新します（確認は設定でオフに
+> できます）。**Windows では**、このバージョンは `Program Files` ではなく、現在のユーザー用に
+> `%LOCALAPPDATA%\Programs\SNZ Studio` へインストールし、インストーラは v0.1.0 を消しません。先に設定 →
+> アプリ（「インストールされているアプリ」、Windows 10 では「アプリと機能」）から v0.1.0 をアンインストール
+> してください。プロジェクト・チャット・設定は別の場所にあるので引き継がれます。
+
+#### 更新署名鍵
+
+インストール済みのアプリは、自分のバイナリに組み込まれた公開鍵で署名を確かめられた更新だけを受け付けます。
+`UPDATE_SIGNING_KEY` はその公開鍵と対になる秘密鍵です。保管場所は 2 つで、リリース作業をするマシンの
+`~/.config/snz-studio/update-signing.key` と、パスワードマネージャです。
+
+**秘密鍵を失くすか差し替えると、インストール済みのアプリはすべて更新できなくなります。** 新しい鍵で署名した
+更新は、インストール済みのアプリに組み込まれた公開鍵では確かめられないので、どのアプリも受け付けず、
+利用者全員に新しいバージョンを手でインストールし直してもらうしかありません。リリースの手順の側では
+取り戻せないので、これは後から対処する障害ではなく、バックアップの問題です。2 つの保管場所を保ち、
+古い鍵を失くすか漏らすかしない限り、新しい鍵（`go run ./tools/updatesig keygen`）は作りません。
+
+#### リリースのワークフローを変えるときに守ること
+
+- **`latest.json` を書くのは `attach` ジョブだけです。** このジョブは両方のプラットフォームのビルドが終わってから
+  動くので、ファイルには常に `darwin-universal` と `windows-amd64` の両方が載ります。並列のビルドジョブから
+  書くと、一方のプラットフォームの項目が他方を上書きしたり抜け落ちたりしえます。
+- **URL はすべてタグに固定します**（`releases/download/vX.Y.Z/…`）。アプリが `latest.json` を読む URL も、
+  その中の URL も同じです。`releases/latest/…` の URL は後のリリースを公開すると移り、隣に署名が置かれている
+  ファイルを指さなくなります。
+- **モデルのリリースは更新の確認に影響しません。** このリポジトリはモデルのファイルも別のタグ
+  （`ruri-v3-30m-q8_0-…`）で公開していて、それが GitHub の「latest」になることがあります。そのためアプリは
+  `releases/latest` を使わず、公開済みのリリースを一覧して最大の `vMAJOR.MINOR.PATCH` のタグを選びます。
+  モデルのリリースが更新として案内されることはありません。
 
 ### 内蔵 embedding モデル（GGUF）の再生成
 
@@ -295,7 +383,7 @@ llama.cpp `b9437` の source（converter）と release（`llama-quantize`）、H
 f16 → q8_0 → sha256 検証 → `data/models/` へ設置、までを冪等に実行します（各ステージは出力があれば skip）。
 `internal/embed/modelspec.go` に pin した sha256 と一致しない場合は中断します。
 
-スクリプト自体は macOS でしか動きませんが、手順は OS に依存しません。同じ版の Windows の
+スクリプト自体は macOS でしか動きませんが、手順は OS に依存しません。同じバージョンの Windows の
 `llama-quantize.exe` で量子化しても、Python 3.10 と 3.12 のどちらでも、同じ sha256 になりました。
 HF からダウンロードしたディレクトリの名前が GGUF のメタデータに入るので、名前は `ruri-v3-30m` のままにします。
 新しい GGUF は新しいリリースタグで公開し、`modelspec.go` の `URL` / `SHA256` / `SizeBytes` も変えます。
