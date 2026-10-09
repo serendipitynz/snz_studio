@@ -145,7 +145,7 @@ SQLite には最低限以下を持たせています。
 
 ## 必要なツール
 
-- Go 1.26.3 以上（手元に無い版は `go` コマンドが自動で取得するため、事前に特定の版を
+- Go 1.26.3 以上（手元に無いバージョンは `go` コマンドが自動で取得するため、事前に特定のバージョンを
   入れておく必要はありません）
 - Node 22 / pnpm（フロントのビルドに使用。`wails` が自動で実行します）
 - [Wails CLI v2](https://wails.io/)（`go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0`）
@@ -154,7 +154,7 @@ SQLite には最低限以下を持たせています。
 > 埋め込まれていて go.mod からは差し替えられないため、CLI が読めるより新しい Go で
 > ビルドすると `internal error: package "math" without types was imported from ...` で
 > バインド生成が落ちます。そこで **`wails` は直接ではなく下記の pnpm スクリプト経由で
-> 起動してください** — スクリプト（`scripts/wails.mjs`）が `GOTOOLCHAIN` に使用する版を
+> 起動してください** — スクリプト（`scripts/wails.mjs`）が `GOTOOLCHAIN` に使用するバージョンを
 > 厳密指定するので、手元にどの Go が入っていても結果が変わりません。
 >
 > go.mod の `toolchain` ディレクティブは**下限**（これ未満ではビルドしない）であって
@@ -233,15 +233,15 @@ pnpm sidecar --app    # 配布用: どちらも pnpm build:app の成果物に�
   アプリがモデルをダウンロードすることはありません。
 - 置くのは `llama-server` と共有ライブラリ（dylib / DLL）だけです（macOS では、署名していない実行ファイルが
   あると公証に通らないため）。
-- 同じ版と GGUF が置いてあれば何もしません。取得したファイルは `build/sidecar/.downloads/` に残るので、
+- 同じバージョンと GGUF が置いてあれば何もしません。取得したファイルは `build/sidecar/.downloads/` に残るので、
   `pnpm build:app` をやり直した後の `pnpm sidecar --app` では取得し直しません。
 - `--arch arm64|amd64` で CPU を指定できます（例: universal の `.app` に arm64 のサイドカーを置く）。
-- 同梱する llama.cpp の版と sha256 は `scripts/sidecar.mjs` の 1 か所で、GGUF の URL・サイズ・sha256 は
+- 同梱する llama.cpp のバージョンと sha256 は `scripts/sidecar.mjs` の 1 か所で、GGUF の URL・サイズ・sha256 は
   `internal/embed/modelspec.go` の 1 か所で固定しています。CI と `scripts/build-mac-signed.sh` もこの
   スクリプトで両方を置きます。
 - macOS の `pnpm dev` は `build/bin/` の `.app` からアプリを起動します。その `.app` にサイドカーが置いて
   あると（`pnpm sidecar --app` や署名ビルドの後）、`build/sidecar/` より先にそちらが使われます。
-- 版を変えても、保存済みのベクトルは計算し直されません。新しい版でベクトルが変わり得るときは、内蔵
+- バージョンを変えても、保存済みのベクトルは計算し直されません。新しいバージョンでベクトルが変わり得るときは、内蔵
   embedding の準備が整った後に、設定画面の「埋め込みの作り直し」で「作り直す」を押します
   （`POST /api/embedding/rebuild`）。設定の保存で全件を作り直すのは、埋め込みソース（モード、外部の
   エンドポイントかモデル）を変えたときだけです。この区画には、作り直しの最中か（終わるまで「作り直す」は
@@ -266,7 +266,7 @@ dylib）とモデル GGUF の staging → サイドカーの署名 → hardened 
 - notarytool の保存済みプロファイル（既定名 `snzstudio`。`xcrun notarytool store-credentials` で一度だけ作成）
 
 主な env 上書き: `DEVELOPER_ID` / `NOTARY_PROFILE` / `PLATFORM` / `SIDECAR_ARCH`（`arm64` / `amd64`）。
-サイドカーの版は `scripts/sidecar.mjs` で、GGUF は `internal/embed/modelspec.go` で固定しています。
+サイドカーのバージョンは `scripts/sidecar.mjs` で、GGUF は `internal/embed/modelspec.go` で固定しています。
 
 > Windows の署名は未対応です（当面は未署名配布）。
 >
@@ -381,7 +381,7 @@ llama.cpp `b9437` の source（converter）と release（`llama-quantize`）、H
 f16 → q8_0 → sha256 検証 → `data/models/` へ設置、までを冪等に実行します（各ステージは出力があれば skip）。
 `internal/embed/modelspec.go` に pin した sha256 と一致しない場合は中断します。
 
-スクリプト自体は macOS でしか動きませんが、手順は OS に依存しません。同じ版の Windows の
+スクリプト自体は macOS でしか動きませんが、手順は OS に依存しません。同じバージョンの Windows の
 `llama-quantize.exe` で量子化しても、Python 3.10 と 3.12 のどちらでも、同じ sha256 になりました。
 HF からダウンロードしたディレクトリの名前が GGUF のメタデータに入るので、名前は `ruri-v3-30m` のままにします。
 新しい GGUF は新しいリリースタグで公開し、`modelspec.go` の `URL` / `SHA256` / `SizeBytes` も変えます。
