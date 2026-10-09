@@ -49,12 +49,48 @@ lists their checksums.
   notarized, so it opens without a Gatekeeper warning. Drag the app onto the Applications folder.
   The bundled embedding sidecar is arm64 only, so on an Intel Mac built-in embedding does not
   start; point embeddings at an external endpoint instead (see "LLM connection").
-- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`. It is not code-signed, so
-  SmartScreen warns on first launch ("More info" → "Run anyway"). The installer fetches the WebView2
-  runtime when it is missing.
+- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`. It installs for the current user into
+  `%LOCALAPPDATA%\Programs\SNZ Studio`, without asking for administrator approval. It is not
+  code-signed, so SmartScreen warns on first launch ("More info" → "Run anyway"). The installer
+  fetches the WebView2 runtime when it is missing.
 
 An LLM endpoint (LM Studio, Ollama or another OpenAI-compatible server) is still needed; see
 "LLM connection".
+
+## Updates
+
+The app updates itself from the [Releases](https://github.com/serendipitynz/snz_studio/releases)
+page.
+
+- About five seconds after launch, the app asks GitHub once whether a newer version has been
+  published. When there is one, a dialog shows its version number; nothing is downloaded until you
+  choose "Update". When GitHub cannot be reached, nothing is shown. This check is the only time the
+  app connects to the internet without being asked to.
+- To turn the check off, open Settings and clear "Check for a new version at startup" under
+  "Updates". The same section shows the running version and has "Check now" for checking by hand.
+- After you choose "Update", the app downloads the new version, checks its signature against the
+  public key built into the app, and replaces itself only when the check passes. It then quits and
+  starts again as the new version. When any step fails, the dialog says the update was not made, and
+  the installed version stays as it was.
+- macOS replaces the `.app` where it is installed. When it cannot — the app is running from the
+  disk image or from where it was downloaded, or your account cannot write to the folder holding it
+  — the dialog points you to the Releases page instead. Keep the app in the Applications folder.
+- Windows runs the new version's installer, which replaces the copy installed for the current user.
+- The system may ask for your password or an administrator's approval during an update. On
+  Windows, neither installing nor updating asked for administrator approval in testing.
+
+### Moving from v0.1.0
+
+v0.1.0 cannot update itself, so it never learns about a new version. Replace it by hand once:
+download the new installer from the Releases page and install it as described under
+"Installation". Later versions update from inside the app.
+
+On Windows the install location has changed as well. v0.1.0 installed into `Program Files`; later
+versions install for the current user into `%LOCALAPPDATA%\Programs\SNZ Studio`, and their installer
+does not remove the old copy. Before installing the new version, uninstall v0.1.0 from Settings →
+Apps (Installed apps, or Apps & features on Windows 10). Your projects, chats and settings are kept:
+they live under `%AppData%\snz-studio` (see "Data location and migration"), which neither the
+uninstaller nor the installer touches.
 
 ## Structure
 
