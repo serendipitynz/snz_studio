@@ -1,10 +1,10 @@
 ---
 id: TASK-93
 title: '依存: Go 1.27.2 と golang.org/x/net v0.60.0 に上げ、govulncheck が検出した脆弱性を解消する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-09 11:48'
-updated_date: '2026-10-09 21:00'
+updated_date: '2026-10-09 21:03'
 labels: []
 milestone: m-2
 dependencies: []
