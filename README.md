@@ -70,8 +70,10 @@ page.
   "Updates". The same section shows the running version and has "Check now" for checking by hand.
 - After you choose "Update", the app downloads the new version, checks its signature against the
   public key built into the app, and replaces itself only when the check passes. It then quits and
-  starts again as the new version. When any step fails, the dialog says the update was not made, and
-  the installed version stays as it was.
+  starts again as the new version. When the download or the signature check fails, or macOS cannot
+  replace the `.app`, the dialog says the update was not made, and the installed version stays as it
+  was. Once the app has quit, nothing reports back: if no new version starts, start the app yourself
+  and check the running version in Settings.
 - macOS replaces the `.app` where it is installed. When it cannot — the app is running from the
   disk image or from where it was downloaded, or your account cannot write to the folder holding it
   — the dialog points you to the Releases page instead. Keep the app in the Applications folder.
