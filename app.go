@@ -37,7 +37,9 @@ type App struct {
 	db       *sql.DB
 	apiBase  string
 	apiToken string
+	cfg      *config.Config
 	embedMgr *embed.Manager
+	update   updateState
 }
 
 // NewApp constructs the App. The HTTP server is created lazily in startup once
@@ -88,6 +90,7 @@ func (a *App) startup(ctx context.Context) {
 	a.db = database
 
 	cfg := config.Load(paths.AppConfigPath)
+	a.cfg = cfg
 	a.embedMgr = embed.NewManager(paths.ModelsDir)
 	srv := httpapi.NewServer(database, cfg, paths.UploadDir, a.embedMgr)
 
@@ -120,6 +123,7 @@ func (a *App) startup(ctx context.Context) {
 	a.apiBase = fmt.Sprintf("http://%s", ln.Addr().String())
 	log.Printf("api: listening on http://%s (apiBase=%q, dev=%v)", ln.Addr(), a.apiBase, bootstrap.IsDev)
 	log.Printf("api: data dir %s", paths.DataDir)
+	log.Printf("app: version %q", appVersion)
 
 	a.server = &http.Server{
 		Handler:           srv.Handler(),
@@ -147,11 +151,10 @@ func (a *App) startup(ctx context.Context) {
 }
 
 // shutdown gracefully stops the local API server and closes the database when the
-// app closes.
+// app closes, then starts the new version when an update asked for it.
 func (a *App) shutdown(_ context.Context) {
-	if a.embedMgr != nil {
-		a.embedMgr.Shutdown()
-	}
+	defer a.relaunchAfterUpdate()
+	a.stopEmbedding()
 	if a.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -163,6 +166,20 @@ func (a *App) shutdown(_ context.Context) {
 		if err := a.db.Close(); err != nil {
 			log.Printf("api: close database: %v", err)
 		}
+	}
+}
+
+func (a *App) stopEmbedding() {
+	if a.embedMgr != nil {
+		a.embedMgr.Shutdown()
+	}
+}
+
+// restartEmbedding undoes stopEmbedding when an update stopped the sidecar and then
+// failed, so the app keeps running as it was.
+func (a *App) restartEmbedding() {
+	if a.embedMgr != nil && a.cfg != nil && a.cfg.Get().EmbeddingMode == "internal" {
+		a.embedMgr.EnsureInternalReady(a.ctx)
 	}
 }
 
