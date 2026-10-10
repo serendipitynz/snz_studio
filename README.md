@@ -348,6 +348,24 @@ To cut a release:
    releases that are not marked as a pre-release, so a draft stays invisible to them, and every app
    with the check on offers the new version from its next launch.
 
+   Edit the draft's notes on GitHub's release page. **Editing them through the API can detach the
+   tag:** a `PATCH repos/…/releases/<id>` that sends only `body` replaces the draft's `tag_name`
+   with `untagged-…` (it happened on v0.2.0). Publishing that draft creates the `untagged-…` tag on
+   the head of `main` instead; the app looks only for `vX.Y.Z` tags, so it never offers the
+   release, and every URL in `latest.json` returns 404. When you edit the notes through the API,
+   send `tag_name` together with `body`.
+
+   Before publishing, check that the draft still carries the release's tag. The command below
+   should print the new `vX.Y.Z`, not `untagged-…`:
+
+   ```bash
+   gh api 'repos/{owner}/{repo}/releases' --jq '.[] | select(.draft) | .tag_name'
+   ```
+
+   Immutable releases are on for this repository: once published, a release's tag cannot be
+   changed. A release published with the wrong tag can only be deleted and created again, and the
+   name of the tag deleted with it can never be used again.
+
 A failed run can be repeated from the Actions tab (`release` → "Run workflow" with the tag): it
 reuses the draft rather than creating a second one.
 
