@@ -1,10 +1,10 @@
 ---
 id: TASK-98
 title: 'LLM: Think (reasoning) の強さをモデルごとに選べるようにし、選んだ値をリクエストの reasoning_effort で送る'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-10 22:58'
-updated_date: '2026-10-10 23:25'
+updated_date: '2026-10-10 23:47'
 labels: []
 milestone: m-3
 dependencies: []
@@ -102,4 +102,6 @@ LM Studio の `/api/v1/models` は、モデルごとの reasoning 設定を `rea
 - AC#5: LLMClient を通して LM Studio の実機で計測した (2026-10-11)。「日本の首都はどこ？一文で」を送り、本文の最初の文字までの時間を各 3 回測った。
   - gemma-4-12b: 既定 6.06 / 6.99 / 6.72 秒、オフ 0.63 / 0.51 / 0.50 秒、オン 6.69 / 6.79 / 5.57 秒
   - qwen3.5-9b: 既定 31.7 / 29.2 / 32.6 秒、オフ 3.31 (直後の 1 回目) / 0.11 / 0.10 秒、オン 34.6 / 38.3 / 22.0 秒
+
+実窓 (WKWebView) での見え方はオーナーが確認した (2026-10-11、PR #98 のマージ時)。
 <!-- SECTION:NOTES:END -->
