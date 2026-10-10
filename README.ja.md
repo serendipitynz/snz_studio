@@ -4,7 +4,7 @@
 
 > English: [README.md](README.md)
 
-個人用途向けのローカル LLM プロジェクト管理ツールの最小実装です。  
+個人用途向けの、ローカルで完結する軽量な LLM プロジェクトワークスペースです。  
 ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS ネイティブ WebView）+ React/Vite フロントエンド + SQLite + ローカル filesystem** だけで構成した、インストールして起動するだけのスタンドアロン・デスクトップアプリです。
 
 ## できること
@@ -521,8 +521,7 @@ Windows では、PowerShell で `$env:LLM_API_KEY = "..."` のように設定し
 - document 編集 / 削除 UI
 - rerank 層の追加
 - image document の manual annotation UX 改善
-- 多人数会話の TRPG 対応の残り（状態シートを更新する効果コマンド）、進行役モデルによる発言者指名、
-  生成中断（[設計書](docs/multi-agent-chat-design.md) §7）
+- 多人数会話の、進行役モデルによる発言者指名と生成中断（[設計書](docs/multi-agent-chat-design.md) §7）
 
 ## ライセンス
 

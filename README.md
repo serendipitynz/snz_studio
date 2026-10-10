@@ -4,7 +4,7 @@
 
 > 日本語: [README.ja.md](README.ja.md)
 
-A minimal local-LLM project workspace for personal use.
+A lightweight, local-only LLM project workspace for personal use.
 It offers an experience close to ChatGPT / Claude Projects, built out of nothing more than
 **Wails v2 (Go core + OS-native WebView) + a React/Vite frontend + SQLite + the local
 filesystem** — a standalone desktop app you install and launch.
@@ -558,8 +558,7 @@ receives either key.
 - Document edit / delete UI
 - A rerank layer
 - Better manual-annotation UX for image documents
-- The rest of TRPG support for multi-agent chats (effect commands that update the state sheets),
-  speaker nomination by a moderator model, and generation cancellation
+- Speaker nomination by a moderator model and generation cancellation for multi-agent chats
   ([design doc](docs/multi-agent-chat-design.md) §7, in Japanese)
 
 ## License
