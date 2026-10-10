@@ -1,9 +1,10 @@
 ---
 id: TASK-94
 title: 'README: 冒頭の「最小実装」を実態に合う説明に直し、実装済みの効果コマンドを将来拡張から外す'
-status: To Do
+status: In Review
 assignee: []
 created_date: '2026-10-09 21:32'
+updated_date: '2026-10-10 02:48'
 labels: []
 dependencies: []
 references:
@@ -36,7 +37,18 @@ README の冒頭は `A minimal local-LLM project workspace for personal use.`（
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 README.md と README.ja.md の冒頭が、機能範囲を「最小実装」と言わない説明になっていて、両者の意味が揃っている
-- [ ] #2 両 README の将来拡張の項目に、実装済みの効果コマンド (/add・/use・/set) が残っていない
-- [ ] #3 将来拡張の項目に、進行役モデルによる発言者指名と生成のキャンセルが残っている
+- [x] #1 README.md と README.ja.md の冒頭が、機能範囲を「最小実装」と言わない説明になっていて、両者の意味が揃っている
+- [x] #2 両 README の将来拡張の項目に、実装済みの効果コマンド (/add・/use・/set) が残っていない
+- [x] #3 将来拡張の項目に、進行役モデルによる発言者指名と生成のキャンセルが残っている
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- 冒頭: EN は案どおり `A lightweight, local-only LLM project workspace for personal use.`。JA は案に「軽量な」を足して「個人用途向けの、ローカルで完結する軽量な LLM プロジェクトワークスペースです。」とし、EN の lightweight と意味を揃えた (AC #1)。
+- 「最小」と言える性質を構成の説明へ移すかは、追記しないと判断した。冒頭 2 文目が「Wails + React + SQLite + ローカル filesystem だけで構成」と既に書き、Caveats / 注意にも「最小構成」が残っていて、構成の小ささは伝わっているため。Features の「persistent memory の最小実装」は memory 抽出が rule-based である実態どおりなので触っていない。
+- 将来拡張: docs/multi-agent-chat-design.md §7 で TRPG 対応 (状態シート TASK-35・ダイス TASK-37・効果コマンド TASK-36) がすべて実装済みと確認できたので、「TRPG 対応の残り」という書き出しごと外し、進行役モデルによる指名と生成中断の 1 項目にまとめた (AC #2, #3)。
+- 確認: `grep -n -i 'effect command\|効果コマンド' README.md README.ja.md` の該当は Features の実装済みの記述 1 件ずつだけ。
+- §7 の「将来」にある retrieval 統合は README の将来拡張に元から載っておらず、本タスクの範囲外として足していない。
+- docs のみの変更で、Markdown lint はリポジトリにないためテスト・lint は実行していない。
+<!-- SECTION:NOTES:END -->
