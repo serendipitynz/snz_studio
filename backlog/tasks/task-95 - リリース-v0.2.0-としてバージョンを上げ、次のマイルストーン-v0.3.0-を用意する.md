@@ -1,10 +1,10 @@
 ---
 id: TASK-95
 title: 'リリース: v0.2.0 としてバージョンを上げ、次のマイルストーン v0.3.0 を用意する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-10 03:21'
-updated_date: '2026-10-10 03:22'
+updated_date: '2026-10-10 06:10'
 labels: []
 milestone: m-2
 dependencies: []
@@ -35,8 +35,8 @@ v0.2.0 では自動更新 (TASK-92) を初めて載せる。マイルストー�
 <!-- AC:BEGIN -->
 - [x] #1 package.json の version と wails.json の info.productVersion が 0.2.0 になっている
 - [x] #2 マイルストーン v0.3.0 があり、TASK-52 と TASK-60 が割り当てられている
-- [ ] #3 v0.2.0 タグの release.yml の実行が通り、下書きのリリースに dmg・app.zip・Windows インストーラ・latest.json・SHA256SUMS.txt が添付されている
-- [ ] #4 下書きのノートが和英で書かれ、両方に v0.1.0 からの移行の段落が入っている
+- [x] #3 v0.2.0 タグの release.yml の実行が通り、下書きのリリースに dmg・app.zip・Windows インストーラ・latest.json・SHA256SUMS.txt が添付されている
+- [x] #4 下書きのノートが和英で書かれ、両方に v0.1.0 からの移行の段落が入っている
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -46,4 +46,8 @@ v0.2.0 では自動更新 (TASK-92) を初めて載せる。マイルストー�
 - `backlog milestone add v0.3.0` で m-3 を作り、TASK-52 と TASK-60 を m-2 から m-3 へ移した。
 - go vet / go test ./... / pnpm check:client / pnpm test:client (24 件) が通る。
 - AC #3・#4 はマージ後に v0.2.0 タグを push してから確かめる。リリース下書きの添付物とノートは、この PR の範囲では作れない。
+
+- マージコミット 1bdc8e6 に v0.2.0 タグを打って push した。release.yml の実行 38029596641 は prepare / build (macOS・Windows) / attach がすべて success。prepare のノート生成は v0.1.0...v0.2.0 で比べている。
+- 下書き (release id 408709966) には latest.json・SHA256SUMS.txt・macOS の .app.zip と .dmg・Windows インストーラの 5 つが付いている。.app.zip と latest.json は、手元でダウンロードして測った SHA-256 が SHA256SUMS.txt と一致した。
+- ノートは v0.1.0 と同じ英語 → === → 日本語の書式で書き直した。両方の冒頭に README の v0.1.0 からの移行の段落を置き、生成された PR の一覧は英語の半分の末尾に残した。公開はオーナーが行う。
 <!-- SECTION:NOTES:END -->
