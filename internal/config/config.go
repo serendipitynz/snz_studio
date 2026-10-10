@@ -69,6 +69,12 @@ type Settings struct {
 	ImageDescriptionTimeoutMs int
 	DebugChatFlow             bool
 	DebugRetrieval            bool
+	// LLMReasoning is the reasoning setting chosen per model, keyed by the LM
+	// Studio API root and then by the model key, holding LM Studio's own vocabulary
+	// (off / on / low / ...). A model without an entry runs at its own default. The
+	// maps are shared between snapshots and never modified: SetReasoning replaces
+	// them.
+	LLMReasoning map[string]map[string]string
 }
 
 // Config holds the current Settings snapshot and the path it persists edits to.
@@ -89,15 +95,24 @@ type Config struct {
 	// (SetAutoCheckUpdates): it is an app choice, not a connection setting, and the
 	// configuration endpoint's save also warms models and may start a rebuild.
 	autoCheckUpdates bool
+
+	// reasoning is saved on its own (SetReasoning) for the same reason as
+	// autoCheckUpdates, and because it is edited from a participant's card as well
+	// as from the settings screen.
+	reasoning map[string]map[string]string
 }
 
 // persistedFile is the shape UpdateEditable writes to app-config.json.
 type persistedFile struct {
 	Editable
-	AutoCheckUpdates bool `json:"autoCheckUpdates"`
+	AutoCheckUpdates bool                         `json:"autoCheckUpdates"`
+	LLMReasoning     map[string]map[string]string `json:"llmReasoning,omitempty"`
 }
 
-const autoCheckUpdatesKey = "autoCheckUpdates"
+const (
+	autoCheckUpdatesKey = "autoCheckUpdates"
+	llmReasoningKey     = "llmReasoning"
+)
 
 func getenv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok {
@@ -289,6 +304,12 @@ func (c *Config) applyOverrides(path string) {
 			c.autoCheckUpdates = enabled
 		}
 	}
+	if v, ok := overrides[llmReasoningKey]; ok {
+		var reasoning map[string]map[string]string
+		if json.Unmarshal(v, &reasoning) == nil {
+			c.reasoning = reasoning
+		}
+	}
 
 	// embeddingMode override + migration. When the key is present we honour a
 	// valid value; an invalid value keeps the env default. When the key is ABSENT
@@ -325,6 +346,7 @@ func (c *Config) Get() Settings {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	s := c.settings
+	s.LLMReasoning = c.reasoning
 	if s.EmbeddingMode == "internal" {
 		s.EmbeddingBaseURL = c.internalEmbedURL
 		s.EmbeddingModel = c.internalEmbedModel
@@ -391,7 +413,7 @@ func (c *Config) UpdateEditable(input Editable) (Editable, error) {
 	// in the opposite order. The file is a few hundred bytes, so readers blocked on
 	// Get for the duration of the write wait only briefly.
 	if c.appConfigPath != "" {
-		encoded, err := json.MarshalIndent(persistedFile{Editable: editable, AutoCheckUpdates: c.autoCheckUpdates}, "", "  ")
+		encoded, err := json.MarshalIndent(persistedFile{Editable: editable, AutoCheckUpdates: c.autoCheckUpdates, LLMReasoning: c.reasoning}, "", "  ")
 		if err != nil {
 			return editable, err
 		}
@@ -418,32 +440,75 @@ func (c *Config) AutoCheckUpdates() bool {
 func (c *Config) SetAutoCheckUpdates(enabled bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.appConfigPath != "" {
-		var fields map[string]json.RawMessage
-		raw, err := os.ReadFile(c.appConfigPath)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		if err == nil {
-			if err := json.Unmarshal(raw, &fields); err != nil {
-				return err
-			}
-		}
-		if fields == nil {
-			fields = map[string]json.RawMessage{}
-		}
-		fields[autoCheckUpdatesKey] = json.RawMessage(strconv.FormatBool(enabled))
-		encoded, err := json.MarshalIndent(fields, "", "  ")
-		if err != nil {
-			return err
-		}
-		encoded = append(encoded, '\n')
-		if err := writeFileAtomic(c.appConfigPath, encoded, 0o644); err != nil {
-			return err
-		}
+	if err := c.rewriteKey(autoCheckUpdatesKey, json.RawMessage(strconv.FormatBool(enabled))); err != nil {
+		return err
 	}
 	c.autoCheckUpdates = enabled
 	return nil
+}
+
+// SetReasoning saves the reasoning setting of one model at one LM Studio API
+// root; an empty value removes it, so the model runs at its own default again.
+// Like SetAutoCheckUpdates, only that key of app-config.json is rewritten, and on
+// error nothing changes.
+func (c *Config) SetReasoning(apiRoot, modelKey, value string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	next := make(map[string]map[string]string, len(c.reasoning)+1)
+	for root, models := range c.reasoning {
+		next[root] = models
+	}
+	models := make(map[string]string, len(next[apiRoot])+1)
+	for key, v := range next[apiRoot] {
+		models[key] = v
+	}
+	if value == "" {
+		delete(models, modelKey)
+	} else {
+		models[modelKey] = value
+	}
+	if len(models) == 0 {
+		delete(next, apiRoot)
+	} else {
+		next[apiRoot] = models
+	}
+	encoded, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	if err := c.rewriteKey(llmReasoningKey, encoded); err != nil {
+		return err
+	}
+	c.reasoning = next
+	return nil
+}
+
+// rewriteKey replaces one top-level key of app-config.json, leaving the others as
+// they are on disk. The caller holds c.mu.
+func (c *Config) rewriteKey(key string, value json.RawMessage) error {
+	if c.appConfigPath == "" {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	raw, err := os.ReadFile(c.appConfigPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+	}
+	if fields == nil {
+		fields = map[string]json.RawMessage{}
+	}
+	fields[key] = value
+	encoded, err := json.MarshalIndent(fields, "", "  ")
+	if err != nil {
+		return err
+	}
+	encoded = append(encoded, '\n')
+	return writeFileAtomic(c.appConfigPath, encoded, 0o644)
 }
 
 // writeFileAtomic replaces path with data via a temporary file in the same
