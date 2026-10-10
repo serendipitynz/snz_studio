@@ -390,12 +390,16 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       api
         .listConfigurationModels({ kind: "llm", baseUrl })
         .then((response) => {
-          if (!active) return;
+          if (!active) {
+            return;
+          }
           setLlmModelOptions(response.models);
           setLlmReasoning({ baseUrl, choices: response.reasoning });
         })
         .catch(() => {
-          if (!active) return;
+          if (!active) {
+            return;
+          }
           setLlmModelOptions([]);
           setLlmReasoning({ baseUrl, choices: {} });
         })
