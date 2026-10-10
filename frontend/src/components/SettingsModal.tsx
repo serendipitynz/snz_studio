@@ -381,22 +381,33 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     }
 
     const baseUrl = configDraft.llmBaseUrl.trim();
+    // A request still in flight when the endpoint changes must not land: its
+    // choices would replace the new endpoint's and drop a Think value chosen
+    // there before it is saved.
+    let active = true;
     const timeout = window.setTimeout(() => {
       setLoadingLlmModels(true);
       api
         .listConfigurationModels({ kind: "llm", baseUrl })
         .then((response) => {
+          if (!active) return;
           setLlmModelOptions(response.models);
           setLlmReasoning({ baseUrl, choices: response.reasoning });
         })
         .catch(() => {
+          if (!active) return;
           setLlmModelOptions([]);
           setLlmReasoning({ baseUrl, choices: {} });
         })
+        // Cleared even when superseded: an endpoint emptied meanwhile starts no
+        // request that would clear it.
         .finally(() => setLoadingLlmModels(false));
     }, 250);
 
-    return () => window.clearTimeout(timeout);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
   }, [configDraft.llmBaseUrl]);
 
   useEffect(() => {
