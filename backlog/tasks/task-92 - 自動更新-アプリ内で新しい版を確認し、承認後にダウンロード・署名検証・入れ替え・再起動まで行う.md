@@ -4,7 +4,7 @@ title: '自動更新: アプリ内で新しい版を確認し、承認後にダ�
 status: To Do
 assignee: []
 created_date: '2026-10-07 22:52'
-updated_date: '2026-10-10 06:17'
+updated_date: '2026-10-10 10:38'
 labels: []
 dependencies: []
 references:
@@ -84,4 +84,6 @@ v0.2.0 (TASK-95、release.yml の実行 38029596641) で DoD を確かめた。
 - #6: latest.json は version 0.2.0 で、darwin-universal と windows-amd64 の url と signature を持つ。url はどちらも releases/download/v0.2.0/ に固定されている。
 - #7: 下書きのノートの英語・日本語の両方の冒頭に、README の v0.1.0 からの移行の段落を入れた。
 - #2 は未確認。更新機能を載せたリリースが 2 つ続けて公開されてから確かめる。
+
+- 2026-10-10 追記: 上の確認は消した最初の v0.2.0 リリース (run 38029596641) に対するもの。作り直したリリース (run 38044195449、release id 408864097) でもやり直した。#4 は展開した snz-studio.app が spctl で accepted (Notarized Developer ID)、stapler validate も通り、バージョンは 0.2.0。#5 は check-key と verify のステップがどちらも success。#6 は latest.json の 2 つの url が releases/download/v0.2.0/ に固定され、署名を持つ。app.zip と latest.json の SHA-256 は SHA256SUMS.txt と一致した。#7 のノートも同じ内容で入っている。
 <!-- SECTION:NOTES:END -->

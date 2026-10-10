@@ -4,7 +4,7 @@ title: 'リリース: v0.2.0 としてバージョンを上げ、次のマイル
 status: Done
 assignee: []
 created_date: '2026-10-10 03:21'
-updated_date: '2026-10-10 06:10'
+updated_date: '2026-10-10 10:38'
 labels: []
 milestone: m-2
 dependencies: []
@@ -50,4 +50,7 @@ v0.2.0 では自動更新 (TASK-92) を初めて載せる。マイルストー�
 - マージコミット 1bdc8e6 に v0.2.0 タグを打って push した。release.yml の実行 38029596641 は prepare / build (macOS・Windows) / attach がすべて success。prepare のノート生成は v0.1.0...v0.2.0 で比べている。
 - 下書き (release id 408709966) には latest.json・SHA256SUMS.txt・macOS の .app.zip と .dmg・Windows インストーラの 5 つが付いている。.app.zip と latest.json は、手元でダウンロードして測った SHA-256 が SHA256SUMS.txt と一致した。
 - ノートは v0.1.0 と同じ英語 → === → 日本語の書式で書き直した。両方の冒頭に README の v0.1.0 からの移行の段落を置き、生成された PR の一覧は英語の半分の末尾に残した。公開はオーナーが行う。
+
+- 2026-10-10 追記: 最初の下書き (release id 408709966) は、ノートを body だけの PATCH で差し替えたときに tag_name が untagged-b0bf56ee52c01034ddc6 に置き換わっていた。そのまま公開され、GitHub が main の先頭 (18ebd6d) にそのタグを作った。immutable release なのでタグを付け替えられず、リリースとそのタグを消して作り直した。
+- release.yml を v0.2.0 指定で手動実行し直した (run 38044195449、全ジョブ success)。新しい下書き (release id 408864097) で同じ PATCH をすると、また untagged-… になることを確かめた。tag_name=v0.2.0 を送り直してから公開した。公開後のリリースは tag_name v0.2.0・immutable・Latest で、releases/download/v0.2.0/ の latest.json・app.zip・Windows インストーラはどれも 200 を返す。
 <!-- SECTION:NOTES:END -->
