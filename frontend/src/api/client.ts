@@ -364,6 +364,15 @@ async function requestText(input: string, init?: RequestInit): Promise<string> {
   return await response.text();
 }
 
+// ReasoningChoice is a model's reasoning setting at an LM Studio endpoint, in LM
+// Studio's vocabulary (off / on / low / ...). selected is "" while the model runs
+// at its own default.
+export interface ReasoningChoice {
+  allowedOptions: string[];
+  default: string;
+  selected: string;
+}
+
 export const api = {
   getConfiguration: () => request<{ configuration: WorkspaceConfiguration }>("/api/configuration"),
   updateConfiguration: (input: {
@@ -386,11 +395,18 @@ export const api = {
   // Normalised here rather than at each call site: a Go handler that marshals a
   // nil slice sends `null`, and every caller feeds this straight into a .map().
   listConfigurationModels: (input: { kind: "llm" | "embedding"; baseUrl: string }) =>
-    request<{ models: string[] | null }>("/api/configuration/models", {
+    request<{ models: string[] | null; reasoning?: Record<string, ReasoningChoice> }>("/api/configuration/models", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
-    }).then((response) => ({ models: response.models ?? [] })),
+    }).then((response) => ({ models: response.models ?? [], reasoning: response.reasoning ?? {} })),
+  // An empty value goes back to the model's default.
+  setReasoning: (input: { baseUrl: string; model: string; value: string }) =>
+    request<{ value: string }>("/api/configuration/reasoning", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }),
   getEmbeddingStatus: () => request<EmbeddingStatus>("/api/embedding/status"),
   getEmbeddingRebuild: () => request<{ state: EmbeddingRebuildState }>("/api/embedding/rebuild"),
   rebuildEmbeddings: () => request<{ started: boolean }>("/api/embedding/rebuild", { method: "POST" }),

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, EmbeddingRebuildState, EmbeddingStatus, WorkspaceConfiguration } from "../api/client";
+import { api, EmbeddingRebuildState, EmbeddingStatus, ReasoningChoice, WorkspaceConfiguration } from "../api/client";
 import { Language, MessageKey, useLanguage } from "../i18n";
 import { ThemeMode, useThemeController } from "../styles/ThemeController";
 import type { ThemeFamily } from "../styles/themes";
@@ -13,6 +13,7 @@ import { FailureNotice, InfoNotice } from "./FailureNotice";
 import { CheckIcon, RotateCwIcon } from "./icons";
 import { Progress } from "./Progress";
 import { pollRebuildState } from "./rebuildPoll";
+import { ReasoningOptions } from "./reasoningOptions";
 import { useUpdateOffer } from "./UpdateDialog";
 import { AvailableUpdate, availableUpdate } from "./updateCheck";
 import {
@@ -261,6 +262,15 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
   const [llmModelOptions, setLlmModelOptions] = useState<string[]>([]);
+  // Kept with the endpoint they were read from, so a list still being fetched for
+  // a changed endpoint is not read as that endpoint's.
+  const [llmReasoning, setLlmReasoning] = useState<{ baseUrl: string; choices: Record<string, ReasoningChoice> }>({
+    baseUrl: "",
+    choices: {}
+  });
+  // The reasoning value is saved per endpoint and model, so the draft remembers
+  // which one it was chosen for and applies only while the draft still names it.
+  const [reasoningDraft, setReasoningDraft] = useState<{ baseUrl: string; model: string; value: string } | null>(null);
   const [reviewModelOptions, setReviewModelOptions] = useState<string[]>([]);
   const [embeddingModelOptions, setEmbeddingModelOptions] = useState<string[]>([]);
   const [loadingLlmModels, setLoadingLlmModels] = useState(false);
@@ -370,12 +380,19 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       return;
     }
 
+    const baseUrl = configDraft.llmBaseUrl.trim();
     const timeout = window.setTimeout(() => {
       setLoadingLlmModels(true);
       api
-        .listConfigurationModels({ kind: "llm", baseUrl: configDraft.llmBaseUrl })
-        .then((response) => setLlmModelOptions(response.models))
-        .catch(() => setLlmModelOptions([]))
+        .listConfigurationModels({ kind: "llm", baseUrl })
+        .then((response) => {
+          setLlmModelOptions(response.models);
+          setLlmReasoning({ baseUrl, choices: response.reasoning });
+        })
+        .catch(() => {
+          setLlmModelOptions([]);
+          setLlmReasoning({ baseUrl, choices: {} });
+        })
         .finally(() => setLoadingLlmModels(false));
     }, 250);
 
@@ -437,17 +454,37 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     return () => window.clearTimeout(timeout);
   }, [imageDescriptionEndpoint]);
 
+  const llmBaseUrlDraft = configDraft.llmBaseUrl.trim();
+  const llmModelDraft = configDraft.llmModel.trim();
+  const llmChoice = llmReasoning.baseUrl === llmBaseUrlDraft ? llmReasoning.choices[llmModelDraft] : undefined;
+  const reasoningValue =
+    reasoningDraft && reasoningDraft.baseUrl === llmBaseUrlDraft && reasoningDraft.model === llmModelDraft
+      ? reasoningDraft.value
+      : (llmChoice?.selected ?? "");
+  const reasoningDirty = llmChoice !== undefined && reasoningValue !== llmChoice.selected;
+  const fieldsDirty = !sameDraft(configDraft, configuration ? draftFrom(configuration) : EMPTY_DRAFT);
+
   async function handleConfigurationSubmit(event: FormEvent) {
     event.preventDefault();
     setSavingConfig(true);
     setSaveError("");
 
     try {
-      const response = await api.updateConfiguration(configDraft);
-      setConfiguration(response.configuration);
-      setConfigDraft(draftFrom(response.configuration));
-      // A save that changed the embedding source starts a rebuild; read whether this one did.
-      setRebuildWatch((current) => current + 1);
+      if (fieldsDirty) {
+        const response = await api.updateConfiguration(configDraft);
+        setConfiguration(response.configuration);
+        setConfigDraft(draftFrom(response.configuration));
+        // A save that changed the embedding source starts a rebuild; read whether this one did.
+        setRebuildWatch((current) => current + 1);
+      }
+      if (reasoningDirty && llmChoice) {
+        await api.setReasoning({ baseUrl: llmBaseUrlDraft, model: llmModelDraft, value: reasoningValue });
+        setLlmReasoning((current) => ({
+          ...current,
+          choices: { ...current.choices, [llmModelDraft]: { ...llmChoice, selected: reasoningValue } }
+        }));
+        setReasoningDraft(null);
+      }
     } catch (nextError) {
       setSaveError(nextError instanceof Error ? nextError.message : t("settings.saveError"));
     } finally {
@@ -477,7 +514,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   // land on a screen that no longer shows what it was for (doc-9 §6.6). Unsaved
   // connection edits ask before they are thrown away, keeping them by default
   // (doc-9 §5.7).
-  const connectionDirty = !sameDraft(configDraft, configuration ? draftFrom(configuration) : EMPTY_DRAFT);
+  const connectionDirty = fieldsDirty || reasoningDirty;
 
   async function requestClose() {
     if (savingConfig) {
@@ -504,7 +541,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     if (rebuildState === "running") {
       return t("settings.rebuildRunningReason");
     }
-    if (connectionDirty) {
+    // The reasoning value does not touch the embeddings, so it does not hold the rebuild.
+    if (fieldsDirty) {
       return t("settings.rebuildNeedsSave");
     }
     return undefined;
@@ -648,6 +686,23 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               </datalist>
               <Subtle>{modelCandidatesLabel(loadingLlmModels, llmModelOptions)}</Subtle>
             </Field>
+            {/* Only where LM Studio lists the model with a reasoning switch: a model
+                whose reasoning is null, or an endpoint that is not LM Studio, has
+                nothing that could be sent. */}
+            {llmChoice ? (
+              <Field>
+                {t("settings.llmReasoning")}
+                <Select
+                  value={reasoningValue}
+                  onChange={(event) =>
+                    setReasoningDraft({ baseUrl: llmBaseUrlDraft, model: llmModelDraft, value: event.target.value })
+                  }
+                >
+                  <ReasoningOptions choice={llmChoice} />
+                </Select>
+                <Subtle>{t("settings.llmReasoningHint")}</Subtle>
+              </Field>
+            ) : null}
             <Field>
               {t("settings.llmResponseFormat")}
               <Select

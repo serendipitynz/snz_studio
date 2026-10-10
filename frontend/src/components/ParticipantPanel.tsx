@@ -9,6 +9,7 @@ import {
   DICE_TARGET_MAX,
   Participant,
   PARTICIPANT_STATE_SHEET_MAX_CHARS,
+  ReasoningChoice,
   stateSheetLength,
   TurnRule
 } from "../api/client";
@@ -23,6 +24,7 @@ import { GuardedSelect } from "./GuardedSelect";
 import { Hint, HintedField, HintRow } from "./Hint";
 import { CheckIcon, DownloadIcon, MoveDownIcon, MoveUpIcon, SparklesIcon, TrashIcon, UserPlusIcon } from "./icons";
 import { PresetChoice, PresetPicker } from "./PresetPicker";
+import { ReasoningOptions } from "./reasoningOptions";
 import { MessageKey, useLanguage } from "../i18n";
 import {
   Badge,
@@ -78,6 +80,7 @@ const StateSheetCounter = styled(MetaText)<{ over: boolean }>`
 interface EndpointProbe {
   state: "checking" | "ok" | "failed";
   models: string[];
+  reasoning: Record<string, ReasoningChoice>;
   error?: string;
 }
 
@@ -166,15 +169,45 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
 
   async function probeEndpoint(baseUrl: string) {
     const key = baseUrl.trim();
-    setProbes((current) => ({ ...current, [key]: { state: "checking", models: [] } }));
+    setProbes((current) => ({ ...current, [key]: { state: "checking", models: [], reasoning: {} } }));
     try {
       const response = await api.listConfigurationModels({ kind: "llm", baseUrl: key });
-      setProbes((current) => ({ ...current, [key]: { state: "ok", models: response.models } }));
+      setProbes((current) => ({
+        ...current,
+        [key]: { state: "ok", models: response.models, reasoning: response.reasoning }
+      }));
     } catch (nextError) {
       setProbes((current) => ({
         ...current,
-        [key]: { state: "failed", models: [], error: errorMessage(nextError, "participants.connectionFailed") }
+        [key]: {
+          state: "failed",
+          models: [],
+          reasoning: {},
+          error: errorMessage(nextError, "participants.connectionFailed")
+        }
       }));
+    }
+  }
+
+  // The value belongs to the endpoint and the model, not to the participant, so
+  // the saved value lands in the shared probe and every card on that endpoint
+  // shows it.
+  async function handleSaveReasoning(participantId: string, baseUrl: string, model: string, value: string) {
+    setParticipantError(participantId, "");
+    try {
+      await api.setReasoning({ baseUrl, model, value });
+      setProbes((current) => {
+        const probe = current[baseUrl];
+        const choice = probe?.reasoning[model];
+        if (!probe || !choice) {
+          return current;
+        }
+        const reasoning = { ...probe.reasoning, [model]: { ...choice, selected: value } };
+        return { ...current, [baseUrl]: { ...probe, reasoning } };
+      });
+    } catch (nextError) {
+      setParticipantError(participantId, errorMessage(nextError, "participants.saveError"));
+      throw nextError;
     }
   }
 
@@ -641,6 +674,7 @@ export function ParticipantPanel(props: ParticipantPanelProps) {
             }
             onProbe={probeEndpoint}
             onSave={handleSaveParticipant}
+            onSaveReasoning={handleSaveReasoning}
             onRemove={handleRemoveParticipant}
             onMove={(direction) => void handleMove(index, direction)}
           />
@@ -897,6 +931,7 @@ interface ParticipantEditorProps {
   onToggleCollapsed: (collapsed: boolean) => void;
   onProbe: (baseUrl: string) => Promise<void>;
   onSave: (participantId: string, input: Parameters<typeof api.updateParticipant>[1]) => Promise<void>;
+  onSaveReasoning: (participantId: string, baseUrl: string, model: string, value: string) => Promise<void>;
   onRemove: (participant: Participant) => Promise<void>;
   onMove: (direction: MoveDirection) => void;
 }
@@ -921,7 +956,26 @@ function ParticipantEditor(props: ParticipantEditorProps) {
     displayName !== props.participant.displayName ||
     rolePrompt !== props.participant.rolePrompt ||
     receivesProjectMaterial !== props.participant.receivesProjectMaterial;
-  const connectionDirty = baseUrl !== props.participant.baseUrl || modelName !== props.participant.modelName;
+  // The reasoning draft remembers the endpoint and model it was chosen for, since
+  // that pair is what the value is saved under.
+  const [reasoningDraft, setReasoningDraft] = useState<{ baseUrl: string; model: string; value: string } | null>(null);
+
+  // The draft endpoint, not props.participant.baseUrl: the check runs against
+  // what is typed in, so an endpoint entered but not yet saved would otherwise
+  // never find its own result.
+  const probeKey = baseUrl.trim();
+  const probe = props.probes[probeKey];
+  const modelKey = modelName.trim();
+  // A blank model runs the workspace model, whose value the settings screen holds.
+  const reasoningChoice = probe?.state === "ok" && modelKey ? probe.reasoning[modelKey] : undefined;
+  const reasoningValue =
+    reasoningDraft && reasoningDraft.baseUrl === probeKey && reasoningDraft.model === modelKey
+      ? reasoningDraft.value
+      : (reasoningChoice?.selected ?? "");
+  const reasoningDirty = reasoningChoice !== undefined && reasoningValue !== reasoningChoice.selected;
+
+  const endpointDirty = baseUrl !== props.participant.baseUrl || modelName !== props.participant.modelName;
+  const connectionDirty = endpointDirty || reasoningDirty;
 
   async function handleSaveProfile() {
     setSavingProfile(true);
@@ -937,7 +991,13 @@ function ParticipantEditor(props: ParticipantEditorProps) {
   async function handleSaveConnection() {
     setSavingConnection(true);
     try {
-      await props.onSave(props.participant.id, { baseUrl, modelName });
+      if (endpointDirty) {
+        await props.onSave(props.participant.id, { baseUrl, modelName });
+      }
+      if (reasoningDirty) {
+        await props.onSaveReasoning(props.participant.id, probeKey, modelKey, reasoningValue);
+        setReasoningDraft(null);
+      }
     } catch {
       // Reported in this card; the drafts stay so the edit survives the failure.
     } finally {
@@ -945,10 +1005,6 @@ function ParticipantEditor(props: ParticipantEditorProps) {
     }
   }
 
-  // The draft endpoint, not props.participant.baseUrl: the check runs against
-  // what is typed in, so an endpoint entered but not yet saved would otherwise
-  // never find its own result.
-  const probe = props.probes[baseUrl.trim()];
   const moving = props.movingDirection !== null;
   const profileReason = props.lockedReason ?? (profileDirty ? undefined : t("participants.unchanged"));
   const connectionReason = props.lockedReason ?? (connectionDirty ? undefined : t("participants.unchanged"));
@@ -1104,6 +1160,22 @@ function ParticipantEditor(props: ParticipantEditorProps) {
               )
             }
           </HintedField>
+
+          {reasoningChoice ? (
+            <HintedField label={t("participants.reasoning")} hint={t("participants.reasoningHint")}>
+              {(id) => (
+                <Select
+                  id={id}
+                  value={reasoningValue}
+                  onChange={(event) =>
+                    setReasoningDraft({ baseUrl: probeKey, model: modelKey, value: event.target.value })
+                  }
+                >
+                  <ReasoningOptions choice={reasoningChoice} />
+                </Select>
+              )}
+            </HintedField>
+          ) : null}
 
           <Row style={{ justifyContent: "flex-end" }}>
             <ActionButton
