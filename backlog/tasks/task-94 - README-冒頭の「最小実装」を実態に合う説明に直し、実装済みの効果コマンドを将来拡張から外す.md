@@ -1,10 +1,10 @@
 ---
 id: TASK-94
 title: 'README: 冒頭の「最小実装」を実態に合う説明に直し、実装済みの効果コマンドを将来拡張から外す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-09 21:32'
-updated_date: '2026-10-10 02:48'
+updated_date: '2026-10-10 03:19'
 labels: []
 dependencies: []
 references:
