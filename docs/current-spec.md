@@ -371,6 +371,8 @@ Persisted in:
 
 - `data/app-config.json`
 
+The Think (reasoning) value is kept per model rather than per workspace: `llmReasoning` in the same file maps an LM Studio API root and a model key to one of the options LM Studio's `/api/v1/models` lists for that model (`off` / `on`, `low` / `medium` / `high`). Every completion to that endpoint and model sends it as `reasoning_effort` (`off` as `none`, `on` as `medium`, since LM Studio's `/v1/chat/completions` accepts only OpenAI's values) — the single-assistant chat, a participant's turn, and the summary, memory, conclusion and review calls alike. A model with no value runs at its own default and its requests carry no `reasoning_effort`, so an OpenAI-compatible server other than LM Studio never receives it. The value is chosen in the settings modal under the LLM model and in a participant's card under its model, shown only for a model whose reasoning LM Studio reports as switchable; both write the same entry.
+
 Environment variables (`LLM_BASE_URL` and the rest) are the initial/default source, and saved app config overrides them. The app does not read a `.env` file.
 `LLM_API_KEY` cannot be set from the UI and is attached only to requests whose scheme, host and port match the default endpoint (README "Where the API key is sent").
 

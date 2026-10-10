@@ -458,7 +458,7 @@ embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未
 `DEBUG_CHAT_FLOW` / `DEBUG_RETRIEVAL` は互換のため受け付けますが、Go 版はログを最小限に保つ方針のため
 verbose トレースは出力しません。
 
-設定 (サイドバーの歯車ボタン、または Dashboard の「設定を開く」) から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値はアプリのデータディレクトリの `app-config.json` に保存され、環境変数より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。
+設定 (サイドバーの歯車ボタン、または Dashboard の「設定を開く」) から接続先、モデル、`LLM Response Format`、review 用 endpoint / model は更新できます。UI から保存した値はアプリのデータディレクトリの `app-config.json` に保存され、環境変数より優先して即時反映されます。`llm-jp-4-8b-thinking` のような thinking 系モデルでは `LLM-jp Thinking` を選ぶと、内部の reasoning / tagged response を除去して final answer のみを表示します。LM Studio が推論を切り替えられると返すモデル (gemma-4・qwen3.5・gpt-oss など) では、モデルの下の `Think (推論)` で思考の強さを選べます。値は接続先とモデルの組ごとに保存され、その接続先で同じモデルを使う参加者と共有されます。LM Studio の gemma-4 でオフにすると、短い回答の最初の文字が出るまでが約 6 秒から約 0.5 秒になりました。
 
 ローカル LLM が起動していない場合でも、アプリ自体は動作します。  
 その場合 chat 返答は fallback 文面になり、どの参照が選ばれたかの確認に使えます。

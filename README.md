@@ -489,7 +489,11 @@ Endpoints, models, `LLM Response Format` and the review endpoint / model can be 
 the settings (the sidebar's gear button, or `Open settings` on the Dashboard). Values saved from the UI are stored in `app-config.json` under the
 app's data directory, take precedence over environment variables, and apply immediately. For thinking-style models
 such as `llm-jp-4-8b-thinking`, choosing `LLM-jp Thinking` strips the internal reasoning / tagged
-response and shows only the final answer.
+response and shows only the final answer. For a model LM Studio reports as having a reasoning switch
+(gemma-4, qwen3.5, gpt-oss and the like), `Think (reasoning)` under the model picks how hard it thinks;
+the value is saved per endpoint and model and shared with any participant running that model there.
+Turning it off for gemma-4 cut the wait for the first character of a short answer from about 6 s to
+about 0.5 s on LM Studio.
 
 The app itself works even when no local LLM is running. Chat replies then fall back to a canned
 message, which is still useful for checking which references were selected.
