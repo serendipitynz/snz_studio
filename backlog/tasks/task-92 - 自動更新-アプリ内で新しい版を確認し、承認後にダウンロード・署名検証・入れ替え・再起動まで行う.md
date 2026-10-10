@@ -4,7 +4,7 @@ title: '自動更新: アプリ内で新しい版を確認し、承認後にダ�
 status: To Do
 assignee: []
 created_date: '2026-10-07 22:52'
-updated_date: '2026-10-09 22:17'
+updated_date: '2026-10-10 06:17'
 labels: []
 dependencies: []
 references:
@@ -63,11 +63,25 @@ v0.1.0 には更新の手段がない。新しい版が出ても、利用者が 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 サブタスクがすべて Done になっている
+- [x] #1 サブタスクがすべて Done になっている
 - [ ] #2 インストール済みの版から次の版へ、macOS と Windows の両方でアプリ内から更新でき、再起動後に新しい版が動く (更新機能を載せたリリースが 2 つ続けて公開された後に確かめる)
-- [ ] #3 更新署名鍵の秘密鍵がこのマシン以外にも保管されていて、失くしたときに何が起きるかが書かれている
-- [ ] #4 (TASK-92.1 から移した確認) 更新機能を載せた最初のリリースで、公証・staple 済みの .app を固めた macOS の更新用アーカイブ (SNZ-Studio-vX.Y.Z-macOS.app.zip) が Release に添付され、それを展開した .app が spctl の検査を通る
-- [ ] #5 (TASK-92.1 から移した確認) そのリリースの実行で、prepare の鍵の一致確認 (updatesig check-key) が通り、attach の verify ステップが更新用アーカイブと Windows インストーラの署名を添付前にリポジトリの公開鍵で検証している
-- [ ] #6 (TASK-92.1 から移した確認) そのリリースに latest.json が添付され、darwin-universal と windows-amd64 の URL と署名を持ち、URL はタグに固定されている
-- [ ] #7 (TASK-92.4 から移した確認) 更新機能を載せた最初のリリースのノートに、README §3「Releases」の v0.1.0 からの移行の段落 (一度だけ手動で入れ替えること、Windows のインストール先の変更と v0.1.0 のアンインストール) が和英の両方で入っている
+- [x] #3 更新署名鍵の秘密鍵がこのマシン以外にも保管されていて、失くしたときに何が起きるかが書かれている
+- [x] #4 (TASK-92.1 から移した確認) 更新機能を載せた最初のリリースで、公証・staple 済みの .app を固めた macOS の更新用アーカイブ (SNZ-Studio-vX.Y.Z-macOS.app.zip) が Release に添付され、それを展開した .app が spctl の検査を通る
+- [x] #5 (TASK-92.1 から移した確認) そのリリースの実行で、prepare の鍵の一致確認 (updatesig check-key) が通り、attach の verify ステップが更新用アーカイブと Windows インストーラの署名を添付前にリポジトリの公開鍵で検証している
+- [x] #6 (TASK-92.1 から移した確認) そのリリースに latest.json が添付され、darwin-universal と windows-amd64 の URL と署名を持ち、URL はタグに固定されている
+- [x] #7 (TASK-92.4 から移した確認) 更新機能を載せた最初のリリースのノートに、README §3「Releases」の v0.1.0 からの移行の段落 (一度だけ手動で入れ替えること、Windows のインストール先の変更と v0.1.0 のアンインストール) が和英の両方で入っている
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+v0.2.0 (TASK-95、release.yml の実行 38029596641) で DoD を確かめた。
+
+- #1: TASK-92.1〜92.4 はすべて Done。
+- #3: 秘密鍵はリリース用マシンの ~/.config/snz-studio/update-signing.key と 1Password (項目「snz_studio update signing」) の 2 か所にある。どちらも 45 バイトで大きさは一致する。中身の照合まではしていない。失くしたときに何が起きるかは README / README.ja.md の更新署名鍵の節に書いてある。
+- #4: 下書きに付いた SNZ-Studio-v0.2.0-macOS.app.zip をダウンロードして ditto で展開した。snz-studio.app は spctl -a -t exec で accepted (source=Notarized Developer ID)、stapler validate も通り、CFBundleShortVersionString は 0.2.0。
+- #5: prepare の「Verify the update signing key matches the committed public key」(updatesig check-key) と、attach の「Verify the signatures against the committed public key」(updatesig verify) がどちらも success。verify は添付のステップより前に走る。
+- #6: latest.json は version 0.2.0 で、darwin-universal と windows-amd64 の url と signature を持つ。url はどちらも releases/download/v0.2.0/ に固定されている。
+- #7: 下書きのノートの英語・日本語の両方の冒頭に、README の v0.1.0 からの移行の段落を入れた。
+- #2 は未確認。更新機能を載せたリリースが 2 つ続けて公開されてから確かめる。
+<!-- SECTION:NOTES:END -->
