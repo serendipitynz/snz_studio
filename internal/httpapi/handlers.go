@@ -191,7 +191,13 @@ func (s *Server) handleListConfigurationModels(w http.ResponseWriter, r *http.Re
 			fail(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"models": models})
+		// Best effort: an endpoint other than LM Studio has no reasoning options,
+		// and the model list stands without them.
+		reasoning, err := s.llm.ListReasoningChoices(baseURL)
+		if err != nil {
+			reasoning = map[string]service.ReasoningChoice{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"models": models, "reasoning": reasoning})
 	case "embedding":
 		models, err := s.embedding.ListModels(baseURL)
 		if err != nil {
@@ -202,6 +208,33 @@ func (s *Server) handleListConfigurationModels(w http.ResponseWriter, r *http.Re
 	default:
 		writeError(w, http.StatusBadRequest, "invalid configuration kind")
 	}
+}
+
+// handlePutReasoning saves the reasoning value chosen for one model at one
+// endpoint; an empty value goes back to the model's default. It is its own
+// endpoint rather than part of PUT /api/configuration because a participant's card
+// saves it too, for a model the workspace setting may not use.
+func (s *Server) handlePutReasoning(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	baseURL := strings.TrimSpace(bodyString(m, "baseUrl"))
+	modelName := strings.TrimSpace(bodyString(m, "model"))
+	value := strings.TrimSpace(bodyString(m, "value"))
+	if baseURL == "" || modelName == "" {
+		writeError(w, http.StatusBadRequest, "baseUrl and model are required")
+		return
+	}
+	if err := s.llm.SetReasoning(baseURL, modelName, value); err != nil {
+		if errors.Is(err, service.ErrReasoningNotOffered) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"value": value})
 }
 
 // handleGetEmbeddingStatus reports the internal embedding sidecar's lifecycle state
