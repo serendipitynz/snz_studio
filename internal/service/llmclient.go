@@ -123,11 +123,35 @@ type streamOptions struct {
 }
 
 type chatCompletionBody struct {
-	Model         string         `json:"model"`
-	Temperature   float64        `json:"temperature"`
-	Stream        bool           `json:"stream,omitempty"`
-	StreamOptions *streamOptions `json:"stream_options,omitempty"`
-	Messages      []chatMessage  `json:"messages"`
+	Model       string  `json:"model"`
+	Temperature float64 `json:"temperature"`
+	// ReasoningEffort is left out unless a value was chosen for the model: an
+	// OpenAI-compatible server other than LM Studio may reject a parameter it does
+	// not know.
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
+	Stream          bool           `json:"stream,omitempty"`
+	StreamOptions   *streamOptions `json:"stream_options,omitempty"`
+	Messages        []chatMessage  `json:"messages"`
+}
+
+// reasoningEffortFor returns the reasoning_effort to send to a model, or "" when
+// none was chosen for it at that endpoint. The value is stored in LM Studio's
+// vocabulary, but LM Studio's /v1/chat/completions accepts only OpenAI's
+// (none / minimal / low / medium / high / xhigh) and answers off and on with 400.
+// For a model that offers only off and on, any value but none turns thinking on,
+// so on is sent as medium.
+func reasoningEffortFor(s config.Settings, baseURL, modelName string) string {
+	value := s.LLMReasoning[getLmStudioAPIRoot(baseURL)][modelName]
+	switch value {
+	case "off":
+		return "none"
+	case "on":
+		return "medium"
+	case "none", "minimal", "low", "medium", "high", "xhigh":
+		return value
+	default:
+		return ""
+	}
 }
 
 // resolveTarget mirrors `input.target?.x?.trim() || config.x`.
@@ -186,9 +210,10 @@ func (c *LLMClient) CreateChatCompletion(input ChatCompletionInput) (*ChatComple
 	s := c.cfg.Get()
 	baseURL, modelName := resolveTarget(input.Target, s.LLMBaseURL, s.LLMModel)
 	body := chatCompletionBody{
-		Model:       modelName,
-		Temperature: temperatureOrDefault(input.Temperature),
-		Messages:    buildMessages(input, s.LLMResponseFormat),
+		Model:           modelName,
+		Temperature:     temperatureOrDefault(input.Temperature),
+		ReasoningEffort: reasoningEffortFor(s, baseURL, modelName),
+		Messages:        buildMessages(input, s.LLMResponseFormat),
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -290,11 +315,12 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 	s := c.cfg.Get()
 	baseURL, modelName := resolveTarget(input.Target, s.LLMBaseURL, s.LLMModel)
 	body := chatCompletionBody{
-		Model:         modelName,
-		Temperature:   temperatureOrDefault(input.Temperature),
-		Stream:        true,
-		StreamOptions: &streamOptions{IncludeUsage: true},
-		Messages:      buildMessages(input, s.LLMResponseFormat),
+		Model:           modelName,
+		Temperature:     temperatureOrDefault(input.Temperature),
+		ReasoningEffort: reasoningEffortFor(s, baseURL, modelName),
+		Stream:          true,
+		StreamOptions:   &streamOptions{IncludeUsage: true},
+		Messages:        buildMessages(input, s.LLMResponseFormat),
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -586,6 +612,103 @@ func (c *LLMClient) ListAvailableModels(baseURL string) ([]string, error) {
 		}
 	}
 	return sortedStrings(out), nil
+}
+
+// ReasoningChoice is a model's reasoning setting: the values LM Studio's
+// /api/v1/models says it accepts, the one it runs at when none is chosen, and the
+// one chosen for it here ("" when none is).
+type ReasoningChoice struct {
+	AllowedOptions []string `json:"allowedOptions"`
+	Default        string   `json:"default"`
+	Selected       string   `json:"selected"`
+}
+
+// ErrReasoningNotOffered marks a reasoning value the endpoint does not offer for
+// the model, including every value at an endpoint that is not LM Studio.
+var ErrReasoningNotOffered = errors.New("reasoning value is not offered for this model")
+
+// ListReasoningChoices returns, by model key, the reasoning choice of every LLM at
+// the endpoint that has reasoning options.
+func (c *LLMClient) ListReasoningChoices(baseURL string) (map[string]ReasoningChoice, error) {
+	choices, err := c.listReasoningOptions(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	selected := c.cfg.Get().LLMReasoning[getLmStudioAPIRoot(baseURL)]
+	for key, choice := range choices {
+		choice.Selected = selected[key]
+		choices[key] = choice
+	}
+	return choices, nil
+}
+
+// SetReasoning saves the reasoning value chosen for a model at an endpoint, after
+// checking that the endpoint offers it. An empty value goes back to the model's
+// default and needs no check, so it works while the endpoint is down.
+func (c *LLMClient) SetReasoning(baseURL, modelName, value string) error {
+	if value != "" {
+		choices, err := c.listReasoningOptions(baseURL)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrReasoningNotOffered, err)
+		}
+		if !containsString(choices[modelName].AllowedOptions, value) {
+			return fmt.Errorf("%w: %q for %s", ErrReasoningNotOffered, value, modelName)
+		}
+	}
+	return c.cfg.SetReasoning(getLmStudioAPIRoot(baseURL), modelName, value)
+}
+
+// listReasoningOptions reads GET {lmRoot}/api/v1/models and returns, by model key,
+// the reasoning options of every LLM that has them. A model whose reasoning is
+// null cannot be switched through the API and is left out, and an endpoint that is
+// not LM Studio fails the request or answers without models, so it yields none.
+func (c *LLMClient) listReasoningOptions(baseURL string) (map[string]ReasoningChoice, error) {
+	s := c.cfg.Get()
+	timeout := time.Duration(minInt(s.LLMTimeoutMs, 5000)) * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getLmStudioAPIRoot(baseURL)+"/api/v1/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	c.authHeader(req, s)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if !respOK(resp) {
+		return nil, fmt.Errorf("LLM reasoning option request failed with %d", resp.StatusCode)
+	}
+	var data struct {
+		Models []struct {
+			Type         string `json:"type"`
+			Key          string `json:"key"`
+			Capabilities struct {
+				Reasoning *struct {
+					AllowedOptions []string `json:"allowed_options"`
+					Default        string   `json:"default"`
+				} `json:"reasoning"`
+			} `json:"capabilities"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	out := map[string]ReasoningChoice{}
+	for _, item := range data.Models {
+		reasoning := item.Capabilities.Reasoning
+		if item.Type != "llm" || item.Key == "" || reasoning == nil || len(reasoning.AllowedOptions) == 0 {
+			continue
+		}
+		// LM Studio lists a model once per downloaded format, and the formats can
+		// disagree (one with options, one with null); the first with options wins.
+		if _, seen := out[item.Key]; !seen {
+			out[item.Key] = ReasoningChoice{AllowedOptions: reasoning.AllowedOptions, Default: reasoning.Default}
+		}
+	}
+	return out, nil
 }
 
 // EnsureModelLoaded mirrors ensureModelLoaded: ask LM Studio whether the model is

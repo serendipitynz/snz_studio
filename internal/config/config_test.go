@@ -435,3 +435,58 @@ func TestSetAutoCheckUpdatesLeavesAnUnreadableFileAlone(t *testing.T) {
 		t.Fatal("a failed save changed the in-memory value")
 	}
 }
+
+func TestSetReasoningPersistsPerEndpointAndModel(t *testing.T) {
+	t.Setenv("LLM_MODEL", "from-env")
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	if err := os.WriteFile(path, []byte(`{"llmBaseUrl":"http://saved/v1"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	c := Load(path)
+	before := c.Get()
+
+	if err := c.SetReasoning("http://h", "gemma", "off"); err != nil {
+		t.Fatalf("SetReasoning: %v", err)
+	}
+	if err := c.SetReasoning("http://h", "gpt-oss", "high"); err != nil {
+		t.Fatalf("SetReasoning: %v", err)
+	}
+	if got := c.Get().LLMReasoning["http://h"]["gemma"]; got != "off" {
+		t.Fatalf("in-memory gemma = %q, want off", got)
+	}
+	if before.LLMReasoning != nil {
+		t.Fatal("a snapshot taken before the save changed under its reader")
+	}
+
+	var fields map[string]any
+	raw, _ := os.ReadFile(path)
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("persisted config is not valid JSON: %v", err)
+	}
+	want := map[string]any{
+		"llmBaseUrl":   "http://saved/v1",
+		"llmReasoning": map[string]any{"http://h": map[string]any{"gemma": "off", "gpt-oss": "high"}},
+	}
+	if fmt.Sprint(fields) != fmt.Sprint(want) {
+		t.Fatalf("app-config.json = %v, want %v (the environment's model must not be pinned)", fields, want)
+	}
+
+	// Saving the connection settings keeps the choices, and a reload reads them.
+	if _, err := c.UpdateEditable(Editable{LLMBaseURL: "http://h/v1"}); err != nil {
+		t.Fatalf("UpdateEditable: %v", err)
+	}
+	if got := Load(path).Get().LLMReasoning["http://h"]["gpt-oss"]; got != "high" {
+		t.Fatalf("reloaded gpt-oss = %q, want high", got)
+	}
+
+	// Clearing the last choice of an endpoint drops the endpoint.
+	if err := c.SetReasoning("http://h", "gemma", ""); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if err := c.SetReasoning("http://h", "gpt-oss", ""); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if got := Load(path).Get().LLMReasoning; len(got) != 0 {
+		t.Fatalf("reloaded reasoning = %v, want empty", got)
+	}
+}

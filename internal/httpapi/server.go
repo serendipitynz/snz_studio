@@ -202,6 +202,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/configuration", s.handleGetConfiguration)
 	mux.HandleFunc("PUT /api/configuration", s.handlePutConfiguration)
 	mux.HandleFunc("POST /api/configuration/models", s.handleListConfigurationModels)
+	mux.HandleFunc("PUT /api/configuration/reasoning", s.handlePutReasoning)
 	mux.HandleFunc("GET /api/embedding/status", s.handleGetEmbeddingStatus)
 	mux.HandleFunc("GET /api/embedding/rebuild", s.handleGetEmbeddingRebuild)
 	mux.HandleFunc("POST /api/embedding/rebuild", s.handleRebuildEmbeddings)

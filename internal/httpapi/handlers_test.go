@@ -280,6 +280,61 @@ func TestConfigurationModels(t *testing.T) {
 	wantStatus(t, rec, http.StatusInternalServerError)
 }
 
+// fakeLMStudio answers the two model listings the settings screen reads: the
+// OpenAI-compatible /v1/models and LM Studio's /api/v1/models.
+func fakeLMStudio(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			io.WriteString(w, `{"data":[{"id":"google/gemma-4-12b"},{"id":"qwen3.8-27b"}]}`)
+		case "/api/v1/models":
+			io.WriteString(w, `{"models":[
+				{"type":"llm","key":"google/gemma-4-12b","capabilities":{"reasoning":{"allowed_options":["off","on"],"default":"on"}}},
+				{"type":"llm","key":"qwen3.8-27b","capabilities":{"reasoning":null}}
+			]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestConfigurationReasoning(t *testing.T) {
+	h := newTestServer(t).Handler()
+	lm := fakeLMStudio(t)
+
+	wantError(t, doJSON(t, h, "PUT", "/api/configuration/reasoning", map[string]any{"baseUrl": lm.URL + "/v1", "value": "off"}),
+		http.StatusBadRequest, "baseUrl and model are required")
+	wantStatus(t, doJSON(t, h, "PUT", "/api/configuration/reasoning",
+		map[string]any{"baseUrl": lm.URL + "/v1", "model": "qwen3.8-27b", "value": "off"}), http.StatusBadRequest)
+	// The default test endpoint is not LM Studio (nothing listens there).
+	wantStatus(t, doJSON(t, h, "PUT", "/api/configuration/reasoning",
+		map[string]any{"baseUrl": "http://127.0.0.1:1/v1", "model": "test-model", "value": "off"}), http.StatusBadRequest)
+	wantStatus(t, doJSON(t, h, "PUT", "/api/configuration/reasoning",
+		map[string]any{"baseUrl": "http://127.0.0.1:1/v1", "model": "test-model", "value": ""}), http.StatusOK)
+
+	wantStatus(t, doJSON(t, h, "PUT", "/api/configuration/reasoning",
+		map[string]any{"baseUrl": lm.URL + "/v1", "model": "google/gemma-4-12b", "value": "off"}), http.StatusOK)
+
+	rec := doJSON(t, h, "POST", "/api/configuration/models", map[string]any{"kind": "llm", "baseUrl": lm.URL + "/v1"})
+	wantStatus(t, rec, http.StatusOK)
+	var reasoning map[string]struct {
+		AllowedOptions []string `json:"allowedOptions"`
+		Default        string   `json:"default"`
+		Selected       string   `json:"selected"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "reasoning", &reasoning)
+	gemma, ok := reasoning["google/gemma-4-12b"]
+	if !ok || strings.Join(gemma.AllowedOptions, ",") != "off,on" || gemma.Default != "on" || gemma.Selected != "off" {
+		t.Fatalf("gemma reasoning = %+v (present %v), want off,on / on / off", gemma, ok)
+	}
+	if _, ok := reasoning["qwen3.8-27b"]; ok {
+		t.Fatal("a model whose reasoning is null was offered a choice")
+	}
+}
+
 func TestProjectsCRUD(t *testing.T) {
 	h := newTestServer(t).Handler()
 

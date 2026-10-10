@@ -490,6 +490,8 @@ workspace-wide configuration として次を持ちます。
 
 - `data/app-config.json`
 
+Think (推論) の値はワークスペースではなくモデルごとに持ちます。同じファイルの `llmReasoning` が、LM Studio の API ルートとモデルキーの組に、LM Studio の `/api/v1/models` がそのモデルに挙げる選択肢 (`off` / `on`、`low` / `medium` / `high`) のどれかを対応づけます。その接続先とモデルへのリクエストには、単独アシスタントのチャット・参加者の発言・要約・メモリ・結論・レビューのどれでも `reasoning_effort` として載せます。LM Studio の `/v1/chat/completions` は OpenAI の値しか受け付けないので、`off` は `none`、`on` は `medium` で送ります。値の無いモデルはモデルの既定で動き、リクエストに `reasoning_effort` を付けません。そのため LM Studio 以外の OpenAI 互換サーバーには送られません。値は設定モーダルの LLM モデルの下と、参加者カードのモデルの下で選びます。LM Studio が推論を切り替えられると返すモデルでだけ表示し、どちらから選んでも同じ値を書き換えます。
+
 環境変数 (`LLM_BASE_URL` など) が初期値で、UI 保存後は app config が優先されます。アプリは `.env` ファイルを読みません。
 `LLM_API_KEY` は UI から設定できず、既定の接続先とスキーム・ホスト・ポートが同じ送信先にだけ付けます (README の「API キーが送られる範囲」)。
 
