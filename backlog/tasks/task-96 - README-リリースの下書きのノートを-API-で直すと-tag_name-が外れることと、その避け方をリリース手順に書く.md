@@ -1,10 +1,10 @@
 ---
 id: TASK-96
 title: 'README: リリースの下書きのノートを API で直すと tag_name が外れることと、その避け方をリリース手順に書く'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-10 10:39'
-updated_date: '2026-10-10 21:14'
+updated_date: '2026-10-10 21:31'
 labels: []
 milestone: m-3
 dependencies: []
