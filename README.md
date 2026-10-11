@@ -471,7 +471,8 @@ For example:
 - Ollama's OpenAI-compatible endpoint: substitute that URL
 
 Set `EMBEDDING_MODEL` to use embeddings. Left unset, retrieval runs on FTS alone; set, document and
-memory retrieval becomes a hybrid of `FTS + embedding rerank`.
+memory retrieval becomes a hybrid: the chunks and memories closest in meaning join the FTS matches and
+are ranked with them.
 
 Set `IMAGE_DESCRIPTION_MODEL` (or the image description model in Settings) to a model that accepts
 images to enable "Generate description" in the image add dialog. The image is sent once, and the
@@ -541,7 +542,7 @@ receives either key.
 ## Implementation approach
 
 - No vector database
-- Retrieval is SQLite FTS by default, with optional hybrid rerank via OpenAI-compatible embeddings
+- Retrieval is SQLite FTS by default, with optional hybrid search via OpenAI-compatible embeddings
 - Documents are classified as `world / character / rule / plot / timeline / index / story / misc`,
   used to tune retrieval priority
 - Vectors are stored in SQLite as JSON; no external vector database
@@ -578,7 +579,7 @@ receives either key.
 
 ## Future extension points
 
-- Tuning hybrid-retrieval weights and improving the semantic-only fallback
+- Tuning hybrid-retrieval weights and the semantic floor
 - Moving chat-summary updates onto the LLM
 - Moving memory extraction onto the LLM
 - Document edit / delete UI

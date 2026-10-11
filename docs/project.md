@@ -71,7 +71,7 @@ Categories are inferred automatically on creation and can be changed manually la
 Document retrieval uses:
 
 - SQLite FTS5 keyword search
-- optional embedding-based reranking and fallback
+- optional embedding-based candidates, ranked together with the FTS matches
 
 Large writing projects are expected to keep source material in project documents rather than in memories.
 

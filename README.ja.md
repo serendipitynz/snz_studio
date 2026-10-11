@@ -446,7 +446,7 @@ OpenAI 互換 API を前提にしています。次の値を環境変数で渡�
 - LM Studio: `LLM_BASE_URL=http://127.0.0.1:1234/v1`
 - Ollama OpenAI 互換 endpoint: その URL に差し替え
 
-embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未設定なら retrieval は FTS のみで動作します。設定されていれば、document / memory の retrieval は `FTS + embedding rerank` の hybrid になります。
+embedding を使う場合は `EMBEDDING_MODEL` を設定してください。未設定なら retrieval は FTS のみで動作します。設定されていれば、document / memory の retrieval は hybrid になり、意味の近い chunk・メモリが FTS の一致と合わせて順位付けされます。
 
 画像を入力できるモデルを `IMAGE_DESCRIPTION_MODEL` (または設定画面の画像説明用モデル) に設定すると、
 画像の追加ダイアログで「説明文を生成」が使えます。画像を 1 回だけモデルに送り、返った文を説明文欄に
@@ -499,7 +499,7 @@ Windows では、PowerShell で `$env:LLM_API_KEY = "..."` のように設定し
 ## 実装方針
 
 - ベクトル DB なし
-- retrieval は SQLite FTS を基本とし、任意で OpenAI 互換 embeddings による hybrid rerank を追加
+- retrieval は SQLite FTS を基本とし、任意で OpenAI 互換 embeddings による hybrid 検索を追加
 - document は `world / character / rule / plot / timeline / index / story / misc` に分類され、retrieval の優先度調整に使う
 - ベクトルは SQLite に JSON で保存し、外部ベクトル DB は使わない
 - 過去 chat は毎回全文を渡さず、`chat_summaries` と recent messages を中心に扱う
@@ -532,7 +532,7 @@ Windows では、PowerShell で `$env:LLM_API_KEY = "..."` のように設定し
 
 ## 今後の拡張ポイント
 
-- hybrid retrieval の重み調整と semantic-only fallback の改善
+- hybrid retrieval の重みと意味スコアの下限の調整
 - chat summary 更新を LLM ベースに切り替え
 - memory 抽出を LLM ベースに切り替え
 - document 編集 / 削除 UI

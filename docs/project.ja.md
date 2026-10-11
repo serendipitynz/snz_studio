@@ -71,7 +71,7 @@ category は追加時に自動推定され、あとから手動で変更でき�
 document retrieval は次を組み合わせます。
 
 - SQLite FTS5 によるキーワード検索
-- 任意の embedding による rerank / fallback
+- 任意の embedding による候補追加（FTS の一致と合わせて順位付け）
 
 大きな創作プロジェクトでは、一次資料は memory ではなく document に置く前提です。
 
