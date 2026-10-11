@@ -163,6 +163,129 @@ func TestSearchMemoriesFTSOnly(t *testing.T) {
 	}
 }
 
+// bm25() takes one weight per FTS5 column, UNINDEXED ones included, so a weight
+// list that forgets the id columns silently lands on the wrong text columns. The
+// two records below swap the same strings between title and content, which makes
+// them tie under equal per-column weights; only the configured title/content
+// weights can break the tie.
+func TestSearchDocumentsTitleMatchOutranksContentMatch(t *testing.T) {
+	d := newServiceTestDB(t)
+	projects := repository.NewProjectRepository(d)
+	documents := repository.NewDocumentRepository(d)
+	retrieval := NewRetrievalService(d, disabledEmbeddingClient())
+
+	project, err := projects.CreateProject(repository.CreateProjectInput{Title: "Saga"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	titleMatch, err := documents.CreateDocument(repository.CreateDocumentInput{
+		ProjectID: project.ID, Type: "text", Category: "world", Title: "飛竜の生態", ContentText: "港町の地図",
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument title match: %v", err)
+	}
+	contentMatch, err := documents.CreateDocument(repository.CreateDocumentInput{
+		ProjectID: project.ID, Type: "text", Category: "world", Title: "港町の地図", ContentText: "飛竜の生態",
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument content match: %v", err)
+	}
+
+	refs, err := retrieval.SearchDocuments(project.ID, "飛竜", 4, 3, ScopeAll)
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("got %d references, want both documents: %+v", len(refs), refs)
+	}
+	if refs[0].SourceID != titleMatch.ID || refs[1].SourceID != contentMatch.ID {
+		t.Fatalf("order = [%s, %s], want the title match before the content match", refs[0].Label, refs[1].Label)
+	}
+	if !(refs[0].Score > refs[1].Score) {
+		t.Fatalf("title match score %v is not above content match score %v", refs[0].Score, refs[1].Score)
+	}
+}
+
+// Without embeddings the lowest FTS row normalizes to 0. It used to fall back to
+// its raw bm25 score, which in a corpus large enough for a real IDF exceeds the
+// top row's normalized 1 and sorted the weakest match first.
+func TestSearchDocumentsFTSOnlyKeepsWeakestMatchLast(t *testing.T) {
+	d := newServiceTestDB(t)
+	projects := repository.NewProjectRepository(d)
+	documents := repository.NewDocumentRepository(d)
+	retrieval := NewRetrievalService(d, disabledEmbeddingClient())
+
+	project, err := projects.CreateProject(repository.CreateProjectInput{Title: "Saga"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	create := func(title, content string) string {
+		t.Helper()
+		doc, err := documents.CreateDocument(repository.CreateDocumentInput{
+			ProjectID: project.ID, Type: "text", Category: "world", Title: title, ContentText: content,
+		})
+		if err != nil {
+			t.Fatalf("CreateDocument %s: %v", title, err)
+		}
+		return doc.ID
+	}
+	strong := create("飛竜の生態", "山脈の東側に巣を作る。")
+	weak := create("旅の記録", "道中で一度だけ飛竜を見かけた。"+strings.Repeat("街道は長く続いた。", 20))
+	for i := 0; i < 20; i++ {
+		create(fmt.Sprintf("雑記%d", i), "市場の値段の控え。")
+	}
+
+	refs, err := retrieval.SearchDocuments(project.ID, "飛竜", 4, 3, ScopeAll)
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("got %d references, want the two matching documents: %+v", len(refs), refs)
+	}
+	if refs[0].SourceID != strong || refs[1].SourceID != weak {
+		t.Fatalf("order = [%s %v, %s %v], want the title match first", refs[0].Label, refs[0].Score, refs[1].Label, refs[1].Score)
+	}
+}
+
+// Memories weight content above title, so the swapped pair ranks the other way.
+func TestSearchMemoriesContentMatchOutranksTitleMatch(t *testing.T) {
+	d := newServiceTestDB(t)
+	projects := repository.NewProjectRepository(d)
+	memories := repository.NewMemoryRepository(d)
+	retrieval := NewRetrievalService(d, disabledEmbeddingClient())
+
+	project, err := projects.CreateProject(repository.CreateProjectInput{Title: "Saga"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	titleMatch, err := memories.CreateMemory(repository.CreateMemoryInput{
+		ProjectID: project.ID, Kind: "semantic", Title: "飛竜の生態", Content: "港町の地図",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemory title match: %v", err)
+	}
+	contentMatch, err := memories.CreateMemory(repository.CreateMemoryInput{
+		ProjectID: project.ID, Kind: "semantic", Title: "港町の地図", Content: "飛竜の生態",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemory content match: %v", err)
+	}
+
+	refs, err := retrieval.SearchMemories(project.ID, "飛竜", 4, ScopeAll)
+	if err != nil {
+		t.Fatalf("SearchMemories: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("got %d references, want both memories: %+v", len(refs), refs)
+	}
+	if refs[0].SourceID != contentMatch.ID || refs[1].SourceID != titleMatch.ID {
+		t.Fatalf("order = [%s, %s], want the content match before the title match", refs[0].Label, refs[1].Label)
+	}
+	if !(refs[0].Score > refs[1].Score) {
+		t.Fatalf("content match score %v is not above title match score %v", refs[0].Score, refs[1].Score)
+	}
+}
+
 // TestSearchDocumentsResultsAcrossBothPaths pins what SearchDocuments returns when
 // FTS ranks fewer documents than the limit and the semantic fallback fills the
 // rest. The expected snapshot was captured before TASK-74 stopped reading every
@@ -231,7 +354,7 @@ func TestSearchDocumentsResultsAcrossBothPaths(t *testing.T) {
 	}
 	const want = `竜の年代記 category=story mode=search score=0.910000 full=false
   chunk 0 score=0.910000 runes=1000
-  chunk 1 score=0.868932 runes=590
+  chunk 1 score=0.762864 runes=590
   excerpt: [chunk 1] 飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れ…
 [chunk 2] 越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王都では鐘が鳴った。飛竜の群れが北の砦を越えた。王…
 飛竜の生態 category=world mode=search score=0.282582 full=false

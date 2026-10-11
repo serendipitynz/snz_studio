@@ -274,12 +274,14 @@ func (r *RetrievalService) SearchChunksInDocument(documentID, query string, limi
 		return out, rows.Err()
 	}
 
+	// bm25() weights every FTS5 column by position, UNINDEXED ones included, so the
+	// id columns take a 0.0 each before the title/note/tags/derived_text/content weights.
 	rows, err := r.db.Query(`
 		SELECT
 			c.id AS chunk_id,
 			c.chunk_index AS chunk_index,
 			c.content AS content,
-			bm25(document_chunks_fts, 10.0, 2.0, 1.0, 1.0, 4.0) * -1 AS score
+			bm25(document_chunks_fts, 0.0, 0.0, 0.0, 10.0, 2.0, 1.0, 1.0, 4.0) * -1 AS score
 		FROM document_chunks_fts
 		JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id
 		WHERE document_chunks_fts.document_id = ? AND document_chunks_fts MATCH ?
@@ -351,6 +353,8 @@ func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string
 	if candidateLimit < 12 {
 		candidateLimit = 12
 	}
+	// bm25() weights every FTS5 column by position, UNINDEXED ones included, so the
+	// id columns take a 0.0 each before the title/note/tags/derived_text/content weights.
 	rows, err := r.db.Query(`
 		SELECT
 			d.id AS source_id,
@@ -361,7 +365,7 @@ func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string
 			c.chunk_index AS chunk_index,
 			d.note AS note,
 			d.derived_text AS derived_text,
-			bm25(document_chunks_fts, 10.0, 2.0, 1.0, 1.0, 4.0) * -1 AS score
+			bm25(document_chunks_fts, 0.0, 0.0, 0.0, 10.0, 2.0, 1.0, 1.0, 4.0) * -1 AS score
 		FROM document_chunks_fts
 		JOIN documents d ON d.id = document_chunks_fts.document_id
 		JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id
@@ -385,12 +389,14 @@ func (r *RetrievalService) fetchDocumentFtsCandidates(projectID, ftsQuery string
 }
 
 func (r *RetrievalService) fetchMemoryFtsCandidates(projectID, ftsQuery string, limit int, scope MaterialScope) ([]memoryCandidateRow, error) {
+	// bm25() weights every FTS5 column by position, UNINDEXED ones included, so the
+	// id columns take a 0.0 each before the kind/title/content weights.
 	rows, err := r.db.Query(`
 		SELECT
 			m.id AS source_id,
 			m.title AS label,
 			m.content AS excerpt,
-			bm25(memories_fts, 2.0, 6.0, 8.0) * -1 AS score
+			bm25(memories_fts, 0.0, 0.0, 2.0, 6.0, 8.0) * -1 AS score
 		FROM memories_fts
 		JOIN memories m ON m.id = memories_fts.memory_id
 		WHERE memories_fts.project_id = ? AND memories_fts MATCH ?`+
@@ -466,10 +472,8 @@ func (r *RetrievalService) rankDocumentCandidates(rows []documentCandidateRow, q
 		var hybridScore float64
 		if queryEmbedding != nil {
 			hybridScore = ftsScores[i]*0.55 + semanticScores[row.chunkID]*0.45
-		} else if ftsScores[i] != 0 {
-			hybridScore = ftsScores[i]
 		} else {
-			hybridScore = row.score
+			hybridScore = ftsScores[i]
 		}
 		weightedScore := hybridScore * getCategoryWeight(row.category, intent)
 
