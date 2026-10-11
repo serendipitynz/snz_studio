@@ -101,7 +101,8 @@ func (s *ReviewService) ReviewMessage(messageID string) (*ReviewResult, error) {
 	return &ReviewResult{Review: review.Content, References: prepared.references}, nil
 }
 
-// ReviewMessageStream mirrors reviewMessageStream.
+// ReviewMessageStream mirrors reviewMessageStream. Only the review's own text
+// streams: the review dialog has no place for the reviewer's reasoning.
 func (s *ReviewService) ReviewMessageStream(messageID string, onDelta func(StreamDelta)) (*ReviewResult, error) {
 	prepared, err := s.prepareReview(messageID)
 	if err != nil {
@@ -113,7 +114,11 @@ func (s *ReviewService) ReviewMessageStream(messageID string, onDelta func(Strea
 		UserInput:    prepared.userInput,
 		Temperature:  float64Ptr(0.15),
 		Target:       prepared.target,
-	}, onDelta)
+	}, func(delta StreamDelta) {
+		if !delta.Reasoning {
+			onDelta(delta)
+		}
+	})
 	if err != nil {
 		return nil, err
 	}

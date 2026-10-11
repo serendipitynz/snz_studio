@@ -59,11 +59,19 @@ func (s *SSEWriter) Event(event string, data any) error {
 
 // StreamDelta writes one change to a streamed text: a "delta" frame appends its
 // content, a "replace" frame shows its content instead of everything streamed
-// before it (see service.StreamDelta).
+// before it (see service.StreamDelta). A change to the reasoning goes out as
+// "reasoning" / "reasoning-replace", so a reader that knows only the answer's
+// frames skips it.
 func (s *SSEWriter) StreamDelta(delta service.StreamDelta) error {
 	event := "delta"
 	if delta.Replace {
 		event = "replace"
+	}
+	if delta.Reasoning {
+		event = "reasoning"
+		if delta.Replace {
+			event = "reasoning-replace"
+		}
 	}
 	return s.Event(event, map[string]string{"content": delta.Text})
 }

@@ -23,10 +23,15 @@ import (
 // ChatCompletionResult mirrors the ChatCompletionResult interface returned by the
 // LLM client. The metric fields are always populated (never nil) here; ChatService
 // is responsible for deciding when to persist them as null.
+//
+// OutputTokens counts every generated token, the reasoning included, and
+// ReasoningTokens is the reasoning's share of it (0 when the model did not think).
 type ChatCompletionResult struct {
 	Content         string
+	Reasoning       string
 	ResponseMs      int64
 	OutputTokens    int64
+	ReasoningTokens int64
 	TokensPerSecond float64
 	ModelName       string
 }
@@ -93,7 +98,9 @@ func estimateTokenCount(input string) int64 {
 }
 
 // buildGenerationMetrics mirrors buildGenerationMetrics. elapsedMs is wall-clock
-// milliseconds; outputTokens is the endpoint-reported count when available.
+// milliseconds; outputTokens is the endpoint-reported count when available, and
+// content is what the estimate reads otherwise — the reasoning included, since
+// the reported count includes it too.
 func buildGenerationMetrics(content string, elapsedMs float64, outputTokens *int64) (responseMs, tokens int64, tokensPerSecond float64) {
 	responseMs = int64(math.Round(elapsedMs))
 	if responseMs < 1 {
@@ -111,6 +118,56 @@ func buildGenerationMetrics(content string, elapsedMs float64, outputTokens *int
 		tokensPerSecond = round2(float64(tokens) / (float64(responseMs) / 1000.0))
 	}
 	return responseMs, tokens, tokensPerSecond
+}
+
+// reasoningTokenCount is the reasoning's share of the output tokens: the count
+// the endpoint reported (usage.completion_tokens_details.reasoning_tokens), or an
+// estimate from the reasoning text, never more than the whole.
+func reasoningTokenCount(reasoning string, reported *int64, outputTokens int64) int64 {
+	count := estimateTokenCount(reasoning)
+	if reported != nil {
+		count = *reported
+	}
+	return max(0, min(count, outputTokens))
+}
+
+// generatedText is the text the token estimate reads: everything generated.
+func generatedText(content, reasoning string) string {
+	if reasoning == "" {
+		return content
+	}
+	return reasoning + "\n" + content
+}
+
+// splitResponse separates a response into its reasoning and its visible content.
+// Reasoning arrives in a field of its own (LM Studio sends reasoning_content for
+// some models and reasoning for others), or inside the content between <think>
+// tags; the two are joined when a model uses both.
+func splitResponse(rawContent, rawReasoning, format string) (reasoning, content string) {
+	thinking, rest := llmresponse.SplitThinking(rawContent)
+	reasoning = strings.TrimSpace(rawReasoning)
+	if thinking != "" {
+		if reasoning != "" {
+			reasoning += "\n\n"
+		}
+		reasoning += thinking
+	}
+	return reasoning, llmresponse.ParseAssistantResponse(rest, format)
+}
+
+// completionUsage is the usage block of a completion or of a stream's last chunk.
+type completionUsage struct {
+	CompletionTokens        *int64 `json:"completion_tokens"`
+	CompletionTokensDetails *struct {
+		ReasoningTokens *int64 `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+}
+
+func (u *completionUsage) reasoningTokens() *int64 {
+	if u == nil || u.CompletionTokensDetails == nil {
+		return nil
+	}
+	return u.CompletionTokensDetails.ReasoningTokens
 }
 
 type chatMessage struct {
@@ -247,12 +304,12 @@ func (c *LLMClient) CreateChatCompletion(input ChatCompletionInput) (*ChatComple
 	var data struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+				Reasoning        string `json:"reasoning"`
 			} `json:"message"`
 		} `json:"choices"`
-		Usage *struct {
-			CompletionTokens *int64 `json:"completion_tokens"`
-		} `json:"usage"`
+		Usage *completionUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		if isContextTimeout(err, ctx) {
@@ -261,13 +318,10 @@ func (c *LLMClient) CreateChatCompletion(input ChatCompletionInput) (*ChatComple
 		return nil, err
 	}
 
-	rawContent := ""
+	var reasoning, content string
 	if len(data.Choices) > 0 {
-		rawContent = strings.TrimSpace(data.Choices[0].Message.Content)
-	}
-	content := ""
-	if rawContent != "" {
-		content = llmresponse.ParseAssistantResponse(rawContent, s.LLMResponseFormat)
+		message := data.Choices[0].Message
+		reasoning, content = splitResponse(strings.TrimSpace(message.Content), message.ReasoningContent+message.Reasoning, s.LLMResponseFormat)
 	}
 	if content == "" {
 		return nil, errors.New("LLM response did not contain message content")
@@ -278,28 +332,34 @@ func (c *LLMClient) CreateChatCompletion(input ChatCompletionInput) (*ChatComple
 		completionTokens = data.Usage.CompletionTokens
 	}
 	elapsed := float64(time.Since(start).Microseconds()) / 1000.0
-	respMs, tokens, tps := buildGenerationMetrics(content, elapsed, completionTokens)
+	respMs, tokens, tps := buildGenerationMetrics(generatedText(content, reasoning), elapsed, completionTokens)
 	return &ChatCompletionResult{
 		Content:         content,
+		Reasoning:       reasoning,
 		ResponseMs:      respMs,
 		OutputTokens:    tokens,
+		ReasoningTokens: reasoningTokenCount(reasoning, data.Usage.reasoningTokens(), tokens),
 		TokensPerSecond: tps,
 		ModelName:       modelName,
 	}, nil
 }
 
-// StreamDelta is one change to the visible text of a streaming completion.
+// StreamDelta is one change to the visible text, or to the reasoning, of a
+// streaming completion. Reasoning marks a change to the reasoning: the two are
+// separate texts, and a reasoning delta never touches the visible one.
 //
-// The visible text is re-parsed from the whole raw response on every chunk, so it
-// does not only grow: a tag fragment shows as text until the rest of the tag
-// arrives and removes it, and under llm_jp_thinking a late channel tag hides
-// everything shown so far. Replace marks such a change, and Text is then the whole
-// visible text, shown instead of everything streamed before it. Otherwise Text is
+// Both texts are re-parsed from the whole raw response on every chunk, so they do
+// not only grow: a tag fragment shows as text until the rest of the tag arrives
+// and removes it, under llm_jp_thinking a late channel tag hides everything shown
+// so far, and a </think> with no opening tag moves the text before it from the
+// answer to the reasoning. Replace marks such a change, and Text is then the whole
+// text, shown instead of everything streamed before it. Otherwise Text is
 // appended. A whole-text replacement rather than "keep N characters, then append"
 // because Go counts runes and the frontend counts UTF-16 code units.
 type StreamDelta struct {
-	Text    string
-	Replace bool
+	Text      string
+	Replace   bool
+	Reasoning bool
 }
 
 // maxStreamEventBytes bounds the bytes held while waiting for an SSE event's
@@ -309,8 +369,9 @@ type StreamDelta struct {
 const maxStreamEventBytes = 1 << 20
 
 // CreateChatCompletionStream performs a streaming completion, invoking onDelta
-// whenever the visible text changes. Mirrors createChatCompletionStream, including
-// the sliding timeout that resets on every received chunk.
+// whenever the visible text or the reasoning changes. Mirrors
+// createChatCompletionStream, including the sliding timeout that resets on every
+// received chunk.
 func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelta func(StreamDelta)) (*ChatCompletionResult, error) {
 	s := c.cfg.Get()
 	baseURL, modelName := resolveTarget(input.Target, s.LLMBaseURL, s.LLMModel)
@@ -359,9 +420,23 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 
 	var (
 		rawContent       strings.Builder
+		rawReasoning     strings.Builder
 		visibleContent   string
-		completionTokens *int64
+		visibleReasoning string
+		usage            *completionUsage
 	)
+
+	show := func(shown *string, next string, reasoning bool) {
+		if next == *shown {
+			return
+		}
+		if strings.HasPrefix(next, *shown) {
+			onDelta(StreamDelta{Text: next[len(*shown):], Reasoning: reasoning})
+		} else {
+			onDelta(StreamDelta{Text: next, Replace: true, Reasoning: reasoning})
+		}
+		*shown = next
+	}
 
 	handleChunk := func(chunk string) error {
 		var dataLines []string
@@ -385,38 +460,32 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 		var payload struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+					Reasoning        string `json:"reasoning"`
 				} `json:"delta"`
 			} `json:"choices"`
-			Usage *struct {
-				CompletionTokens *int64 `json:"completion_tokens"`
-			} `json:"usage"`
+			Usage *completionUsage `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(dataText), &payload); err != nil {
 			return fmt.Errorf("LLM stream returned invalid JSON: %w", err)
 		}
 		if payload.Usage != nil && payload.Usage.CompletionTokens != nil {
-			ct := *payload.Usage.CompletionTokens
-			completionTokens = &ct
+			usage = payload.Usage
 		}
-		delta := ""
-		if len(payload.Choices) > 0 {
-			delta = payload.Choices[0].Delta.Content
-		}
-		if delta == "" {
+		if len(payload.Choices) == 0 {
 			return nil
 		}
-		rawContent.WriteString(delta)
-		nextVisible := llmresponse.ParseAssistantResponse(rawContent.String(), s.LLMResponseFormat)
-		if nextVisible == visibleContent {
+		delta := payload.Choices[0].Delta
+		if delta.Content == "" && delta.ReasoningContent == "" && delta.Reasoning == "" {
 			return nil
 		}
-		if strings.HasPrefix(nextVisible, visibleContent) {
-			onDelta(StreamDelta{Text: nextVisible[len(visibleContent):]})
-		} else {
-			onDelta(StreamDelta{Text: nextVisible, Replace: true})
-		}
-		visibleContent = nextVisible
+		rawContent.WriteString(delta.Content)
+		rawReasoning.WriteString(delta.ReasoningContent)
+		rawReasoning.WriteString(delta.Reasoning)
+		nextReasoning, nextVisible := splitResponse(rawContent.String(), rawReasoning.String(), s.LLMResponseFormat)
+		show(&visibleReasoning, nextReasoning, true)
+		show(&visibleContent, nextVisible, false)
 		return nil
 	}
 
@@ -461,16 +530,22 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 		}
 	}
 
-	content := llmresponse.ParseAssistantResponse(rawContent.String(), s.LLMResponseFormat)
+	reasoning, content := splitResponse(rawContent.String(), rawReasoning.String(), s.LLMResponseFormat)
 	if strings.TrimSpace(content) == "" {
 		return nil, errors.New("LLM stream did not contain message content")
 	}
+	var completionTokens *int64
+	if usage != nil {
+		completionTokens = usage.CompletionTokens
+	}
 	elapsed := float64(time.Since(start).Microseconds()) / 1000.0
-	respMs, tokens, tps := buildGenerationMetrics(content, elapsed, completionTokens)
+	respMs, tokens, tps := buildGenerationMetrics(generatedText(content, reasoning), elapsed, completionTokens)
 	return &ChatCompletionResult{
 		Content:         content,
+		Reasoning:       reasoning,
 		ResponseMs:      respMs,
 		OutputTokens:    tokens,
+		ReasoningTokens: reasoningTokenCount(reasoning, usage.reasoningTokens(), tokens),
 		TokensPerSecond: tps,
 		ModelName:       modelName,
 	}, nil
