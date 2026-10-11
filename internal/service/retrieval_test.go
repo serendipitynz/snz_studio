@@ -206,6 +206,47 @@ func TestSearchDocumentsTitleMatchOutranksContentMatch(t *testing.T) {
 	}
 }
 
+// Without embeddings the lowest FTS row normalizes to 0. It used to fall back to
+// its raw bm25 score, which in a corpus large enough for a real IDF exceeds the
+// top row's normalized 1 and sorted the weakest match first.
+func TestSearchDocumentsFTSOnlyKeepsWeakestMatchLast(t *testing.T) {
+	d := newServiceTestDB(t)
+	projects := repository.NewProjectRepository(d)
+	documents := repository.NewDocumentRepository(d)
+	retrieval := NewRetrievalService(d, disabledEmbeddingClient())
+
+	project, err := projects.CreateProject(repository.CreateProjectInput{Title: "Saga"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	create := func(title, content string) string {
+		t.Helper()
+		doc, err := documents.CreateDocument(repository.CreateDocumentInput{
+			ProjectID: project.ID, Type: "text", Category: "world", Title: title, ContentText: content,
+		})
+		if err != nil {
+			t.Fatalf("CreateDocument %s: %v", title, err)
+		}
+		return doc.ID
+	}
+	strong := create("飛竜の生態", "山脈の東側に巣を作る。")
+	weak := create("旅の記録", "道中で一度だけ飛竜を見かけた。"+strings.Repeat("街道は長く続いた。", 20))
+	for i := 0; i < 20; i++ {
+		create(fmt.Sprintf("雑記%d", i), "市場の値段の控え。")
+	}
+
+	refs, err := retrieval.SearchDocuments(project.ID, "飛竜", 4, 3, ScopeAll)
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("got %d references, want the two matching documents: %+v", len(refs), refs)
+	}
+	if refs[0].SourceID != strong || refs[1].SourceID != weak {
+		t.Fatalf("order = [%s %v, %s %v], want the title match first", refs[0].Label, refs[0].Score, refs[1].Label, refs[1].Score)
+	}
+}
+
 // Memories weight content above title, so the swapped pair ranks the other way.
 func TestSearchMemoriesContentMatchOutranksTitleMatch(t *testing.T) {
 	d := newServiceTestDB(t)

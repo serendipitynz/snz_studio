@@ -472,10 +472,8 @@ func (r *RetrievalService) rankDocumentCandidates(rows []documentCandidateRow, q
 		var hybridScore float64
 		if queryEmbedding != nil {
 			hybridScore = ftsScores[i]*0.55 + semanticScores[row.chunkID]*0.45
-		} else if ftsScores[i] != 0 {
-			hybridScore = ftsScores[i]
 		} else {
-			hybridScore = row.score
+			hybridScore = ftsScores[i]
 		}
 		weightedScore := hybridScore * getCategoryWeight(row.category, intent)
 
