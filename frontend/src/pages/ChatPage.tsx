@@ -10,7 +10,7 @@ import {
   Project as ProjectRecord
 } from "../api/client";
 import type { ReviewReference } from "../api/client";
-import { applyStreamText, isStreamTextEvent } from "../api/streamText";
+import { applyStreamText, isStreamReasoningEvent, isStreamTextEvent } from "../api/streamText";
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { ComposerTextarea } from "../components/ComposerTextarea";
@@ -36,6 +36,7 @@ import {
   SpinnerIcon
 } from "../components/icons";
 import { MarkdownPreview } from "../components/MarkdownPreview";
+import { ReasoningFold } from "../components/ReasoningFold";
 import { MessageReferences } from "../components/MessageReferences";
 import { useSideRegion } from "../components/useSideRegion";
 import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
@@ -88,9 +89,11 @@ function createOptimisticMessage(chatId: string, role: "user" | "assistant", con
     chatId,
     role,
     content,
+    reasoning: "",
     createdAt: new Date().toISOString(),
     responseMs: null,
     outputTokens: null,
+    reasoningTokens: null,
     tokensPerSecond: null,
     modelName: null,
     participantId: null,
@@ -101,7 +104,10 @@ function createOptimisticMessage(chatId: string, role: "user" | "assistant", con
   };
 }
 
-function formatAssistantMetrics(message: MessageRecord) {
+// The token count is everything generated, the reasoning included — the count
+// the speed is measured over — with the reasoning's share named beside it, so a
+// short answer to a long thought does not read as a slow one.
+function formatAssistantMetrics(message: MessageRecord, t: ReturnType<typeof useLanguage>["t"]) {
   if (message.role !== "assistant") {
     return "";
   }
@@ -111,7 +117,11 @@ function formatAssistantMetrics(message: MessageRecord) {
     parts.push(`${(message.responseMs / 1000).toFixed(1)}s`);
   }
   if (message.outputTokens != null) {
-    parts.push(`${message.outputTokens} tok`);
+    parts.push(
+      message.reasoningTokens
+        ? `${message.outputTokens} tok (${t("chat.reasoningTokens", { count: message.reasoningTokens })})`
+        : `${message.outputTokens} tok`
+    );
   }
   if (message.tokensPerSecond != null) {
     parts.push(`${message.tokensPerSecond.toFixed(1)} tok/s`);
@@ -311,15 +321,16 @@ export function ChatPage() {
         | { message?: string }
         | { chat?: ChatRecord; messages?: MessageRecord[]; summary?: ChatSummary | null };
 
-      if (isStreamTextEvent(eventName)) {
+      if (isStreamTextEvent(eventName) || isStreamReasoningEvent(eventName)) {
         const content = "content" in payload ? payload.content : undefined;
+        const field = isStreamReasoningEvent(eventName) ? "reasoning" : "content";
         setState((current) =>
           current
             ? {
                 ...current,
                 messages: current.messages.map((message) =>
                   message.id === assistantMessageId
-                    ? { ...message, content: applyStreamText(message.content, eventName, content) }
+                    ? { ...message, [field]: applyStreamText(message[field], eventName, content) }
                     : message
                 )
               }
@@ -723,9 +734,12 @@ export function ChatPage() {
                 <MessageBubble key={message.id} $role={message.role}>
                   <Stack>
                     {message.role === "assistant" ? (
+                      <ReasoningFold reasoning={message.reasoning} thinking={!message.content} />
+                    ) : null}
+                    {message.role === "assistant" ? (
                       message.content ? (
                         <MarkdownPreview source={message.content} />
-                      ) : (
+                      ) : message.reasoning ? null : (
                         <Row style={{ alignItems: "center", gap: 10 }}>
                           <SpinnerIcon size={14} />
                           <MetaText>{t("chat.generating")}</MetaText>
@@ -742,7 +756,7 @@ export function ChatPage() {
                         {message.role === "assistant" ? (
                           <Stack style={{ gap: 2, alignItems: "flex-end" }}>
                             <MetaText style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                              {formatAssistantMetrics(message)}
+                              {formatAssistantMetrics(message, t)}
                             </MetaText>
                             {formatAssistantModel(message) ? (
                               <MetaText style={{ whiteSpace: "nowrap", textAlign: "right" }}>

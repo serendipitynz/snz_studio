@@ -2,7 +2,7 @@ import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { useParams } from "react-router-dom";
 import { api, ApiError, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
-import { applyStreamText, isStreamTextEvent } from "../api/streamText";
+import { applyStreamText, isStreamReasoningEvent, isStreamTextEvent } from "../api/streamText";
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
@@ -29,6 +29,7 @@ import {
   UserGroupIcon
 } from "../components/icons";
 import { MarkdownPreview } from "../components/MarkdownPreview";
+import { ReasoningFold } from "../components/ReasoningFold";
 import { MessageReferences } from "../components/MessageReferences";
 import { ParticipantPanel } from "../components/ParticipantPanel";
 import { StateEffectChips } from "../components/StateEffectChips";
@@ -173,6 +174,7 @@ export function MultiAgentChatPage() {
   const [turnRunning, setTurnRunning] = useState(false);
   const [runningSpeaker, setRunningSpeaker] = useState<TurnSpeaker | null>(null);
   const [streamedContent, setStreamedContent] = useState("");
+  const [streamedReasoning, setStreamedReasoning] = useState("");
   const [autoRunning, setAutoRunning] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
   // The engine's pick for the next turn and the number of past messages a turn
@@ -265,7 +267,7 @@ export function MultiAgentChatPage() {
       node.scrollTop = node.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [loading, state?.messages.length, streamedContent]);
+  }, [loading, state?.messages.length, streamedContent, streamedReasoning]);
 
   const roster = useMemo(
     () => participants.filter((participant) => participant.deletedAt === null),
@@ -344,6 +346,7 @@ export function MultiAgentChatPage() {
     announcedNextRef.current = null;
     setTurnError("");
     setStreamedContent("");
+    setStreamedReasoning("");
     setRunningSpeaker(null);
     setTurnRunning(true);
 
@@ -371,6 +374,11 @@ export function MultiAgentChatPage() {
 
           if (isStreamTextEvent(event)) {
             setStreamedContent((current) => applyStreamText(current, event, payload.content));
+            return;
+          }
+
+          if (isStreamReasoningEvent(event)) {
+            setStreamedReasoning((current) => applyStreamText(current, event, payload.content));
             return;
           }
 
@@ -409,6 +417,7 @@ export function MultiAgentChatPage() {
       setTurnRunning(false);
       setRunningSpeaker(null);
       setStreamedContent("");
+      setStreamedReasoning("");
     }
   }
 
@@ -773,6 +782,7 @@ export function MultiAgentChatPage() {
                       <strong style={{ overflowWrap: "anywhere" }}>{speakerLabel(message)}</strong>
                       <MetaText style={{ whiteSpace: "nowrap" }}>{message.modelName ?? ""}</MetaText>
                     </Row>
+                    <ReasoningFold reasoning={message.reasoning ?? ""} thinking={false} />
                     {/* A command-only message has no body to draw; its chip stands alone. */}
                     {!message.content ? null : message.role === "assistant" ? (
                       <MarkdownPreview source={message.content} />
@@ -855,9 +865,10 @@ export function MultiAgentChatPage() {
                         </Stack>
                       </details>
                     ) : null}
+                    <ReasoningFold reasoning={streamedReasoning} thinking={!streamedContent} />
                     {streamedContent ? (
                       <MarkdownPreview source={streamedContent} />
-                    ) : (
+                    ) : streamedReasoning ? null : (
                       <Row style={{ alignItems: "center", gap: 10 }}>
                         <SpinnerIcon size={14} />
                         <MetaText>{t("multiAgent.speaking")}</MetaText>
