@@ -1,10 +1,10 @@
 ---
 id: TASK-101
 title: '検索: FTS クエリの語を入力の先頭 12 語ではなく珍しさで選び、埋め込みの上位候補も検索候補に加える'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-11 08:23'
-updated_date: '2026-10-11 09:13'
+updated_date: '2026-10-11 11:38'
 labels: []
 milestone: m-3
 dependencies: []
@@ -96,4 +96,10 @@ ordinal: 105000
 - ドキュメント 0.55/0.45・メモリ 0.5/0.5 の配分と ruri の floor 0.9 は変えていない。ruri の意味スコアは 0.89〜0.95 に固まる。そのため FTS 外の候補 (最大 0.45×0.95 ≒ 0.43) が上回れるのは、正規化後の FTS スコアが低い候補だけになる。配分を見直すかは、大きいプロジェクトで使ってから判断してほしい。
 - 大きいプロジェクト (原稿 1 MB 級) で、長い多人数会話のターンに FTS が拾う資料は確かめていない。
 - fts5vocab 非対応の sqlite3 CLI (Android SDK 同梱版など) では、vocab 表を読むクエリが「no such module」になる。他の表は読める。
+
+## レビュー後の修正 (97b8d81)
+
+- 埋め込み候補の取り方を変えた。プロジェクト全体の上位 limit×chunksPerDocument chunk ではなく、スコア順に見て、1 文書あたり最大 chunksPerDocument chunk・最大 limit 文書を取る。長い文書 1 つが枠を独占しないようにするため。
+- rankDocumentCandidates は全候補の hybrid スコアを先に計算し、その順に chunk を文書へまとめる。文書の chunk 枠には、FTS・埋め込みのどちらから来た chunk でも、スコアの高いものが入る。
+- 回帰テスト: TestSearchKeepsDistinctDocumentsAmongSemanticCandidates、TestSearchKeepsADocumentsBestChunksAcrossCandidateSets。どちらも修正前のコードで失敗することを確認した。
 <!-- SECTION:NOTES:END -->
