@@ -279,10 +279,17 @@ user が明示的に別 chat title を含めると、その chat を参照でき
 retrieval は hybrid 構成です。
 
 - primary: SQLite FTS5
-- optional: embedding rerank
-- optional: semantic fallback
+- optional: embedding 検索（FTS の一致と合わせて順位付け）
 
-embedding が未設定または失敗した場合は、FTS のみで動きます。
+FTS のクエリは、入力の語を位置ではなく珍しさで選びます。各語を含む行数は索引の語彙（`fts5vocab`、その語で始まる
+索引語の行数の合計）から引きます。半数を超える行に出る語は落とし（bm25 で重みが 0 になるため）、残りから珍しい順に
+12 語を OR でつないで前方一致で引きます。索引に無い語は 12 語の枠外でそのまま通します。分かち書きで割れた
+ストップワードの断片（`ください` の `く / ださい`）は落とします。同じ語を並べ替えた入力は同じクエリになります。
+クエリには背景（多人数会話の場面設定）を付けられ、背景の語は本文の語が余らせた枠だけを埋めます。
+
+embedding が有効なときは、FTS に一致しなかったがクエリに最も近い chunk（メモリ）を、下限を超えるものに限り
+FTS スコア 0 で候補に加え、すべての候補を hybrid スコア（ドキュメントは FTS 0.55 / 意味 0.45、メモリは 0.5 / 0.5）で
+並べます。embedding が未設定または失敗した場合は、FTS のみで動きます。
 
 ### 5.4 Category-aware retrieval
 
@@ -728,7 +735,7 @@ debug flags:
 ### retrieval 層
 
 - FTS
-- embedding rerank
+- embedding 候補の追加と hybrid 順位付け
 - explicit document/chat handling
 - category-aware weighting
 

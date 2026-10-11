@@ -13,8 +13,6 @@ type goldenCase struct {
 	Input           string   `json:"input"`
 	Segments        []string `json:"segments"`
 	BuildSearchText string   `json:"buildSearchText"`
-	Terms           []string `json:"terms"`
-	FtsQuery        string   `json:"ftsQuery"`
 }
 
 func loadGolden(t *testing.T) []goldenCase {
@@ -78,26 +76,6 @@ func TestBuildSearchTextParity(t *testing.T) {
 		if got := BuildSearchText(c.Input); got != c.BuildSearchText {
 			t.Errorf("BuildSearchText mismatch [%s] input=%q\n  want %q\n  got  %q",
 				c.Label, truncate(c.Input, 40), truncate(c.BuildSearchText, 120), truncate(got, 120))
-		}
-	}
-}
-
-func TestTokenizeSearchTermsParity(t *testing.T) {
-	cases := loadGolden(t)
-	for _, c := range cases {
-		if got := TokenizeSearchTerms(c.Input, 12); !eqStrings(got, c.Terms) {
-			t.Errorf("TokenizeSearchTerms mismatch [%s] input=%q\n  want %#v\n  got  %#v",
-				c.Label, truncate(c.Input, 40), c.Terms, got)
-		}
-	}
-}
-
-func TestToFtsQueryParity(t *testing.T) {
-	cases := loadGolden(t)
-	for _, c := range cases {
-		if got := ToFtsQuery(c.Input); got != c.FtsQuery {
-			t.Errorf("ToFtsQuery mismatch [%s] input=%q\n  want %q\n  got  %q",
-				c.Label, truncate(c.Input, 40), c.FtsQuery, got)
 		}
 	}
 }

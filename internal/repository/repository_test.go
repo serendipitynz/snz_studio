@@ -32,9 +32,9 @@ func tick() { time.Sleep(2 * time.Millisecond) }
 // ftsDocIDs returns the distinct document IDs matching term in the document FTS.
 func ftsDocIDs(t *testing.T, d *sql.DB, term string) map[string]bool {
 	t.Helper()
-	query := search.ToFtsQuery(term)
+	query := search.FtsQuery(search.QueryTerms(term))
 	if query == "" {
-		t.Fatalf("ToFtsQuery(%q) returned empty", term)
+		t.Fatalf("FtsQuery(%q) returned empty", term)
 	}
 	rows, err := d.Query("SELECT DISTINCT document_id FROM document_chunks_fts WHERE document_chunks_fts MATCH ?", query)
 	if err != nil {
@@ -54,9 +54,9 @@ func ftsDocIDs(t *testing.T, d *sql.DB, term string) map[string]bool {
 
 func ftsMemoryIDs(t *testing.T, d *sql.DB, term string) map[string]bool {
 	t.Helper()
-	query := search.ToFtsQuery(term)
+	query := search.FtsQuery(search.QueryTerms(term))
 	if query == "" {
-		t.Fatalf("ToFtsQuery(%q) returned empty", term)
+		t.Fatalf("FtsQuery(%q) returned empty", term)
 	}
 	rows, err := d.Query("SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?", query)
 	if err != nil {

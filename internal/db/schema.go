@@ -440,6 +440,16 @@ var migrations = []migration{
 			ALTER TABLE messages ADD COLUMN reasoning_tokens INTEGER;
 		`,
 	},
+	{
+		// The vocabularies give each indexed term's row count, which retrieval
+		// reads to pick a query's rarest terms (search.SelectTerms, TASK-101).
+		// fts5vocab tables store nothing of their own; they read the FTS index.
+		id: "021_fts_vocab",
+		sql: `
+			CREATE VIRTUAL TABLE document_chunks_fts_vocab USING fts5vocab(document_chunks_fts, 'row');
+			CREATE VIRTUAL TABLE memories_fts_vocab USING fts5vocab(memories_fts, 'row');
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in

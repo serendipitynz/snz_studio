@@ -254,8 +254,20 @@ Current context sources:
 Current retrieval is hybrid:
 
 - SQLite FTS5 keyword search
-- optional embedding rerank
-- optional semantic-only fallback
+- optional embedding search, ranked together with the FTS matches
+
+The FTS query picks the input's terms by rarity, not by position. Each term's row count comes from the
+index vocabulary (`fts5vocab`, summed over the index terms it prefixes). Terms in more than half the rows
+are dropped — bm25 gives them no weight — and the 12 rarest of the rest are OR-ed and prefix-matched;
+terms the index does not contain pass through outside the 12. Fragments of a stopword the segmenter split
+(`く / ださい` from `ください`) are dropped. The same words in any order give the same query. A query can
+carry background text (a multi-agent turn's scene) whose terms only fill the slots the main text leaves
+open.
+
+With embeddings on, the chunks (and memories) closest to the query that FTS did not match join the
+candidates when they clear the semantic floor, at an FTS score of 0, and every candidate is ranked by
+the hybrid score (documents 0.55 FTS / 0.45 semantic, memories 0.5 / 0.5). Without embeddings, retrieval
+runs on FTS alone.
 
 Document retrieval is category-aware and intent-aware.
 

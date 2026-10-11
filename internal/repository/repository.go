@@ -2,7 +2,7 @@
 // wraps the shared *sql.DB and mirrors the SQL and behaviour of its TypeScript
 // counterpart. Text written to the *_fts tables is pre-tokenized through
 // search.BuildSearchText, exactly as the Node backend did, so the FTS index
-// stays compatible with search.ToFtsQuery at query time.
+// stays compatible with the search.QueryTerms tokens queried against it.
 //
 // Concurrency note: db.Open pins the pool to a single connection to mirror
 // better-sqlite3. A *sql.Tx therefore holds the only connection for its

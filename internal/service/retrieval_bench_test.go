@@ -14,16 +14,15 @@ import (
 	"snzstudio/internal/config"
 	"snzstudio/internal/embed"
 	"snzstudio/internal/repository"
-	"snzstudio/internal/search"
 )
 
 // The corpus reproduces the condition TASK-74 is about: one ~1MB manuscript split
 // into a few hundred chunks beside a handful of small notes, every chunk embedded
 // with ruri-sized vectors. The query term appears only in the manuscript, so FTS
-// fills its whole candidate budget from one document, SearchDocuments ranks fewer
-// documents than its limit, and it falls back to the semantic scan of every chunk
-// in the project. A few note chunks sit close to the query vector so that scan
-// adopts documents rather than returning nothing.
+// fills its whole candidate budget from one document, and the semantic scan of
+// every chunk in the project (which runs on every search with embeddings on,
+// TASK-101) supplies the other documents. A few note chunks sit close to the query
+// vector so that scan adopts documents rather than returning nothing.
 
 const (
 	benchManuscriptBytes = 1 << 20
@@ -163,19 +162,23 @@ func BenchmarkRetrievalLargeDocument(b *testing.B) {
 	b.Run("FtsCandidates", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			rows, err := retrieval.fetchDocumentFtsCandidates(corpus.projectID, search.ToFtsQuery(benchQuery), 4, 3, ScopeAll)
+			ftsQuery, err := retrieval.buildFtsQuery(documentVocab, SearchQuery{Text: benchQuery})
+			if err != nil {
+				b.Fatalf("buildFtsQuery: %v", err)
+			}
+			rows, err := retrieval.fetchDocumentFtsCandidates(corpus.projectID, ftsQuery, 4, 3, ScopeAll)
 			if err != nil || len(rows) == 0 {
 				b.Fatalf("fetchDocumentFtsCandidates: %d rows, %v", len(rows), err)
 			}
 		}
 	})
 
-	b.Run("SemanticFallback", func(b *testing.B) {
+	b.Run("SemanticCandidates", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			refs, err := retrieval.searchDocumentsBySemantic(corpus.projectID, corpus.queryEmbedding, 4, 3, map[string]bool{}, "general", ScopeAll)
-			if err != nil || len(refs) == 0 {
-				b.Fatalf("searchDocumentsBySemantic: %d refs, %v", len(refs), err)
+			_, rows, err := retrieval.documentSemanticCandidates(corpus.projectID, corpus.queryEmbedding, nil, 4, 3, "general", ScopeAll)
+			if err != nil || len(rows) == 0 {
+				b.Fatalf("documentSemanticCandidates: %d rows, %v", len(rows), err)
 			}
 		}
 	})
@@ -183,7 +186,7 @@ func BenchmarkRetrievalLargeDocument(b *testing.B) {
 	b.Run("SearchDocuments", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			refs, err := retrieval.SearchDocuments(corpus.projectID, benchQuery, 4, 3, ScopeAll)
+			refs, err := retrieval.SearchDocuments(corpus.projectID, SearchQuery{Text: benchQuery}, 4, 3, ScopeAll)
 			if err != nil || len(refs) != 4 {
 				b.Fatalf("SearchDocuments: %d refs, %v", len(refs), err)
 			}

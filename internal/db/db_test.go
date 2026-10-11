@@ -34,6 +34,7 @@ func TestMigrationsCreateExpectedTables(t *testing.T) {
 		"document_chunks_fts", "chats", "messages", "chat_summaries",
 		"memories", "memories_fts", "assistant_message_references",
 		"document_chunk_embeddings", "memory_embeddings", "participants",
+		"document_chunks_fts_vocab", "memories_fts_vocab",
 	}
 	for _, name := range want {
 		var got string
@@ -99,9 +100,9 @@ func TestFts5Bm25(t *testing.T) {
 		(project_id, document_id, chunk_id, title, note, tags, derived_text, content)
 		VALUES ('p1', 'd1', 'c1', ?, '', '', '', ?)`, ftsTitle, ftsContent)
 
-	matchQuery := search.ToFtsQuery("東京")
+	matchQuery := search.FtsQuery(search.QueryTerms("東京"))
 	if matchQuery == "" {
-		t.Fatal("ToFtsQuery returned empty for 東京")
+		t.Fatal("FtsQuery returned empty for 東京")
 	}
 
 	var chunkID string
@@ -133,7 +134,7 @@ func TestFts5Bm25(t *testing.T) {
 	var dummy string
 	err = d.QueryRow(`
 		SELECT chunk_id FROM document_chunks_fts WHERE document_chunks_fts MATCH ?
-	`, search.ToFtsQuery("大阪")).Scan(&dummy)
+	`, search.FtsQuery(search.QueryTerms("大阪"))).Scan(&dummy)
 	if err != sql.ErrNoRows {
 		t.Errorf("expected sql.ErrNoRows for 大阪, got %v (chunk=%q)", err, dummy)
 	}
