@@ -495,3 +495,108 @@ func docLabels(refs []model.RetrievedDocumentReference) []string {
 	}
 	return labels
 }
+
+// seedEmbeddedDocument creates a document and gives each of its chunks the vector
+// embeddingFor returns for that chunk's index.
+func seedEmbeddedDocument(t *testing.T, documents *repository.DocumentRepository, projectID, title, content string, embeddingFor func(chunkIndex int) []float64) (string, int) {
+	t.Helper()
+	doc, err := documents.CreateDocument(repository.CreateDocumentInput{
+		ProjectID: projectID, Type: "text", Category: "world", Title: title, ContentText: content,
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument %s: %v", title, err)
+	}
+	chunks, err := documents.ListChunksForEmbedding(doc.ID)
+	if err != nil {
+		t.Fatalf("ListChunksForEmbedding: %v", err)
+	}
+	rows := make([]repository.ChunkEmbedding, len(chunks))
+	for i, ch := range chunks {
+		rows[i] = repository.ChunkEmbedding{ChunkID: ch.ChunkID, DocumentID: doc.ID, ProjectID: projectID, Embedding: embeddingFor(ch.ChunkIndex), Model: "m"}
+	}
+	if err := documents.UpsertChunkEmbeddings(rows); err != nil {
+		t.Fatalf("UpsertChunkEmbeddings: %v", err)
+	}
+	return doc.ID, len(chunks)
+}
+
+// A long document whose every chunk sits on the query vector must not take every
+// semantic slot: the closest chunks of the other documents still get in.
+func TestSearchKeepsDistinctDocumentsAmongSemanticCandidates(t *testing.T) {
+	d := newServiceTestDB(t)
+	project, err := repository.NewProjectRepository(d).CreateProject(repository.CreateProjectInput{Title: "Saga"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	documents := repository.NewDocumentRepository(d)
+	srv, _ := fakeEmbeddingServer(t)
+	retrieval := NewRetrievalService(d, enabledEmbeddingClient(srv.URL, "m"))
+
+	on := func(int) []float64 { return []float64{1, 0, 0} }
+	near := func(int) []float64 { return []float64{0.9, 0.1, 0} }
+	_, chunks := seedEmbeddedDocument(t, documents, project.ID, "長い原稿", strings.Repeat("港町の灯台は沖の船を見張る。", 900), on)
+	if chunks <= 12 {
+		t.Fatalf("the long document has %d chunks, want more than the 12 a 4 × 3 budget holds", chunks)
+	}
+	want := []string{}
+	for _, title := range []string{"灯台守", "埠頭", "市場"} {
+		id, _ := seedEmbeddedDocument(t, documents, project.ID, title, title+"の記録。", near)
+		want = append(want, id)
+	}
+
+	refs, err := retrieval.SearchDocuments(project.ID, SearchQuery{Text: "飛竜"}, 4, 3, ScopeAll)
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	for _, id := range want {
+		if !slices.ContainsFunc(refs, func(ref model.RetrievedDocumentReference) bool { return ref.SourceID == id }) {
+			t.Fatalf("a close short document was crowded out by the long one: %v", docLabels(refs))
+		}
+	}
+}
+
+// A document's chunk slots go to its best chunks: a chunk only the embeddings
+// found outranks the weak FTS chunks of the same document and must be kept.
+func TestSearchKeepsADocumentsBestChunksAcrossCandidateSets(t *testing.T) {
+	d := newServiceTestDB(t)
+	project, err := repository.NewProjectRepository(d).CreateProject(repository.CreateProjectInput{Title: "Saga"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	documents := repository.NewDocumentRepository(d)
+	srv, _ := fakeEmbeddingServer(t)
+	retrieval := NewRetrievalService(d, enabledEmbeddingClient(srv.URL, "m"))
+
+	far := func(int) []float64 { return []float64{0, 1, 0} }
+	// Chunks start every 850 runes; the term opens chunks 0-2 and is absent from
+	// chunk 3, which alone sits on the query vector.
+	body := []rune(strings.Repeat("、", 3400))
+	for _, at := range []int{0, 850, 1700} {
+		copy(body[at:], []rune("。飛竜。"))
+	}
+	copy(body[3000:], []rune("港町の灯台。"))
+	mixedID, chunks := seedEmbeddedDocument(t, documents, project.ID, "記録", string(body), func(index int) []float64 {
+		if index == 3 {
+			return []float64{1, 0, 0}
+		}
+		return []float64{0, 1, 0}
+	})
+	if chunks != 4 {
+		t.Fatalf("the mixed document has %d chunks, want 4", chunks)
+	}
+	// A strong title match tops the FTS scores, pushing the mixed document's FTS
+	// chunks to the bottom of the normalized range.
+	seedEmbeddedDocument(t, documents, project.ID, "飛竜", "飛竜。飛竜。飛竜。", far)
+
+	refs, err := retrieval.SearchDocuments(project.ID, SearchQuery{Text: "飛竜"}, 4, 3, ScopeAll)
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	i := slices.IndexFunc(refs, func(ref model.RetrievedDocumentReference) bool { return ref.SourceID == mixedID })
+	if i < 0 {
+		t.Fatalf("the mixed document is missing: %v", docLabels(refs))
+	}
+	if !slices.ContainsFunc(refs[i].Chunks, func(c model.RetrievedDocumentChunk) bool { return c.ChunkIndex == 3 }) {
+		t.Fatalf("chunk 3 (best by hybrid score) was left out of the document's chunks: %+v", refs[i].Chunks)
+	}
+}

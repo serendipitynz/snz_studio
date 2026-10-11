@@ -176,7 +176,7 @@ func BenchmarkRetrievalLargeDocument(b *testing.B) {
 	b.Run("SemanticCandidates", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, rows, err := retrieval.documentSemanticCandidates(corpus.projectID, corpus.queryEmbedding, nil, 12, "general", ScopeAll)
+			_, rows, err := retrieval.documentSemanticCandidates(corpus.projectID, corpus.queryEmbedding, nil, 4, 3, "general", ScopeAll)
 			if err != nil || len(rows) == 0 {
 				b.Fatalf("documentSemanticCandidates: %d rows, %v", len(rows), err)
 			}

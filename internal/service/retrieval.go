@@ -268,7 +268,7 @@ func (r *RetrievalService) SearchDocuments(projectID string, query SearchQuery, 
 		semanticScores map[string]float64
 	)
 	if queryEmbedding != nil {
-		semanticScores, semanticRows, err = r.documentSemanticCandidates(projectID, queryEmbedding, ftsRows, limit*chunksPerDocument, intent, scope)
+		semanticScores, semanticRows, err = r.documentSemanticCandidates(projectID, queryEmbedding, ftsRows, limit, chunksPerDocument, intent, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -516,26 +516,38 @@ func placeholders(n int) string {
 // rankDocumentCandidates scores each chunk and groups the chunks by document. The
 // FTS score is the bm25 normalized over the FTS rows; a semantic row, which FTS
 // did not match, scores 0 there. semanticScores is nil when embeddings are off,
-// and the FTS score is then the whole score.
+// and the FTS score is then the whole score. Chunks are grouped in score order,
+// so a document's chunksPerDocument slots go to its best chunks whichever
+// candidate set they came from — in bm25 order, weak FTS chunks would fill the
+// slots before a stronger semantic chunk arrived.
 func rankDocumentCandidates(ftsRows, semanticRows []documentCandidateRow, semanticScores map[string]float64, chunksPerDocument int, intent string) []model.RetrievedDocumentReference {
 	rawScores := make([]float64, len(ftsRows))
 	for i, row := range ftsRows {
 		rawScores[i] = row.score
 	}
 	ftsScores := append(vector.NormalizeScores(rawScores), make([]float64, len(semanticRows))...)
-	rows := append(append([]documentCandidateRow{}, ftsRows...), semanticRows...)
 
-	groups := map[string]*docGroup{}
-	order := []string{}
-
-	for i, row := range rows {
+	type scoredRow struct {
+		row   documentCandidateRow
+		score float64
+	}
+	rows := make([]scoredRow, 0, len(ftsRows)+len(semanticRows))
+	for i, row := range append(append([]documentCandidateRow{}, ftsRows...), semanticRows...) {
 		var hybridScore float64
 		if semanticScores != nil {
 			hybridScore = ftsScores[i]*0.55 + semanticScores[row.chunkID]*0.45
 		} else {
 			hybridScore = ftsScores[i]
 		}
-		weightedScore := hybridScore * getCategoryWeight(row.category, intent)
+		rows = append(rows, scoredRow{row, hybridScore * getCategoryWeight(row.category, intent)})
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].score > rows[j].score })
+
+	groups := map[string]*docGroup{}
+	order := []string{}
+
+	for _, scored := range rows {
+		row, weightedScore := scored.row, scored.score
 
 		chunk := model.RetrievedDocumentChunk{
 			ChunkID:    row.chunkID,
@@ -644,14 +656,16 @@ func categoryOrMisc(category string) string {
 
 // documentSemanticCandidates scores every embedded chunk in scope against the
 // query, returning the unit-range scores by chunk id — which rank the FTS rows too
-// — and, as candidate rows, the limit chunks closest to the query that FTS did not
-// find and that clear the floor. Without these, a document sharing no term with
+// — and, as candidate rows, the chunks closest to the query that FTS did not find
+// and that clear the floor: at most chunksPerDocument from each of at most
+// documentLimit documents, so one long document close to the query cannot take
+// every slot. Without these, a document sharing no term with
 // the query could only enter when FTS found fewer documents than the limit, which
 // an OR of prefix-matched terms almost never does. The scan reads only ids and
 // vectors; chunk text is read for the adopted rows alone.
-func (r *RetrievalService) documentSemanticCandidates(projectID string, queryEmbedding []float64, ftsRows []documentCandidateRow, limit int, intent string, scope MaterialScope) (map[string]float64, []documentCandidateRow, error) {
+func (r *RetrievalService) documentSemanticCandidates(projectID string, queryEmbedding []float64, ftsRows []documentCandidateRow, documentLimit, chunksPerDocument int, intent string, scope MaterialScope) (map[string]float64, []documentCandidateRow, error) {
 	rows, err := r.db.Query(`
-		SELECT e.chunk_id, e.embedding_json, d.category
+		SELECT e.chunk_id, e.document_id, e.embedding_json, d.category
 		FROM document_chunk_embeddings e
 		JOIN documents d ON d.id = e.document_id
 		WHERE e.project_id = ? AND e.model = ?`+
@@ -660,8 +674,9 @@ func (r *RetrievalService) documentSemanticCandidates(projectID string, queryEmb
 		return nil, nil, err
 	}
 	type scoredChunk struct {
-		chunkID  string
-		weighted float64
+		chunkID    string
+		documentID string
+		weighted   float64
 	}
 	inFts := make(map[string]bool, len(ftsRows))
 	for _, row := range ftsRows {
@@ -671,15 +686,15 @@ func (r *RetrievalService) documentSemanticCandidates(projectID string, queryEmb
 	scores := map[string]float64{}
 	var outside []scoredChunk
 	for rows.Next() {
-		var chunkID, raw, category string
-		if err := rows.Scan(&chunkID, &raw, &category); err != nil {
+		var chunkID, documentID, raw, category string
+		if err := rows.Scan(&chunkID, &documentID, &raw, &category); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
 		score := semanticToUnitRange(vector.CosineSimilarity(queryEmbedding, parseEmbeddingJSON(raw)))
 		scores[chunkID] = score
 		if weighted := score * getCategoryWeight(category, intent); !inFts[chunkID] && weighted > floor {
-			outside = append(outside, scoredChunk{chunkID, weighted})
+			outside = append(outside, scoredChunk{chunkID, documentID, weighted})
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -689,9 +704,17 @@ func (r *RetrievalService) documentSemanticCandidates(projectID string, queryEmb
 	rows.Close()
 
 	sort.SliceStable(outside, func(i, j int) bool { return outside[i].weighted > outside[j].weighted })
-	if len(outside) > limit {
-		outside = outside[:limit]
+	perDocument := map[string]int{}
+	adopted := outside[:0]
+	for _, c := range outside {
+		taken, seen := perDocument[c.documentID]
+		if taken >= chunksPerDocument || (!seen && len(perDocument) >= documentLimit) {
+			continue
+		}
+		perDocument[c.documentID] = taken + 1
+		adopted = append(adopted, c)
 	}
+	outside = adopted
 	if len(outside) == 0 {
 		return scores, nil, nil
 	}
