@@ -110,11 +110,12 @@ const (
 // <think> and </think>, from the rest. It is for an endpoint or model that does
 // not send reasoning in a field of its own.
 //
-// raw may be a stream cut at any point, so an opening tag still arriving yields
-// nothing, and a closing tag still arriving is kept out of the thinking. A
-// </think> with no opening tag (the chat template wrote it into the prompt) ends
-// the thinking too, but only when no <think> appears anywhere: an answer that
-// mentions both tags is talking about them.
+// Only a section the response opens with counts. raw may be a stream cut at any
+// point, so an opening tag still arriving yields nothing, and a closing tag still
+// arriving is kept out of the thinking. A </think> with no opening tag is left in
+// the answer: a template that writes <think> into the prompt would produce one,
+// but so does an answer that quotes the tag, and nothing in the response tells
+// the two apart.
 func SplitThinking(raw string) (thinking, rest string) {
 	trimmed := strings.TrimLeftFunc(raw, unicode.IsSpace)
 	if trimmed != "" && len(trimmed) < len(thinkOpen) && strings.HasPrefix(thinkOpen, trimmed) {
@@ -125,11 +126,6 @@ func SplitThinking(raw string) (thinking, rest string) {
 			return strings.TrimSpace(before), rest
 		}
 		return strings.TrimSpace(withoutPartialSuffix(after, thinkClose)), ""
-	}
-	if !strings.Contains(raw, thinkOpen) {
-		if before, rest, closed := strings.Cut(raw, thinkClose); closed {
-			return strings.TrimSpace(before), rest
-		}
 	}
 	return "", raw
 }

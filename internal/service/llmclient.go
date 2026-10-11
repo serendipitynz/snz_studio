@@ -350,9 +350,8 @@ func (c *LLMClient) CreateChatCompletion(input ChatCompletionInput) (*ChatComple
 //
 // Both texts are re-parsed from the whole raw response on every chunk, so they do
 // not only grow: a tag fragment shows as text until the rest of the tag arrives
-// and removes it, under llm_jp_thinking a late channel tag hides everything shown
-// so far, and a </think> with no opening tag moves the text before it from the
-// answer to the reasoning. Replace marks such a change, and Text is then the whole
+// and removes it, and under llm_jp_thinking a late channel tag hides everything
+// shown so far. Replace marks such a change, and Text is then the whole
 // text, shown instead of everything streamed before it. Otherwise Text is
 // appended. A whole-text replacement rather than "keep N characters, then append"
 // because Go counts runes and the frontend counts UTF-16 code units.

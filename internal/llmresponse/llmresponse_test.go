@@ -122,7 +122,7 @@ func TestSplitThinking(t *testing.T) {
 		{"opening tag still arriving", "<thi", "", ""},
 		{"thinking still open", "<think>part of a thought", "part of a thought", ""},
 		{"closing tag still arriving", "<think>a thought</thi", "a thought", ""},
-		{"close without open", "reasoning from the template</think>The answer", "reasoning from the template", "The answer"},
+		{"close without open is a quoted tag", "The closing tag is `</think>`.", "", "The closing tag is `</think>`."},
 		{"both tags mentioned mid-answer", "Wrap it in <think>x</think> tags.", "", "Wrap it in <think>x</think> tags."},
 	}
 	for _, tc := range cases {
@@ -141,6 +141,10 @@ func TestSanitizePromptContentDropsThinking(t *testing.T) {
 		if got := SanitizePromptContent(raw, "assistant", format); got != "Visible answer" {
 			t.Fatalf("assistant sanitize (%s) = %q, want %q", format, got, "Visible answer")
 		}
+	}
+	quoted := "Close the block with `</think>`."
+	if got := SanitizePromptContent(quoted, "assistant", FormatStandard); got != quoted {
+		t.Fatalf("assistant sanitize of a quoted closing tag = %q, want it unchanged", got)
 	}
 	// A user who types the tags is quoting them, not thinking.
 	if got := SanitizePromptContent(raw, "user", FormatStandard); got != raw {
