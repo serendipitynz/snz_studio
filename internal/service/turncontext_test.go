@@ -15,11 +15,12 @@ import (
 
 func TestBuildTurnMaterialQuery(t *testing.T) {
 	scene := strings.Repeat("場", 250)
-	if got := buildTurnMaterialQuery(nil, scene); got != strings.Repeat("場", turnMaterialSceneHeadChars-1)+"…" {
-		t.Fatalf("opening turn query = %q, want the head of the scene only", got)
+	want := SearchQuery{Background: strings.Repeat("場", turnMaterialSceneHeadChars-1) + "…"}
+	if got := buildTurnMaterialQuery(nil, scene); got != want {
+		t.Fatalf("opening turn query = %+v, want the head of the scene as background only", got)
 	}
-	if got := buildTurnMaterialQuery(nil, "   "); got != "" {
-		t.Fatalf("query with nothing to search = %q, want empty", got)
+	if got := buildTurnMaterialQuery(nil, "   "); got != (SearchQuery{}) {
+		t.Fatalf("query with nothing to search = %+v, want empty", got)
 	}
 
 	messages := []model.Message{
@@ -31,9 +32,9 @@ func TestBuildTurnMaterialQuery(t *testing.T) {
 		{Content: "最新"},
 	}
 	got := buildTurnMaterialQuery(messages, "場面")
-	want := "最新\n直前\n二つ前\n場面"
+	want = SearchQuery{Text: "最新\n直前\n二つ前", Background: "場面"}
 	if got != want {
-		t.Fatalf("query = %q, want %q (latest first, blanks skipped, scene last)", got, want)
+		t.Fatalf("query = %+v, want %+v (latest first, blanks skipped, scene as background)", got, want)
 	}
 }
 

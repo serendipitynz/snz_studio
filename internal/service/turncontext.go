@@ -27,10 +27,8 @@ const (
 	turnMaterialDescriptionChars  = 400
 	turnMaterialTotalChars        = 2000
 
-	// The retrieval query is the newest utterances first: the FTS side keeps only
-	// the first 12 tokens (search.TokenizeSearchTerms), so what the speaker has to
-	// answer must come before the scene, which never changes and would otherwise
-	// pin every turn's query to the same tokens.
+	// The retrieval query is the latest utterances, with the head of the scene as
+	// background (buildTurnMaterialQuery).
 	turnMaterialRecentUtterances = 3
 	turnMaterialSceneHeadChars   = 200
 )
@@ -96,7 +94,7 @@ func (s *ContextService) AssembleTurnMaterial(chat *model.Chat, speaker *model.P
 		documentRefs []model.RetrievedDocumentReference
 		memoryRefs   []model.SearchReference
 	)
-	if query := buildTurnMaterialQuery(messages, chat.ScenePrompt); query != "" {
+	if query := buildTurnMaterialQuery(messages, chat.ScenePrompt); query.Text != "" || query.Background != "" {
 		documentRefs, err = s.retrieval.SearchDocuments(project.ID, query, turnMaterialDocumentLimit, turnMaterialChunksPerDocument, scope)
 		if err != nil {
 			return nil, err
@@ -114,21 +112,25 @@ func (s *ContextService) AssembleTurnMaterial(chat *model.Chat, speaker *model.P
 }
 
 // buildTurnMaterialQuery is the one deterministic retrieval query of a turn:
-// the latest utterance, the two before it, then the head of the scene. On the
-// opening turn only the scene is there. The query is for retrieval only — none of
-// the title matching, quote detection or full-document expansion of Assemble
-// reads it.
-func buildTurnMaterialQuery(messages []model.Message, scene string) string {
-	parts := make([]string, 0, turnMaterialRecentUtterances+1)
+// the latest utterance and the two before it as the text, the head of the scene
+// as background. FTS picks a query's rarest terms, and the scene never changes
+// while it tends to hold the rarest words of all (place and character names), so
+// taken as text it would pin the same names into every turn's query; as
+// background its terms only fill the slots the utterances leave open, which is
+// all of them on the opening turn, where only the scene is there. The embedding
+// reads both. The query is for retrieval only — none of the title matching, quote
+// detection or full-document expansion of Assemble reads it.
+func buildTurnMaterialQuery(messages []model.Message, scene string) SearchQuery {
+	parts := make([]string, 0, turnMaterialRecentUtterances)
 	for i := len(messages) - 1; i >= 0 && len(parts) < turnMaterialRecentUtterances; i-- {
 		if content := strings.TrimSpace(messages[i].Content); content != "" {
 			parts = append(parts, content)
 		}
 	}
-	if head := strings.TrimSpace(util.Truncate(scene, turnMaterialSceneHeadChars)); head != "" {
-		parts = append(parts, head)
+	return SearchQuery{
+		Text:       strings.Join(parts, "\n"),
+		Background: strings.TrimSpace(util.Truncate(scene, turnMaterialSceneHeadChars)),
 	}
-	return strings.Join(parts, "\n")
 }
 
 type turnMaterialItem struct {

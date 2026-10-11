@@ -230,11 +230,11 @@ func (s *ContextService) Assemble(chatID, userInput string) (*model.AssembledCon
 
 	// ScopeAll: the common project material is a multi-agent notion (§4.4). A
 	// single-assistant chat has no participants to hide anything from.
-	documentRefs, err := s.retrieval.SearchDocuments(project.ID, userInput, 4, 3, ScopeAll)
+	documentRefs, err := s.retrieval.SearchDocuments(project.ID, SearchQuery{Text: userInput}, 4, 3, ScopeAll)
 	if err != nil {
 		return nil, err
 	}
-	memoryRefs, err := s.retrieval.SearchMemories(project.ID, userInput, 4, ScopeAll)
+	memoryRefs, err := s.retrieval.SearchMemories(project.ID, SearchQuery{Text: userInput}, 4, ScopeAll)
 	if err != nil {
 		return nil, err
 	}
