@@ -1,10 +1,10 @@
 ---
 id: TASK-100
 title: '検索: FTS5 の bm25() 列重みが UNINDEXED 列にずれて当たっているのを直す'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-11 07:31'
-updated_date: '2026-10-11 07:52'
+updated_date: '2026-10-11 08:21'
 labels: []
 milestone: m-3
 dependencies: []
