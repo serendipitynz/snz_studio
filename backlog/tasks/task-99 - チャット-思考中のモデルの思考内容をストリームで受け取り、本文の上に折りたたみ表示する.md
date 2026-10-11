@@ -1,10 +1,10 @@
 ---
 id: TASK-99
 title: 'チャット: 思考中のモデルの思考内容をストリームで受け取り、本文の上に折りたたみ表示する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-10 22:58'
-updated_date: '2026-10-11 00:07'
+updated_date: '2026-10-11 00:23'
 labels: []
 milestone: m-3
 dependencies: []
