@@ -4,11 +4,19 @@
 // appends to what is shown; a "replace" stands in for everything shown so far.
 export type StreamTextEvent = "delta" | "replace";
 
+// The model's reasoning streams beside the answer in frames of its own, with the
+// same append / replace meaning.
+export type StreamReasoningEvent = "reasoning" | "reasoning-replace";
+
 export function isStreamTextEvent(event: string): event is StreamTextEvent {
   return event === "delta" || event === "replace";
 }
 
-export function applyStreamText(current: string, event: StreamTextEvent, content: unknown): string {
+export function isStreamReasoningEvent(event: string): event is StreamReasoningEvent {
+  return event === "reasoning" || event === "reasoning-replace";
+}
+
+export function applyStreamText(current: string, event: StreamTextEvent | StreamReasoningEvent, content: unknown): string {
   const text = typeof content === "string" ? content : "";
-  return event === "replace" ? text : `${current}${text}`;
+  return event === "replace" || event === "reasoning-replace" ? text : `${current}${text}`;
 }

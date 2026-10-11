@@ -108,3 +108,46 @@ func TestSanitizePromptContent(t *testing.T) {
 		t.Fatalf("llm_jp user sanitize = %q, want %q", got, "question")
 	}
 }
+
+func TestSplitThinking(t *testing.T) {
+	cases := []struct {
+		name         string
+		raw          string
+		wantThinking string
+		wantRest     string
+	}{
+		{"no thinking", "Just the answer", "", "Just the answer"},
+		{"closed block", "<think>weigh it</think>\n\nThe answer", "weigh it", "\n\nThe answer"},
+		{"leading space before the tag", "\n <think>hmm</think>ok", "hmm", "ok"},
+		{"opening tag still arriving", "<thi", "", ""},
+		{"thinking still open", "<think>part of a thought", "part of a thought", ""},
+		{"closing tag still arriving", "<think>a thought</thi", "a thought", ""},
+		{"close without open is a quoted tag", "The closing tag is `</think>`.", "", "The closing tag is `</think>`."},
+		{"both tags mentioned mid-answer", "Wrap it in <think>x</think> tags.", "", "Wrap it in <think>x</think> tags."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			thinking, rest := SplitThinking(tc.raw)
+			if thinking != tc.wantThinking || rest != tc.wantRest {
+				t.Fatalf("SplitThinking(%q) = (%q, %q), want (%q, %q)", tc.raw, thinking, rest, tc.wantThinking, tc.wantRest)
+			}
+		})
+	}
+}
+
+func TestSanitizePromptContentDropsThinking(t *testing.T) {
+	raw := "<think>private reasoning</think>Visible answer"
+	for _, format := range []string{FormatStandard, FormatLLMJPThinking} {
+		if got := SanitizePromptContent(raw, "assistant", format); got != "Visible answer" {
+			t.Fatalf("assistant sanitize (%s) = %q, want %q", format, got, "Visible answer")
+		}
+	}
+	quoted := "Close the block with `</think>`."
+	if got := SanitizePromptContent(quoted, "assistant", FormatStandard); got != quoted {
+		t.Fatalf("assistant sanitize of a quoted closing tag = %q, want it unchanged", got)
+	}
+	// A user who types the tags is quoting them, not thinking.
+	if got := SanitizePromptContent(raw, "user", FormatStandard); got != raw {
+		t.Fatalf("user sanitize = %q, want it unchanged", got)
+	}
+}

@@ -493,7 +493,11 @@ response and shows only the final answer. For a model LM Studio reports as havin
 (gemma-4, qwen3.5, gpt-oss and the like), `Think (reasoning)` under the model picks how hard it thinks;
 the value is saved per endpoint and model and shared with any participant running that model there.
 Turning it off for gemma-4 cut the wait for the first character of a short answer from about 6 s to
-about 0.5 s on LM Studio.
+about 0.5 s on LM Studio. While a model thinks, its reasoning streams into a fold above the answer
+in both chat kinds (from `reasoning_content` / `reasoning`, or from a `<think>` block in the
+answer); the fold closes once the answer starts and can be reopened later. The reasoning is stored
+with the message but never sent back as history and not included in the Markdown export, and the
+token count shows its share, as in `313 tok (302 reasoning)`.
 
 The app itself works even when no local LLM is running. Chat replies then fall back to a canned
 message, which is still useful for checking which references were selected.

@@ -2,6 +2,7 @@ package service
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -320,5 +321,82 @@ func TestChatStreamShowsStoredContent(t *testing.T) {
 				t.Fatalf("stored message keeps markup: %q", message.Content)
 			}
 		})
+	}
+}
+
+// TestChatKeepsReasoningOutOfHistory covers TASK-99 AC #4 for a single-assistant
+// chat: the reasoning streams apart from the answer and is stored with it, and
+// the next turn's prompt carries the answer but not the reasoning.
+func TestChatKeepsReasoningOutOfHistory(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		requests []capturedRequest
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		// Memory extraction and summaries ask without streaming; they take their
+		// offline fallbacks so only the chat turns reach the model.
+		if !strings.Contains(string(raw), `"stream":true`) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		var body capturedRequest
+		if err := json.Unmarshal(raw, &body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, body)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"reasoning_content":"内心の検討メモ"}}]}`+"\n\n"+
+			`data: {"choices":[{"delta":{"content":"回答です"}}]}`+"\n\n"+
+			`data: {"choices":[],"usage":{"completion_tokens":20,"completion_tokens_details":{"reasoning_tokens":8}}}`+"\n\n"+
+			"data: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	g := newServiceGraph(t, srv.URL)
+
+	project, err := g.projects.CreateProject(repository.CreateProjectInput{Title: "Saga"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	chat, err := g.chats.CreateChat(repository.CreateChatInput{ProjectID: project.ID})
+	if err != nil {
+		t.Fatalf("CreateChat: %v", err)
+	}
+
+	var shown streamDisplay
+	first, err := g.chat.SendMessageStream(chat.ID, "最初の質問", func() {}, shown.apply)
+	if err != nil {
+		t.Fatalf("first turn: %v", err)
+	}
+	if shown.text != "回答です" || shown.reasoning != "内心の検討メモ" {
+		t.Fatalf("shown answer %q, reasoning %q", shown.text, shown.reasoning)
+	}
+	if first.Content != "回答です" || first.Reasoning != "内心の検討メモ" {
+		t.Fatalf("stored content %q, reasoning %q", first.Content, first.Reasoning)
+	}
+	if first.OutputTokens == nil || *first.OutputTokens != 20 || first.ReasoningTokens == nil || *first.ReasoningTokens != 8 {
+		t.Fatalf("stored tokens %v (reasoning %v), want 20 (reasoning 8)", first.OutputTokens, first.ReasoningTokens)
+	}
+
+	if _, err := g.chat.SendMessageStream(chat.ID, "次の質問", func() {}, func(StreamDelta) {}); err != nil {
+		t.Fatalf("second turn: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requests) != 2 {
+		t.Fatalf("%d streamed completions, want 2", len(requests))
+	}
+	sawAnswer := false
+	for _, m := range requests[1].Messages {
+		if strings.Contains(m.Content, "内心の検討メモ") {
+			t.Fatalf("second turn's prompt carries the reasoning in a %s message: %q", m.Role, m.Content)
+		}
+		sawAnswer = sawAnswer || (m.Role == "assistant" && strings.Contains(m.Content, "回答です"))
+	}
+	if !sawAnswer {
+		t.Fatal("second turn's prompt does not carry the first answer; the check would pass vacuously")
 	}
 }

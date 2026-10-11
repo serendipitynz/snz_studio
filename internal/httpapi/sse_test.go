@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"snzstudio/internal/service"
 )
 
 // readSSEEvent reads one "event:/data:" frame (terminated by a blank line).
@@ -102,5 +104,48 @@ func TestSSEIncrementalDelivery(t *testing.T) {
 	}
 	if event != "done" {
 		t.Errorf("third frame event = %q, want done", event)
+	}
+}
+
+// TestSSEStreamDeltaFrames pins the frame names the frontend reads: the answer's
+// changes as delta / replace, the reasoning's as reasoning / reasoning-replace.
+func TestSSEStreamDeltaFrames(t *testing.T) {
+	deltas := []service.StreamDelta{
+		{Text: "a"},
+		{Text: "b", Replace: true},
+		{Text: "c", Reasoning: true},
+		{Text: "d", Replace: true, Reasoning: true},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sse, err := NewSSEWriter(w)
+		if err != nil {
+			t.Errorf("NewSSEWriter: %v", err)
+			return
+		}
+		for _, delta := range deltas {
+			_ = sse.StreamDelta(delta)
+		}
+	}))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	for _, want := range []struct{ event, data string }{
+		{"delta", `{"content":"a"}`},
+		{"replace", `{"content":"b"}`},
+		{"reasoning", `{"content":"c"}`},
+		{"reasoning-replace", `{"content":"d"}`},
+	} {
+		event, data, err := readSSEEvent(reader)
+		if err != nil {
+			t.Fatalf("read %s frame: %v", want.event, err)
+		}
+		if event != want.event || data != want.data {
+			t.Fatalf("frame = event:%q data:%q, want event:%q data:%q", event, data, want.event, want.data)
+		}
 	}
 }

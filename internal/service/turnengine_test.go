@@ -34,6 +34,8 @@ type turnLLMServer struct {
 	*httptest.Server
 	reply     string
 	onRequest func()
+	// reasoning, when set, streams in delta.reasoning ahead of the reply.
+	reasoning string
 
 	mu       sync.Mutex
 	requests []capturedRequest
@@ -62,6 +64,12 @@ func newTurnLLMServer(t *testing.T, reply string, onRequest func()) *turnLLMServ
 				s.onRequest()
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
+			if s.reasoning != "" {
+				payload, _ := json.Marshal(map[string]any{
+					"choices": []any{map[string]any{"delta": map[string]string{"reasoning": s.reasoning}}},
+				})
+				io.WriteString(w, "data: "+string(payload)+"\n\n")
+			}
 			io.WriteString(w, sseReply(s.reply))
 		default:
 			http.NotFound(w, r)
@@ -1316,5 +1324,42 @@ func TestTurnEngineWithoutRoll(t *testing.T) {
 	request := srv.captured()[1]
 	if last := request.Messages[len(request.Messages)-1]; !strings.Contains(last.Content, "【ダイス】登る — 1d20 → 4（目標 12、失敗）") {
 		t.Fatalf("Mira read %q, want the recorded roll still mapped", last.Content)
+	}
+}
+
+// TestTurnEngineKeepsReasoningOutOfHistory covers TASK-99 AC #4 for a
+// multi-agent conversation: a participant's reasoning is stored with its
+// utterance, and no later turn's prompt carries it.
+func TestTurnEngineKeepsReasoningOutOfHistory(t *testing.T) {
+	srv := newTurnLLMServer(t, "発言です", nil)
+	srv.reasoning = "内心の検討メモ"
+	g := newTurnGraph(t)
+	chat, _ := g.newMultiAgentChat(t, model.TurnRuleRoundRobin, "論題: ローカル LLM", srv.URL, "Alice", "Bob")
+
+	for i := range 3 {
+		message, err := g.engine.RunTurn(chat.ID, "", nil, nil)
+		if err != nil {
+			t.Fatalf("RunTurn #%d: %v", i+1, err)
+		}
+		if message.Content != "発言です" || message.Reasoning != "内心の検討メモ" {
+			t.Fatalf("turn #%d stored content=%q reasoning=%q", i+1, message.Content, message.Reasoning)
+		}
+	}
+
+	requests := srv.captured()
+	if len(requests) != 3 {
+		t.Fatalf("%d completions, want 3", len(requests))
+	}
+	for i, req := range requests[1:] {
+		sawEarlierTurn := false
+		for _, m := range req.Messages {
+			if strings.Contains(m.Content, "内心の検討メモ") {
+				t.Fatalf("completion #%d carries the reasoning in a %s message: %q", i+2, m.Role, m.Content)
+			}
+			sawEarlierTurn = sawEarlierTurn || strings.Contains(m.Content, "発言です")
+		}
+		if !sawEarlierTurn {
+			t.Fatalf("completion #%d does not carry the earlier utterance; the check would pass vacuously", i+2)
+		}
 	}
 }

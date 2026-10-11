@@ -23,7 +23,7 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 
 const (
 	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, commands, created_at, updated_at`
-	messageColumns = `id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls, state_effects`
+	messageColumns = `id, chat_id, role, content, reasoning, created_at, response_ms, output_tokens, reasoning_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls, state_effects`
 	summaryColumns = `chat_id, summary, updated_at`
 	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
 )
@@ -49,6 +49,7 @@ func scanMessage(s scanner) (model.Message, error) {
 		m             model.Message
 		respMs        sql.NullInt64
 		outTok        sql.NullInt64
+		reasoningTok  sql.NullInt64
 		tps           sql.NullFloat64
 		modelName     sql.NullString
 		participantID sql.NullString
@@ -56,7 +57,7 @@ func scanMessage(s scanner) (model.Message, error) {
 		diceRolls     string
 		stateEffects  string
 	)
-	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt, &respMs, &outTok, &tps, &modelName, &participantID, &addressees, &diceRolls, &stateEffects); err != nil {
+	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.Reasoning, &m.CreatedAt, &respMs, &outTok, &reasoningTok, &tps, &modelName, &participantID, &addressees, &diceRolls, &stateEffects); err != nil {
 		return m, err
 	}
 	if err := json.Unmarshal([]byte(addressees), &m.AddressedParticipantIDs); err != nil {
@@ -70,6 +71,7 @@ func scanMessage(s scanner) (model.Message, error) {
 	}
 	m.ResponseMs = int64Ptr(respMs)
 	m.OutputTokens = int64Ptr(outTok)
+	m.ReasoningTokens = int64Ptr(reasoningTok)
 	m.TokensPerSecond = float64Ptr(tps)
 	m.ModelName = strPtr(modelName)
 	m.ParticipantID = strPtr(participantID)
@@ -313,8 +315,10 @@ type AddMessageInput struct {
 	ChatID          string
 	Role            string
 	Content         string
+	Reasoning       string
 	ResponseMs      *int64
 	OutputTokens    *int64
+	ReasoningTokens *int64
 	TokensPerSecond *float64
 	ModelName       *string
 	ParticipantID   *string
@@ -350,9 +354,11 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 		ChatID:          input.ChatID,
 		Role:            input.Role,
 		Content:         strings.TrimSpace(input.Content),
+		Reasoning:       strings.TrimSpace(input.Reasoning),
 		CreatedAt:       now,
 		ResponseMs:      input.ResponseMs,
 		OutputTokens:    input.OutputTokens,
+		ReasoningTokens: input.ReasoningTokens,
 		TokensPerSecond: input.TokensPerSecond,
 		ModelName:       input.ModelName,
 		ParticipantID:   input.ParticipantID,
@@ -393,10 +399,10 @@ func (r *ChatRepository) AddMessageWithReferences(input AddMessageInput, referen
 		return model.Message{}, err
 	}
 	if _, err := tx.Exec(`
-		INSERT INTO messages (id, chat_id, role, content, created_at, response_ms, output_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls, state_effects)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.ChatID, m.Role, m.Content, m.CreatedAt,
-		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID), string(addressees), string(diceRolls), string(stateEffects)); err != nil {
+		INSERT INTO messages (id, chat_id, role, content, reasoning, created_at, response_ms, output_tokens, reasoning_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls, state_effects)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.ChatID, m.Role, m.Content, m.Reasoning, m.CreatedAt,
+		ptrArg(m.ResponseMs), ptrArg(m.OutputTokens), ptrArg(m.ReasoningTokens), ptrArg(m.TokensPerSecond), ptrArg(m.ModelName), ptrArg(m.ParticipantID), string(addressees), string(diceRolls), string(stateEffects)); err != nil {
 		return model.Message{}, err
 	}
 	if err := insertReferences(tx, m.ID, references); err != nil {
@@ -477,8 +483,10 @@ func (r *ChatRepository) DeleteUnfinishedAssistantMessages() (int64, error) {
 type FinalizeMessageInput struct {
 	MessageID       string
 	Content         string
+	Reasoning       string
 	ResponseMs      *int64
 	OutputTokens    *int64
+	ReasoningTokens *int64
 	TokensPerSecond *float64
 	ModelName       *string
 }
@@ -489,9 +497,9 @@ type FinalizeMessageInput struct {
 func (r *ChatRepository) FinalizeMessage(input FinalizeMessageInput) (*model.Message, error) {
 	res, err := r.db.Exec(`
 		UPDATE messages
-		SET content = ?, response_ms = ?, output_tokens = ?, tokens_per_second = ?, model_name = COALESCE(?, model_name)
+		SET content = ?, reasoning = ?, response_ms = ?, output_tokens = ?, reasoning_tokens = ?, tokens_per_second = ?, model_name = COALESCE(?, model_name)
 		WHERE id = ?`,
-		input.Content, ptrArg(input.ResponseMs), ptrArg(input.OutputTokens), ptrArg(input.TokensPerSecond), ptrArg(input.ModelName), input.MessageID)
+		input.Content, strings.TrimSpace(input.Reasoning), ptrArg(input.ResponseMs), ptrArg(input.OutputTokens), ptrArg(input.ReasoningTokens), ptrArg(input.TokensPerSecond), ptrArg(input.ModelName), input.MessageID)
 	if err != nil {
 		return nil, err
 	}

@@ -169,19 +169,25 @@ func TestCreateChatCompletionStreamLLMJPThinking(t *testing.T) {
 }
 
 // streamDisplay applies StreamDeltas the way the frontend does: a delta is
-// appended, a replacement stands in for everything shown before it.
+// appended, a replacement stands in for everything shown before it. The answer
+// and the reasoning are kept apart, as the frontend draws them apart.
 type streamDisplay struct {
-	text     string
-	replaces int
+	text      string
+	reasoning string
+	replaces  int
 }
 
 func (d *streamDisplay) apply(delta StreamDelta) {
+	target := &d.text
+	if delta.Reasoning {
+		target = &d.reasoning
+	}
 	if delta.Replace {
-		d.text = delta.Text
+		*target = delta.Text
 		d.replaces++
 		return
 	}
-	d.text += delta.Text
+	*target += delta.Text
 }
 
 // sseBody frames each content fragment as its own completion chunk event.
@@ -423,5 +429,96 @@ func TestParseModelList(t *testing.T) {
 	}
 	if len(models) != 2000 {
 		t.Fatalf("large list => %d models, want 2000", len(models))
+	}
+}
+
+// reasoningSSEBody frames each delta object as its own completion chunk, then a
+// usage chunk shaped like LM Studio's.
+func reasoningSSEBody(t *testing.T, deltas []map[string]string, completionTokens, reasoningTokens int64) string {
+	t.Helper()
+	var b strings.Builder
+	for _, delta := range deltas {
+		payload, err := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta}}})
+		if err != nil {
+			t.Fatalf("marshal chunk: %v", err)
+		}
+		b.WriteString("data: " + string(payload) + "\n\n")
+	}
+	fmt.Fprintf(&b, `data: {"choices":[],"usage":{"completion_tokens":%d,"completion_tokens_details":{"reasoning_tokens":%d}}}`+"\n\n", completionTokens, reasoningTokens)
+	b.WriteString("data: [DONE]\n\n")
+	return b.String()
+}
+
+// TestCreateChatCompletionStreamSeparatesReasoning covers TASK-99 AC #1: the
+// reasoning LM Studio sends in delta.reasoning_content (gemma) or delta.reasoning
+// (gpt-oss), and the reasoning a model writes between <think> tags, stream as
+// reasoning and never reach the answer.
+func TestCreateChatCompletionStreamSeparatesReasoning(t *testing.T) {
+	cases := []struct {
+		name   string
+		deltas []map[string]string
+	}{
+		{"reasoning_content", []map[string]string{
+			{"reasoning_content": "Weigh"}, {"reasoning_content": " the options."},
+			{"content": "The answer"}, {"content": " is 391."},
+		}},
+		{"reasoning", []map[string]string{
+			{"reasoning": "Weigh"}, {"reasoning": " the options."},
+			{"content": "The answer"}, {"content": " is 391."},
+		}},
+		{"think tags in the content", []map[string]string{
+			{"content": "<thi"}, {"content": "nk>Weigh"}, {"content": " the options.</th"},
+			{"content": "ink>\n\nThe answer"}, {"content": " is 391."},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := sseServer(t, reasoningSSEBody(t, tc.deltas, 12, 5))
+			client := NewLLMClient(testConfig(streamSettings(srv.URL, llmresponse.FormatStandard)))
+
+			var shown streamDisplay
+			var answerBeforeReasoningEnded bool
+			result, err := client.CreateChatCompletionStream(ChatCompletionInput{UserInput: "hi"}, func(delta StreamDelta) {
+				shown.apply(delta)
+				if shown.text != "" && !strings.HasSuffix(shown.reasoning, "options.") {
+					answerBeforeReasoningEnded = true
+				}
+			})
+			if err != nil {
+				t.Fatalf("stream error: %v", err)
+			}
+			if result.Content != "The answer is 391." || shown.text != result.Content {
+				t.Fatalf("content = %q, shown = %q, want both %q", result.Content, shown.text, "The answer is 391.")
+			}
+			if result.Reasoning != "Weigh the options." || shown.reasoning != result.Reasoning {
+				t.Fatalf("reasoning = %q, shown = %q, want both %q", result.Reasoning, shown.reasoning, "Weigh the options.")
+			}
+			if answerBeforeReasoningEnded {
+				t.Fatal("answer text was shown while the reasoning was still incomplete")
+			}
+			if result.OutputTokens != 12 || result.ReasoningTokens != 5 {
+				t.Fatalf("tokens = %d (reasoning %d), want 12 (reasoning 5) from usage", result.OutputTokens, result.ReasoningTokens)
+			}
+		})
+	}
+}
+
+func TestCreateChatCompletionNonStreamSeparatesReasoning(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"Final answer","reasoning_content":"Think first."}}],"usage":{"completion_tokens":9}}`)
+	}))
+	t.Cleanup(srv.Close)
+	client := NewLLMClient(testConfig(streamSettings(srv.URL, llmresponse.FormatStandard)))
+
+	result, err := client.CreateChatCompletion(ChatCompletionInput{UserInput: "hi"})
+	if err != nil {
+		t.Fatalf("completion error: %v", err)
+	}
+	if result.Content != "Final answer" || result.Reasoning != "Think first." {
+		t.Fatalf("content = %q, reasoning = %q", result.Content, result.Reasoning)
+	}
+	// No reasoning_tokens reported: the share is estimated from the text.
+	if want := estimateTokenCount("Think first."); result.ReasoningTokens != want {
+		t.Fatalf("reasoningTokens = %d, want the estimate %d", result.ReasoningTokens, want)
 	}
 }

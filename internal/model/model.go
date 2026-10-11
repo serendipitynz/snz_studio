@@ -208,14 +208,20 @@ type RecentChat struct {
 // StateEffects is what the message's effect command did to a state sheet, or
 // why it did nothing, fixed when it was stored (design §4.8.8). It is empty,
 // never nil, for a message that carried no effect command.
+//
+// Reasoning is what the model thought before answering, kept for reading only:
+// it is never part of a prompt. OutputTokens includes ReasoningTokens, which is
+// nil when the model did not think.
 type Message struct {
 	ID              string   `json:"id"`
 	ChatID          string   `json:"chatId"`
 	Role            string   `json:"role"`
 	Content         string   `json:"content"`
+	Reasoning       string   `json:"reasoning"`
 	CreatedAt       string   `json:"createdAt"`
 	ResponseMs      *int64   `json:"responseMs"`
 	OutputTokens    *int64   `json:"outputTokens"`
+	ReasoningTokens *int64   `json:"reasoningTokens"`
 	TokensPerSecond *float64 `json:"tokensPerSecond"`
 	ModelName       *string  `json:"modelName"`
 	ParticipantID   *string  `json:"participantId"`

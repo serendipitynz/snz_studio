@@ -208,9 +208,15 @@ export interface MessageRecord {
   chatId: string;
   role: MessageRole;
   content: string;
+  // What the model thought before answering; "" when it did not think. Shown
+  // only, never sent back as history.
+  reasoning: string;
   createdAt: string;
   responseMs: number | null;
+  // Every generated token, the reasoning included; reasoningTokens is the
+  // reasoning's share, null when the model did not think.
   outputTokens: number | null;
+  reasoningTokens: number | null;
   tokensPerSecond: number | null;
   modelName: string | null;
   participantId: string | null;
