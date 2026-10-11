@@ -433,6 +433,13 @@ var migrations = []migration{
 			ALTER TABLE messages ADD COLUMN state_effects TEXT NOT NULL DEFAULT '[]';
 		`,
 	},
+	{
+		id: "020_message_reasoning",
+		sql: `
+			ALTER TABLE messages ADD COLUMN reasoning TEXT NOT NULL DEFAULT '';
+			ALTER TABLE messages ADD COLUMN reasoning_tokens INTEGER;
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in

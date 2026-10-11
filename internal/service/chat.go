@@ -50,8 +50,10 @@ func NewChatService(chats *repository.ChatRepository, context *ContextService, l
 // pointers are nil for the fallback response, mirroring the TS `| null` fields.
 type generation struct {
 	content         string
+	reasoning       string
 	responseMs      *int64
 	outputTokens    *int64
+	reasoningTokens *int64
 	tokensPerSecond *float64
 	modelName       *string
 }
@@ -59,11 +61,22 @@ type generation struct {
 func generationFromResult(result *ChatCompletionResult) generation {
 	return generation{
 		content:         result.Content,
+		reasoning:       result.Reasoning,
 		responseMs:      int64Ptr(result.ResponseMs),
 		outputTokens:    int64Ptr(result.OutputTokens),
+		reasoningTokens: reasoningTokensPtr(result.ReasoningTokens),
 		tokensPerSecond: float64Ptr(result.TokensPerSecond),
 		modelName:       strPtr(result.ModelName),
 	}
+}
+
+// reasoningTokensPtr stores no count for a reply the model did not think about,
+// so it reads as "no reasoning" rather than as reasoning of zero tokens.
+func reasoningTokensPtr(count int64) *int64 {
+	if count <= 0 {
+		return nil
+	}
+	return &count
 }
 
 func strPtr(s string) *string { return &s }
@@ -141,6 +154,12 @@ func (s *ChatService) SendMessageStream(chatID, content string, onStart func(), 
 		UserInput:    content,
 		Temperature:  float64Ptr(0.25),
 	}, func(delta StreamDelta) {
+		// The reasoning is stored once, with the finished message: it is shown
+		// while it streams but read back only after the answer exists.
+		if delta.Reasoning {
+			onDelta(delta)
+			return
+		}
 		if delta.Replace {
 			streamedContent.Reset()
 		}
@@ -246,8 +265,10 @@ func (s *ChatService) persistAssistantTurn(chatID string, assembled *model.Assem
 		ChatID:          chatID,
 		Role:            "assistant",
 		Content:         gen.content,
+		Reasoning:       gen.reasoning,
 		ResponseMs:      gen.responseMs,
 		OutputTokens:    gen.outputTokens,
+		ReasoningTokens: gen.reasoningTokens,
 		TokensPerSecond: gen.tokensPerSecond,
 		ModelName:       gen.modelName,
 	})
@@ -261,8 +282,10 @@ func (s *ChatService) persistExistingAssistantTurn(chatID, assistantMessageID st
 	assistantMessage, err := s.chats.FinalizeMessage(repository.FinalizeMessageInput{
 		MessageID:       assistantMessageID,
 		Content:         gen.content,
+		Reasoning:       gen.reasoning,
 		ResponseMs:      gen.responseMs,
 		OutputTokens:    gen.outputTokens,
+		ReasoningTokens: gen.reasoningTokens,
 		TokensPerSecond: gen.tokensPerSecond,
 		ModelName:       gen.modelName,
 	})
