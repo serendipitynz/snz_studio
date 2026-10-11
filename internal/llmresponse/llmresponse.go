@@ -16,6 +16,7 @@ package llmresponse
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // Response format identifiers, mirroring EditableAppConfiguration["llmResponseFormat"].
@@ -100,6 +101,49 @@ func cleanupLLMJPThinkingContent(raw string) string {
 	return strings.TrimSpace(noAnalysis)
 }
 
+const (
+	thinkOpen  = "<think>"
+	thinkClose = "</think>"
+)
+
+// SplitThinking separates the reasoning a model wrote into its answer, between
+// <think> and </think>, from the rest. It is for an endpoint or model that does
+// not send reasoning in a field of its own.
+//
+// raw may be a stream cut at any point, so an opening tag still arriving yields
+// nothing, and a closing tag still arriving is kept out of the thinking. A
+// </think> with no opening tag (the chat template wrote it into the prompt) ends
+// the thinking too, but only when no <think> appears anywhere: an answer that
+// mentions both tags is talking about them.
+func SplitThinking(raw string) (thinking, rest string) {
+	trimmed := strings.TrimLeftFunc(raw, unicode.IsSpace)
+	if trimmed != "" && len(trimmed) < len(thinkOpen) && strings.HasPrefix(thinkOpen, trimmed) {
+		return "", ""
+	}
+	if after, ok := strings.CutPrefix(trimmed, thinkOpen); ok {
+		if before, rest, closed := strings.Cut(after, thinkClose); closed {
+			return strings.TrimSpace(before), rest
+		}
+		return strings.TrimSpace(withoutPartialSuffix(after, thinkClose)), ""
+	}
+	if !strings.Contains(raw, thinkOpen) {
+		if before, rest, closed := strings.Cut(raw, thinkClose); closed {
+			return strings.TrimSpace(before), rest
+		}
+	}
+	return "", raw
+}
+
+// withoutPartialSuffix drops a trailing proper prefix of tag from s.
+func withoutPartialSuffix(s, tag string) string {
+	for n := len(tag) - 1; n > 0; n-- {
+		if strings.HasSuffix(s, tag[:n]) {
+			return s[:len(s)-n]
+		}
+	}
+	return s
+}
+
 // ParseAssistantResponse returns the user-facing content of a raw assistant
 // response, stripping channel markup. Mirrors parseAssistantResponse(raw).
 func ParseAssistantResponse(raw, format string) string {
@@ -110,9 +154,15 @@ func ParseAssistantResponse(raw, format string) string {
 }
 
 // SanitizePromptContent cleans a message before it is sent back to the model.
-// Mirrors sanitizePromptContent(raw, role).
+// Mirrors sanitizePromptContent(raw, role). An assistant message loses any
+// <think> section: a reply stored before thinking was split out may still hold
+// one, and the model's reasoning is not fed back as history.
 func SanitizePromptContent(raw, role, format string) string {
 	normalized := strings.TrimSpace(raw)
+	if role == "assistant" {
+		_, rest := SplitThinking(normalized)
+		normalized = strings.TrimSpace(rest)
+	}
 	if normalized == "" {
 		return ""
 	}
