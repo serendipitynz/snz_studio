@@ -4,7 +4,7 @@ title: '検索: FTS5 の bm25() 列重みが UNINDEXED 列にずれて当たっ�
 status: In Review
 assignee: []
 created_date: '2026-10-11 07:31'
-updated_date: '2026-10-11 07:51'
+updated_date: '2026-10-11 07:52'
 labels: []
 milestone: m-3
 dependencies: []
@@ -50,7 +50,7 @@ internal/service/retrieval.go の 3 つの検索クエリは UNINDEXED 列のぶ
 - [x] #2 メモリの検索クエリで、bm25 の重みが UNINDEXED 2 列に 0.0、kind 2 / title 6 / content 8 の順に当たる
 - [x] #3 ドキュメント: タイトルだけに語がある文書が、同じ条件で本文だけに語がある文書より上に来ることをテストで確かめる
 - [x] #4 メモリ: 本文だけに語があるメモリが、同じ条件でタイトルだけに語があるメモリより上に来ることをテストで確かめる
-- [ ] #5 PR に、ハイブリッドの配分と fallback 閾値が旧重みで調整されていたこと、実データでの手動確認が必要なことを書く
+- [x] #5 PR に、ハイブリッドの配分と fallback 閾値が旧重みで調整されていたこと、実データでの手動確認が必要なことを書く
 - [x] #6 embedding 無効時のドキュメント検索で、正規化後 0 の最下位行が生の bm25 値に戻って首位へ上がらない
 <!-- AC:END -->
 
