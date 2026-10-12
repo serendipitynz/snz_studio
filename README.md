@@ -49,10 +49,14 @@ lists their checksums.
   notarized, so it opens without a Gatekeeper warning. Drag the app onto the Applications folder.
   The bundled embedding sidecar is arm64 only, so on an Intel Mac built-in embedding does not
   start; point embeddings at an external endpoint instead (see "LLM connection").
-- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`. It installs for the current user into
-  `%LOCALAPPDATA%\Programs\SNZ Studio`, without asking for administrator approval. It is not
-  code-signed, so SmartScreen warns on first launch ("More info" → "Run anyway"). The installer
-  fetches the WebView2 runtime when it is missing.
+- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe` for x64 PCs, and
+  `SNZ-Studio-<version>-Windows-arm64-installer.exe` for Windows 11 on Arm. It installs for the
+  current user into `%LOCALAPPDATA%\Programs\SNZ Studio`, without asking for administrator
+  approval. It is not code-signed, so SmartScreen warns on first launch ("More info" → "Run
+  anyway"). The installer fetches the WebView2 runtime when it is missing.
+  The amd64 version also runs on an Arm PC under x64 emulation, and keeps updating to the amd64
+  version there. To move to the arm64 version, run its installer over the installed copy; your
+  projects, chats and settings are kept.
 
 An LLM endpoint (LM Studio, Ollama or another OpenAI-compatible server) is still needed; see
 "LLM connection".
@@ -211,6 +215,7 @@ There are two build stages, used for different purposes.
 pnpm build:app                                          # for the current OS
 pnpm build:app -platform darwin/universal               # macOS universal (.app)
 pnpm build:app -platform windows/amd64 -nsis -webview2 download
+pnpm build:app -platform windows/arm64 -nsis -webview2 download   # on an Arm PC
 ```
 
 `build:app` is `scripts/wails.mjs build`; extra arguments are passed straight through to
@@ -222,9 +227,9 @@ Artifacts land in `build/bin/` (`SNZ Studio.app` on macOS, `.exe` on Windows).
 > and the model GGUF). Launching that `.app` reports `llama-server binary not found` for built-in
 > embedding (it still runs with an external embedding endpoint, or with FTS only). Both can be added
 > afterwards with `pnpm sidecar --app` (next section). For the Windows installer to carry them, run
-> `pnpm sidecar --arch amd64` **before** `pnpm build:app -platform windows/amd64 -nsis ...`: the
-> installer takes them from `build/sidecar/windows-amd64/` and `build/sidecar/.downloads/`, and
-> without them it is built without built-in embedding.
+> `pnpm sidecar --arch amd64` **before** `pnpm build:app -platform windows/amd64 -nsis ...` (`arm64`
+> for both on an arm64 build): the installer takes them from `build/sidecar/windows-<arch>/` and
+> `build/sidecar/.downloads/`, and without them it is built without built-in embedding.
 
 ### Built-in embedding sidecar and model (llama-server, GGUF)
 
@@ -340,9 +345,9 @@ To cut a release:
    match the committed public key, the tag does not match the two versions, or a release for the
    tag is already published. Otherwise it creates the draft with notes generated from the pull
    requests merged since the previous version tag (grouped by `.github/release.yml`) and attaches
-   the `.dmg`, the macOS update archive (`.app.zip`), the Windows installer, `latest.json` and
-   `SHA256SUMS.txt`. The update archive and the installer are signed with `UPDATE_SIGNING_KEY` and
-   checked against the committed public key before anything is uploaded.
+   the `.dmg`, the macOS update archive (`.app.zip`), the Windows amd64 and arm64 installers,
+   `latest.json` and `SHA256SUMS.txt`. The update archive and the installers are signed with
+   `UPDATE_SIGNING_KEY` and checked against the committed public key before anything is uploaded.
 4. Read the notes, check the assets, and publish the draft on GitHub. Nothing publishes it
    automatically. **Publishing is what starts the update:** installed apps see only published
    releases that are not marked as a pre-release, so a draft stays invisible to them, and every app
@@ -394,9 +399,10 @@ generate a new key (`go run ./tools/updatesig keygen`) unless the old one is gon
 
 #### Rules for changing the release workflow
 
-- **Only the `attach` job writes `latest.json`.** It runs after both platform builds, so the file
-  always lists both `darwin-universal` and `windows-amd64`. Writing it from the parallel build jobs
-  would let one platform's entry overwrite or drop the other's.
+- **Only the `attach` job writes `latest.json`.** It runs after every platform build, so the file
+  always lists `darwin-universal`, `windows-amd64` and `windows-arm64`. Writing it from the parallel
+  build jobs would let one platform's entry overwrite or drop another's. A key added here goes into
+  `updatesig.Platforms` too: `tools/updatesig verify` refuses a `latest.json` missing any of them.
 - **Every URL is pinned to the tag** (`releases/download/vX.Y.Z/…`), both the one the app reads
   `latest.json` from and the ones inside it. A `releases/latest/…` URL moves when a later release is
   published, and then stops naming the file whose signature sits beside it.
