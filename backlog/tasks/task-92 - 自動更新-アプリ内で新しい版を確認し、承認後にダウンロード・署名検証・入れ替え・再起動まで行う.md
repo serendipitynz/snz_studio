@@ -1,10 +1,10 @@
 ---
 id: TASK-92
 title: '自動更新: アプリ内で新しい版を確認し、承認後にダウンロード・署名検証・入れ替え・再起動まで行う'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-07 22:52'
-updated_date: '2026-10-10 10:38'
+updated_date: '2026-10-12 05:55'
 labels: []
 dependencies: []
 references:
@@ -64,7 +64,7 @@ v0.1.0 には更新の手段がない。新しい版が出ても、利用者が 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [x] #1 サブタスクがすべて Done になっている
-- [ ] #2 インストール済みの版から次の版へ、macOS と Windows の両方でアプリ内から更新でき、再起動後に新しい版が動く (更新機能を載せたリリースが 2 つ続けて公開された後に確かめる)
+- [x] #2 インストール済みの版から次の版へ、macOS と Windows の両方でアプリ内から更新でき、再起動後に新しい版が動く (更新機能を載せたリリースが 2 つ続けて公開された後に確かめる)
 - [x] #3 更新署名鍵の秘密鍵がこのマシン以外にも保管されていて、失くしたときに何が起きるかが書かれている
 - [x] #4 (TASK-92.1 から移した確認) 更新機能を載せた最初のリリースで、公証・staple 済みの .app を固めた macOS の更新用アーカイブ (SNZ-Studio-vX.Y.Z-macOS.app.zip) が Release に添付され、それを展開した .app が spctl の検査を通る
 - [x] #5 (TASK-92.1 から移した確認) そのリリースの実行で、prepare の鍵の一致確認 (updatesig check-key) が通り、attach の verify ステップが更新用アーカイブと Windows インストーラの署名を添付前にリポジトリの公開鍵で検証している
@@ -86,4 +86,6 @@ v0.2.0 (TASK-95、release.yml の実行 38029596641) で DoD を確かめた。
 - #2 は未確認。更新機能を載せたリリースが 2 つ続けて公開されてから確かめる。
 
 - 2026-10-10 追記: 上の確認は消した最初の v0.2.0 リリース (run 38029596641) に対するもの。作り直したリリース (run 38044195449、release id 408864097) でもやり直した。#4 は展開した snz-studio.app が spctl で accepted (Notarized Developer ID)、stapler validate も通り、バージョンは 0.2.0。#5 は check-key と verify のステップがどちらも success。#6 は latest.json の 2 つの url が releases/download/v0.2.0/ に固定され、署名を持つ。app.zip と latest.json の SHA-256 は SHA256SUMS.txt と一致した。#7 のノートも同じ内容で入っている。
+
+- 2026-10-12 DoD #2: v0.3.0 の公開で、更新機能を載せたリリースが 2 つ続いた。インストール済みの v0.2.0 から v0.3.0 へ、macOS と Windows の両方でアプリ内から更新でき、再起動後に新しい版が動くことをオーナーが実機で確かめた。それに先立ち、internal/updater を v0.2.0 として本物の GitHub に向けて動かし、Check が v0.3.0 の darwin-universal を返し、Download が app.zip を組み込みの公開鍵で検証することも確かめた。
 <!-- SECTION:NOTES:END -->
