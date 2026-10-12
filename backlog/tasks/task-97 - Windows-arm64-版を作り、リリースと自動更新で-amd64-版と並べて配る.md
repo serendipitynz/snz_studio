@@ -4,7 +4,7 @@ title: 'Windows: arm64 版を作り、リリースと自動更新で amd64 版�
 status: In Review
 assignee: []
 created_date: '2026-10-10 21:14'
-updated_date: '2026-10-12 01:50'
+updated_date: '2026-10-12 01:57'
 labels: []
 milestone: m-3
 dependencies: []
@@ -57,10 +57,10 @@ Windows 11 on Arm では今の amd64 版も x64 エミュレーションで動�
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 build.yml が windows/arm64 のインストーラを作り、そのインストーラに arm64 の llama-server と GGUF が入っている
+- [x] #1 build.yml が windows/arm64 のインストーラを作り、そのインストーラに arm64 の llama-server と GGUF が入っている
 - [ ] #2 release.yml が arm64 のインストーラを Release に添付し、latest.json に windows-arm64 の URL と署名が載り、公開鍵での検証を通る
 - [x] #3 windows/arm64 のアプリで updater.Platform() が windows-arm64 を返し、更新の確認が arm64 のインストーラを選ぶ (テストで確かめる)
-- [ ] #4 arm64 のインストーラで入れたアプリが Windows on Arm で起動し、内蔵の埋め込みが動く
+- [x] #4 arm64 のインストーラで入れたアプリが Windows on Arm で起動し、内蔵の埋め込みが動く
 - [x] #5 README.md / README.ja.md の配布物と latest.json のキーの記述が arm64 版を含む形に直っている
 <!-- AC:END -->
 
@@ -103,4 +103,15 @@ Windows 11 on Arm では今の amd64 版も x64 エミュレーションで動�
 - AC #1・#4: arm64 runner での build.yml の実行結果を待つ。インストーラの生成、ライセンス文書と sidecar の同梱、PE Machine の確認、/UPDATE 後の起動、ネットワーク無しでの埋め込みのスモークテストがここで回る。
 - AC #2: 本物の UPDATE_SIGNING_KEY で attach ジョブが通るかは、リリースを実行するまで分からない (verify は updatesig.Platforms の 3 キーすべてを要求する)。
 - 画面の見た目は、amd64 と同じく CI では確かめていない。runner はサーバー向けの Arm VM で、Snapdragon 機ではない。
+
+## CI での確認 (2026-10-12, build.yml run 38193501320, commit 70bda7c)
+
+https://github.com/serendipitynz/snz_studio/actions/runs/38193501320 で 3 ジョブすべてが成功した。arm64 は windows-11-vs2026-arm64 イメージ (Windows 11 10.0.26200) で動いた。
+- AC #1: snz-studio-arm64-installer.exe が生成された。サイレントインストール先に llama-server.exe、DLL 一式、ruri-v3-30m-q8_0.gguf (41,569,120 bytes)、LICENSE、THIRD_PARTY_NOTICES.md が揃った。exe / dll 18 個 (snz-studio.exe・llama-server.exe・llama.dll・ggml*.dll を含む) の PE Machine がすべて 0xAA64 だった。
+- AC #4: /UPDATE のインストール後にアプリが起動した。プロキシを閉じたポートに向けたネットワーク無しの起動で、arm64 の llama-server が /health に応え、5 秒後も同じプロセスのまま動いていた。seed された GGUF の sha256 は 2a6cb2d9… と一致した。これは CI の Arm VM 上での確認で、画面の見た目は確かめていない (amd64 も同じ)。
+- AC #2 は未チェック。本物の UPDATE_SIGNING_KEY での attach は、タグを打ったリリースの実行でしか確かめられない。
+
+## レビューで分かったこと
+
+Wails v2.16.0 の wails.checkArchitecture は、amd64 専用のインストーラを native の ARM64 機で止める (サイレント時は終了コード 65)。したがって Arm 機にある amd64 版はポータブル版しかありえず、LocateTarget がもともと更新の対象から外している。着手時に決めた「移行は手で入れ直してもらう」は、移行すべきインストール済みの amd64 版がそもそも存在しないことになる。README と updater.go のコメントを、この事実に合わせて直した (6c64395)。
 <!-- SECTION:NOTES:END -->
