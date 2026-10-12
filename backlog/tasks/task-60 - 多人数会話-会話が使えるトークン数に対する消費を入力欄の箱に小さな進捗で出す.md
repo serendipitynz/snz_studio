@@ -4,9 +4,9 @@ title: '多人数会話: 会話が使えるトークン数に対する消費を�
 status: To Do
 assignee: []
 created_date: '2026-09-26 20:35'
-updated_date: '2026-10-10 03:22'
+updated_date: '2026-10-12 05:34'
 labels: []
-milestone: m-3
+milestone: m-4
 dependencies:
   - TASK-55
 ordinal: 60000
