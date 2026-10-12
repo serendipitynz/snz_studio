@@ -2,6 +2,7 @@
 // so the Go port's scoring tables match the JS implementation byte-for-byte.
 // Run from repo root:  node tools/segmenter-parity/gen_model.mjs
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -60,4 +61,6 @@ for (const [jsField, goVar] of fields) {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const out = path.resolve(__dirname, "../../internal/search/model.go");
 writeFileSync(out, lines.join("\n"), "utf8");
+// gofmt column-aligns map values by rune width; delegate rather than reimplement that here.
+execFileSync("gofmt", ["-w", out], { stdio: "inherit" });
 console.error(`wrote ${out} (${fields.length} tables)`);
