@@ -2,7 +2,9 @@
 #
 # Cross-compilation is not possible (a macOS build needs CGO + the macOS SDK, and
 # the WebView2 toolchain on Windows), so each OS is built on its own native runner
-# via the matrix below.
+# via the matrix below. Windows arm64 also gets a native runner rather than an
+# amd64 cross build: the install and embedding checks below run the arm64
+# llama-server, which an x64 runner cannot execute.
 #
 # The macOS build is signed and notarized only when release.yml calls this
 # workflow with `sign: true` and the APPLE_* secrets; a manual dispatch produces
@@ -56,13 +58,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `artifact` is what release.yml collects by; `arch` picks the sidecar to stage.
         include:
           - name: macOS (universal)
             os: macos-latest
             platform: darwin/universal
+            artifact: snz-studio-macOS
           - name: Windows (amd64)
             os: windows-latest
             platform: windows/amd64
+            arch: amd64
+            artifact: snz-studio-Windows-amd64
+          - name: Windows (arm64)
+            os: windows-11-arm
+            platform: windows/arm64
+            arch: arm64
+            artifact: snz-studio-Windows-arm64
 
     steps:
       # Actions are pinned to commit SHAs because this workflow can hold the signing
@@ -292,17 +303,17 @@ jobs:
           spctl --assess --type open --context context:primary-signature --verbose "$dmg"
 
       # The installer takes the sidecar and the GGUF from where this leaves them
-      # (build/sidecar/windows-amd64/ and build/sidecar/.downloads/), so it runs before
+      # (build/sidecar/windows-<arch>/ and build/sidecar/.downloads/), so it runs before
       # `wails build`, whose makensis step reads them and whose -clean leaves them be.
       - name: Stage built-in embedding for the installer (Windows)
         if: runner.os == 'Windows'
-        run: pnpm sidecar --arch amd64
+        run: pnpm sidecar --arch ${{ matrix.arch }}
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
         # -webview2 download ships the Evergreen bootstrapper so the installer can
         # fetch the WebView2 runtime at install time when it is absent.
-        run: node scripts/wails.mjs build -platform windows/amd64 -nsis -webview2 download -clean
+        run: node scripts/wails.mjs build -platform ${{ matrix.platform }} -nsis -webview2 download -clean
 
       # `wails build -nsis` downgrades a missing makensis to a warning, so the
       # only thing that distinguishes "installer built" from "installer silently
@@ -333,6 +344,30 @@ jobs:
           Get-ChildItem $dest
           foreach ($f in 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'llama-server.exe', 'ggml.dll', 'llama.dll', 'ruri-v3-30m-q8_0.gguf') {
             if (-not (Test-Path (Join-Path $dest $f))) { throw "$f is missing from the installed directory" }
+          }
+
+      # An Arm runner also runs x64 binaries under emulation, so the smoke test below
+      # passing does not show the arm64 installer carries arm64 code. The PE header's
+      # Machine field does. uninstall.exe is NSIS's own x86 stub and is left out.
+      - name: Verify the installed binaries are built for ${{ matrix.arch }} (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $want = @{ amd64 = 0x8664; arm64 = 0xAA64 }[$env:ARCH]
+          if (-not $want) { throw "no PE machine type known for $env:ARCH" }
+          $dest = Join-Path $env:RUNNER_TEMP 'installed-check'
+          $files = Get-ChildItem $dest -File | Where-Object { $_.Extension -in '.exe', '.dll' -and $_.Name -ne 'uninstall.exe' }
+          if (-not ($files.Name -contains 'llama-server.exe')) { throw 'llama-server.exe is missing from the installed directory' }
+          if (($files | Where-Object Extension -eq '.exe').Count -lt 2) { throw 'the app exe is missing from the installed directory' }
+          foreach ($f in $files) {
+            $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
+            $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+            $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+            '{0}: 0x{1:X4}' -f $f.Name, $machine
+            if ($machine -ne $want) { throw ('{0} is built for machine 0x{1:X4}, not {2}' -f $f.Name, $machine, $env:ARCH) }
           }
 
       # The installer is per user (build/windows/installer/project.nsi), which is what lets
@@ -418,7 +453,7 @@ jobs:
       # embedding. Authenticode-sign the sidecar with the app (signing TODO below).
       - name: Stage built-in embedding beside the exe (Windows)
         if: runner.os == 'Windows'
-        run: pnpm sidecar --app
+        run: pnpm sidecar --app --arch ${{ matrix.arch }}
 
       # Same obligation as the macOS step above. The installer carries its own copies
       # now (build/windows/installer/project.nsi), so these cover the portable fallback:
@@ -437,7 +472,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: snz-studio-${{ runner.os }}
+          name: ${{ matrix.artifact }}
           path: |
             build/bin/*.dmg
             build/bin/*.app.zip
