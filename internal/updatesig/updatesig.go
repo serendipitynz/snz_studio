@@ -25,10 +25,11 @@ var publicKeyText string
 const (
 	PlatformDarwinUniversal = "darwin-universal"
 	PlatformWindowsAMD64    = "windows-amd64"
+	PlatformWindowsARM64    = "windows-arm64"
 )
 
 // Platforms lists every key a complete latest.json carries.
-var Platforms = []string{PlatformDarwinUniversal, PlatformWindowsAMD64}
+var Platforms = []string{PlatformDarwinUniversal, PlatformWindowsAMD64, PlatformWindowsARM64}
 
 // Manifest is latest.json. It carries no release notes: it is written while the
 // release is still a draft, before its notes are edited by hand, so notes here

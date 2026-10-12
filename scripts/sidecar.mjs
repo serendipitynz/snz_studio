@@ -20,7 +20,7 @@
 //
 // The verified GGUF also stays in build/sidecar/.downloads/, where the Windows
 // installer (build/windows/installer/project.nsi) picks it up together with the
-// dev-staged windows-amd64 sidecar; `wails build -clean` does not touch either.
+// dev-staged windows-<arch> sidecar; `wails build -clean` does not touch either.
 //
 // It is Node rather than shell for the same reason as scripts/wails.mjs: it has
 // to run from PowerShell on Windows without WSL. Extraction uses the OS's own

@@ -84,6 +84,41 @@ func TestReleaseForChecksVersionAndPlatform(t *testing.T) {
 	}
 }
 
+func TestPlatformForEachBuild(t *testing.T) {
+	cases := []struct{ goos, goarch, want string }{
+		{"darwin", "arm64", "darwin-universal"},
+		{"darwin", "amd64", "darwin-universal"},
+		{"windows", "amd64", "windows-amd64"},
+		{"windows", "arm64", "windows-arm64"},
+		{"windows", "386", ""},
+		{"linux", "amd64", ""},
+	}
+	for _, c := range cases {
+		if got := platformFor(c.goos, c.goarch); got != c.want {
+			t.Errorf("platformFor(%q, %q) = %q, want %q", c.goos, c.goarch, got, c.want)
+		}
+	}
+}
+
+func TestReleaseForPicksEachWindowsArchInstaller(t *testing.T) {
+	amd64 := updatesig.Asset{URL: "https://example.invalid/SNZ-Studio-v0.3.0-Windows-amd64-installer.exe", Signature: "YQ=="}
+	arm64 := updatesig.Asset{URL: "https://example.invalid/SNZ-Studio-v0.3.0-Windows-arm64-installer.exe", Signature: "Yg=="}
+	m := updatesig.Manifest{Version: "0.3.0", Platforms: map[string]updatesig.Asset{
+		"darwin-universal": {URL: "https://example.invalid/SNZ-Studio-v0.3.0-macOS.app.zip", Signature: "Yw=="},
+		"windows-amd64":    amd64,
+		"windows-arm64":    arm64,
+	}}
+	for platform, want := range map[string]updatesig.Asset{"windows-amd64": amd64, "windows-arm64": arm64} {
+		r, err := releaseFor("v0.3.0", m, platform)
+		if err != nil || r.Asset != want {
+			t.Errorf("%s: got %+v, %v; want %+v", platform, r, err, want)
+		}
+		if name := updateFileName(platform); name != "snz-studio-update-installer.exe" {
+			t.Errorf("%s: update file saved as %q, not as an installer", platform, name)
+		}
+	}
+}
+
 // fakeSource serves a release list, latest.json and one update file the way GitHub
 // lays them out, signed with a key the test owns.
 type fakeSource struct {

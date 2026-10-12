@@ -3,7 +3,7 @@
 //
 //	go run ./tools/updatesig keygen -out ~/.config/snz-studio/update-signing.key
 //	go run ./tools/updatesig check-key [-key-file PATH]
-//	go run ./tools/updatesig sign -version 0.2.0 -base-url URL -out latest.json darwin-universal=FILE windows-amd64=FILE
+//	go run ./tools/updatesig sign -version 0.2.0 -base-url URL -out latest.json darwin-universal=FILE windows-amd64=FILE windows-arm64=FILE
 //	go run ./tools/updatesig verify -version 0.2.0 -base-url URL -dir DIR latest.json
 //
 // The private key is read from UPDATE_SIGNING_KEY (the repository secret) unless

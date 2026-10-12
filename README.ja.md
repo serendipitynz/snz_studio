@@ -41,10 +41,13 @@ ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS �
   Gatekeeper の警告なしに開けます。アプリを Applications フォルダへドラッグしてください。
   同梱の embedding サイドカーは arm64 版だけなので、Intel Mac では内蔵 embedding が起動しません。
   embedding には外部の接続先を指定してください（「LLM 接続」）。
-- Windows: `SNZ-Studio-<version>-Windows-amd64-installer.exe`。現在のユーザー用に
+- Windows: x64 の PC には `SNZ-Studio-<version>-Windows-amd64-installer.exe`、Windows 11 on Arm には
+  `SNZ-Studio-<version>-Windows-arm64-installer.exe`。現在のユーザー用に
   `%LOCALAPPDATA%\Programs\SNZ Studio` へインストールし、管理者の承認は求めません。コード署名をしていないので、
   初回起動時に SmartScreen の警告が出ます（「詳細情報」→「実行」）。WebView2 ランタイムが無ければ、
   インストーラが取得します。
+  amd64 版のインストーラは Arm の PC では動きません（"This product can't be installed on the current
+  Windows architecture" と出て終わります）。Arm の PC では arm64 版を使ってください。
 
 LLM の接続先（LM Studio・Ollama などの OpenAI 互換サーバ）は別に必要です。「LLM 接続」を参照してください。
 
@@ -201,6 +204,7 @@ pnpm dev
 pnpm build:app                                          # 現在の OS 向け
 pnpm build:app -platform darwin/universal               # macOS universal（.app）
 pnpm build:app -platform windows/amd64 -nsis -webview2 download
+pnpm build:app -platform windows/arm64 -nsis -webview2 download   # Arm の PC 上で
 ```
 
 `build:app` は `scripts/wails.mjs build` で、追加の引数はそのまま `wails build` に渡ります。
@@ -212,8 +216,8 @@ pnpm build:app -platform windows/amd64 -nsis -webview2 download
 > この `.app` を起動すると内蔵 embedding は `llama-server binary not found` になります（外部 embedding か
 > FTS のみで動作）。どちらも `pnpm sidecar --app` で後から置けます（次節）。Windows のインストーラに
 > 入れるには、`pnpm build:app -platform windows/amd64 -nsis ...` の**前に** `pnpm sidecar --arch amd64` を
-> 実行します。インストーラは `build/sidecar/windows-amd64/` と `build/sidecar/.downloads/` から取り込み、
-> そこに無ければ内蔵 embedding なしのインストーラになります。
+> 実行します（arm64 版のビルドでは両方とも `arm64`）。インストーラは `build/sidecar/windows-<arch>/` と
+> `build/sidecar/.downloads/` から取り込み、そこに無ければ内蔵 embedding なしのインストーラになります。
 
 ### 内蔵 embedding のサイドカーとモデル（llama-server・GGUF）
 
@@ -320,7 +324,7 @@ GitHub Release の**下書き**に添付します。ビルドは、`.github/work
    一致しない、そのタグの Release がすでに公開されている、のどれかに当てはまると、ワークフローはビルドの前に
    止まります。そうでなければ、前のバージョンのタグ以降にマージされた PR から自動生成したノート（分類は
    `.github/release.yml`）で下書きを作り、`.dmg`、macOS の更新用アーカイブ（`.app.zip`）、Windows の
-   インストーラ、`latest.json`、`SHA256SUMS.txt` を添付します。更新用アーカイブとインストーラには
+   amd64 版と arm64 版のインストーラ、`latest.json`、`SHA256SUMS.txt` を添付します。更新用アーカイブとインストーラには
    `UPDATE_SIGNING_KEY` で署名し、アップロードの前にコミット済みの公開鍵で検証します。
 4. ノートと添付ファイルを確認し、GitHub 上で下書きを公開します。自動では公開されません。
    **公開した時点で更新が配られ始めます。** インストール済みのアプリが見るのは、公開済みで pre-release の
@@ -372,9 +376,10 @@ GitHub Release の**下書き**に添付します。ビルドは、`.github/work
 
 #### リリースのワークフローを変えるときに守ること
 
-- **`latest.json` を書くのは `attach` ジョブだけです。** このジョブは両方のプラットフォームのビルドが終わってから
-  動くので、ファイルには常に `darwin-universal` と `windows-amd64` の両方が載ります。並列のビルドジョブから
-  書くと、一方のプラットフォームの項目が他方を上書きしたり抜け落ちたりしえます。
+- **`latest.json` を書くのは `attach` ジョブだけです。** このジョブはすべてのプラットフォームのビルドが終わってから
+  動くので、ファイルには常に `darwin-universal`・`windows-amd64`・`windows-arm64` が載ります。並列のビルドジョブから
+  書くと、あるプラットフォームの項目が別の項目を上書きしたり抜け落ちたりしえます。ここにキーを足すときは
+  `updatesig.Platforms` にも足します。`tools/updatesig verify` は、そのどれかが欠けた `latest.json` を通しません。
 - **URL はすべてタグに固定します**（`releases/download/vX.Y.Z/…`）。アプリが `latest.json` を読む URL も、
   その中の URL も同じです。`releases/latest/…` の URL は後のリリースを公開すると移り、隣に署名が置かれている
   ファイルを指さなくなります。
