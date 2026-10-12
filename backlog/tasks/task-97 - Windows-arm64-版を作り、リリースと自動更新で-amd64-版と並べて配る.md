@@ -1,10 +1,10 @@
 ---
 id: TASK-97
 title: 'Windows: arm64 版を作り、リリースと自動更新で amd64 版と並べて配る'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-10 21:14'
-updated_date: '2026-10-12 01:57'
+updated_date: '2026-10-12 05:47'
 labels: []
 milestone: m-3
 dependencies: []
@@ -58,7 +58,7 @@ Windows 11 on Arm では今の amd64 版も x64 エミュレーションで動�
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 build.yml が windows/arm64 のインストーラを作り、そのインストーラに arm64 の llama-server と GGUF が入っている
-- [ ] #2 release.yml が arm64 のインストーラを Release に添付し、latest.json に windows-arm64 の URL と署名が載り、公開鍵での検証を通る
+- [x] #2 release.yml が arm64 のインストーラを Release に添付し、latest.json に windows-arm64 の URL と署名が載り、公開鍵での検証を通る
 - [x] #3 windows/arm64 のアプリで updater.Platform() が windows-arm64 を返し、更新の確認が arm64 のインストーラを選ぶ (テストで確かめる)
 - [x] #4 arm64 のインストーラで入れたアプリが Windows on Arm で起動し、内蔵の埋め込みが動く
 - [x] #5 README.md / README.ja.md の配布物と latest.json のキーの記述が arm64 版を含む形に直っている
@@ -114,4 +114,7 @@ https://github.com/serendipitynz/snz_studio/actions/runs/38193501320 で 3 ジ�
 ## レビューで分かったこと
 
 Wails v2.16.0 の wails.checkArchitecture は、amd64 専用のインストーラを native の ARM64 機で止める (サイレント時は終了コード 65)。したがって Arm 機にある amd64 版はポータブル版しかありえず、LocateTarget がもともと更新の対象から外している。着手時に決めた「移行は手で入れ直してもらう」は、移行すべきインストール済みの amd64 版がそもそも存在しないことになる。README と updater.go のコメントを、この事実に合わせて直した (6c64395)。
+
+## リリースでの確認 (2026-10-12, release.yml run 38208789653, v0.3.0)
+- AC #2: 本物の UPDATE_SIGNING_KEY で attach ジョブが通った。SNZ-Studio-v0.3.0-Windows-arm64-installer.exe が下書き (release id 410214607) に添付され、latest.json の windows-arm64 は releases/download/v0.3.0/ のそのインストーラを指す。attach の verify ステップが windows-arm64 を internal/updatesig/update-signing-key.pub で検証した。手元でダウンロードしたインストーラの SHA-256 は SHA256SUMS.txt と一致した。
 <!-- SECTION:NOTES:END -->
