@@ -54,9 +54,8 @@ lists their checksums.
   current user into `%LOCALAPPDATA%\Programs\SNZ Studio`, without asking for administrator
   approval. It is not code-signed, so SmartScreen warns on first launch ("More info" → "Run
   anyway"). The installer fetches the WebView2 runtime when it is missing.
-  The amd64 version also runs on an Arm PC under x64 emulation, and keeps updating to the amd64
-  version there. To move to the arm64 version, run its installer over the installed copy; your
-  projects, chats and settings are kept.
+  The amd64 installer refuses to run on an Arm PC ("This product can't be installed on the current
+  Windows architecture"), so use the arm64 one there.
 
 An LLM endpoint (LM Studio, Ollama or another OpenAI-compatible server) is still needed; see
 "LLM connection".

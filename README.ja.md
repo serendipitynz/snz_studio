@@ -46,9 +46,8 @@ ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS �
   `%LOCALAPPDATA%\Programs\SNZ Studio` へインストールし、管理者の承認は求めません。コード署名をしていないので、
   初回起動時に SmartScreen の警告が出ます（「詳細情報」→「実行」）。WebView2 ランタイムが無ければ、
   インストーラが取得します。
-  amd64 版も Arm の PC で x64 エミュレーションによって動きますが、その場合の更新先は amd64 版のままです。
-  arm64 版へ移るには、インストール済みのものの上から arm64 版のインストーラを実行してください。
-  プロジェクト・チャット・設定はそのまま残ります。
+  amd64 版のインストーラは Arm の PC では動きません（"This product can't be installed on the current
+  Windows architecture" と出て終わります）。Arm の PC では arm64 版を使ってください。
 
 LLM の接続先（LM Studio・Ollama などの OpenAI 互換サーバ）は別に必要です。「LLM 接続」を参照してください。
 

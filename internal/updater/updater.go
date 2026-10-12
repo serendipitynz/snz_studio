@@ -96,8 +96,10 @@ func (u *Updater) ReleasePage(tag string) string {
 }
 
 // Platform is this build's key in latest.json, or "" where no update file exists.
-// An amd64 build running under x64 emulation on an Arm machine reports amd64 and
-// keeps taking the amd64 installer; moving it to the arm64 one is a reinstall.
+// An amd64 build under x64 emulation on an Arm machine reports amd64, but it can
+// only be a portable copy there: the amd64 installer refuses a native ARM64
+// machine (wails.checkArchitecture), and LocateTarget blocks updating a copy the
+// installer did not put in place.
 func Platform() string {
 	return platformFor(runtime.GOOS, runtime.GOARCH)
 }
