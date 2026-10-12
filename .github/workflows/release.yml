@@ -243,14 +243,16 @@ jobs:
           set -euo pipefail
           dmg="$(find dist/snz-studio-macOS -maxdepth 1 -name '*.dmg' | head -1)"
           archive="$(find dist/snz-studio-macOS -maxdepth 1 -name '*.app.zip' | head -1)"
-          installer="$(find dist/snz-studio-Windows -maxdepth 1 -name '*-installer.exe' | head -1)"
           [ -n "$dmg" ] || { echo "::error::The macOS artifact holds no .dmg." >&2; exit 1; }
           [ -n "$archive" ] || { echo "::error::The macOS artifact holds no update archive." >&2; exit 1; }
-          [ -n "$installer" ] || { echo "::error::The Windows artifact holds no installer." >&2; exit 1; }
           mkdir out
           cp "$dmg" "out/SNZ-Studio-$TAG-macOS.dmg"
           cp "$archive" "out/SNZ-Studio-$TAG-macOS.app.zip"
-          cp "$installer" "out/SNZ-Studio-$TAG-Windows-amd64-installer.exe"
+          for arch in amd64 arm64; do
+            installer="$(find "dist/snz-studio-Windows-$arch" -maxdepth 1 -name '*-installer.exe' | head -1)"
+            [ -n "$installer" ] || { echo "::error::The Windows $arch artifact holds no installer." >&2; exit 1; }
+            cp "$installer" "out/SNZ-Studio-$TAG-Windows-$arch-installer.exe"
+          done
 
       # The Windows update file is the installer itself. Every URL is pinned to this
       # tag: a releases/latest URL would move to a model release or a later version
@@ -263,7 +265,8 @@ jobs:
           go run ./tools/updatesig sign -version "${TAG#v}" \
             -base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG" -out out/latest.json \
             "darwin-universal=out/SNZ-Studio-$TAG-macOS.app.zip" \
-            "windows-amd64=out/SNZ-Studio-$TAG-Windows-amd64-installer.exe"
+            "windows-amd64=out/SNZ-Studio-$TAG-Windows-amd64-installer.exe" \
+            "windows-arm64=out/SNZ-Studio-$TAG-Windows-arm64-installer.exe"
           cat out/latest.json
 
       # Without the secret, against the public key in the tagged tree: what an installed

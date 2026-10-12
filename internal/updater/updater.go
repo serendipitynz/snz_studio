@@ -96,12 +96,20 @@ func (u *Updater) ReleasePage(tag string) string {
 }
 
 // Platform is this build's key in latest.json, or "" where no update file exists.
+// An amd64 build running under x64 emulation on an Arm machine reports amd64 and
+// keeps taking the amd64 installer; moving it to the arm64 one is a reinstall.
 func Platform() string {
+	return platformFor(runtime.GOOS, runtime.GOARCH)
+}
+
+func platformFor(goos, goarch string) string {
 	switch {
-	case runtime.GOOS == "darwin":
+	case goos == "darwin":
 		return updatesig.PlatformDarwinUniversal
-	case runtime.GOOS == "windows" && runtime.GOARCH == "amd64":
+	case goos == "windows" && goarch == "amd64":
 		return updatesig.PlatformWindowsAMD64
+	case goos == "windows" && goarch == "arm64":
+		return updatesig.PlatformWindowsARM64
 	}
 	return ""
 }
@@ -301,10 +309,10 @@ func (u *Updater) Download(ctx context.Context, r *Release, dir string, progress
 }
 
 func updateFileName(platform string) string {
-	if platform == updatesig.PlatformWindowsAMD64 {
-		return "snz-studio-update-installer.exe"
+	if platform == updatesig.PlatformDarwinUniversal {
+		return "snz-studio-update.app.zip"
 	}
-	return "snz-studio-update.app.zip"
+	return "snz-studio-update-installer.exe"
 }
 
 // progressWriter hashes what is written and reports the running total whenever it
