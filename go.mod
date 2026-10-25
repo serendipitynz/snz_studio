@@ -17,7 +17,7 @@ go 1.26.3
 //
 // 対の制約: この値は下の wails の require と
 // .github/workflows/build.yml の go install (CLI 版) と揃えて上げること。
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/google/uuid v1.6.0
