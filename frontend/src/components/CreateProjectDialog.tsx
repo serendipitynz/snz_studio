@@ -60,16 +60,8 @@ export function CreateProjectDialog({ onClose, onCreated }: CreateProjectDialogP
   return (
     <Dialog onClose={() => void handleClose()}>
       <DialogHeader
-        actions={
-          <ActionButton
-            type="button"
-            variant="normal"
-            disabledReason={submitting ? t("dashboard.creatingClose") : undefined}
-            onClick={() => void handleClose()}
-          >
-            {t("common.close")}
-          </ActionButton>
-        }
+        onClose={() => void handleClose()}
+        closeDisabledReason={submitting ? t("dashboard.creatingClose") : undefined}
       >
         <DialogTitle>{t("dashboard.createProject")}</DialogTitle>
       </DialogHeader>

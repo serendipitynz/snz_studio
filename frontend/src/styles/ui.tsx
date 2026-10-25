@@ -493,6 +493,33 @@ export const Field = styled.label`
   color: ${({ theme }) => theme.muted};
 `;
 
+// A Field whose select sits beside its label, as wide as its options' words. The label's
+// large grow takes the free space while both share the line. When they no longer fit,
+// the select wraps under the label and, alone on its line, grows to the full width, so
+// a narrow modal shows the stacked Field. The first child holds the label and any badge
+// beside it.
+export const FieldRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+
+  & > :first-child {
+    flex: 999 1 12rem;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  & > select {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 100%;
+  }
+`;
+
 export const FieldHeader = styled.div`
   display: flex;
   align-items: center;
@@ -732,6 +759,20 @@ export const IconButton = styled.button`
 
   ${focusRing}
   ${disabledLook}
+`;
+
+// The subtle variant of snz-design doc-8 §6.1 on the icon-only shape: no face and no
+// outline until hovered or pressed. Disabled, the outline returns dashed, since the
+// dashed outline is how a disabled control shows itself by shape (doc-8 §5.4).
+export const SubtleIconButton = styled(IconButton)`
+  border-color: transparent;
+  background: transparent;
+  color: ${({ theme }) => theme.accent};
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    border-color: ${({ theme }) => theme.iconBorder};
+  }
 `;
 
 // The overlay's own way out, at its top right corner: the trigger in the header

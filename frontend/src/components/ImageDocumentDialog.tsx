@@ -190,16 +190,8 @@ export function ImageDocumentDialog({ projectId, documents, onClose, onCreated }
   return (
     <Dialog onClose={() => void handleClose()}>
       <DialogHeader
-        actions={
-          <ActionButton
-            type="button"
-            variant="normal"
-            disabledReason={saving ? t("project.savingClose") : undefined}
-            onClick={() => void handleClose()}
-          >
-            {t("common.close")}
-          </ActionButton>
-        }
+        onClose={() => void handleClose()}
+        closeDisabledReason={saving ? t("project.savingClose") : undefined}
       >
         <DialogTitle>{t("imageDialog.title")}</DialogTitle>
       </DialogHeader>

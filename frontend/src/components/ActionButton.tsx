@@ -1,5 +1,5 @@
 import { ButtonHTMLAttributes, forwardRef, MouseEvent, ReactNode, useId } from "react";
-import { Button, IconButton } from "../styles/ui";
+import { Button, IconButton, SubtleIconButton } from "../styles/ui";
 import { announce } from "./announce";
 import { SpinnerIcon } from "./icons";
 
@@ -10,6 +10,9 @@ type ActionButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "disabled
   icon?: ReactNode;
   // The icon-only shape: children is the figure and aria-label the name.
   iconOnly?: boolean;
+  // The icon-only shape without face or outline (doc-8 §6.1's subtle variant).
+  // Ignored without iconOnly.
+  subtle?: boolean;
   busy?: boolean;
   // Given, the button is disabled for this reason. It stays focusable, describes
   // itself with the reason and reads it out when pressed (doc-8 §5.4).
@@ -17,7 +20,7 @@ type ActionButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "disabled
 };
 
 export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(function ActionButton(
-  { variant, icon, iconOnly, busy, disabledReason, children, onClick, title, "aria-describedby": describedBy, ...rest },
+  { variant, icon, iconOnly, subtle, busy, disabledReason, children, onClick, title, "aria-describedby": describedBy, ...rest },
   ref
 ) {
   const reasonId = useId();
@@ -55,11 +58,12 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
   ) : null;
 
   if (iconOnly) {
+    const Shape = subtle ? SubtleIconButton : IconButton;
     return (
-      <IconButton {...shared}>
+      <Shape {...shared}>
         {busy ? <SpinnerIcon /> : children}
         {reason}
-      </IconButton>
+      </Shape>
     );
   }
 

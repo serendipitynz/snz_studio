@@ -871,18 +871,7 @@ export function ProjectDetailPage() {
 
       {selectedDocument ? (
         <Dialog onClose={() => void closeSelectedDocument()}>
-          <DialogHeader
-            actions={
-              <ActionButton
-                type="button"
-                variant="normal"
-                disabledReason={documentBusy}
-                onClick={() => void closeSelectedDocument()}
-              >
-                {t("common.close")}
-              </ActionButton>
-            }
-          >
+          <DialogHeader onClose={() => void closeSelectedDocument()} closeDisabledReason={documentBusy}>
             <DialogTitle title={selectedDocument.title}>{selectedDocument.title}</DialogTitle>
             <Subtle>
               {selectedDocument.type} · {t(`category.${selectedDocument.category}`)}
@@ -1000,16 +989,8 @@ export function ProjectDetailPage() {
       {isTitleModalOpen ? (
         <Dialog onClose={() => void closeTitleModal()}>
           <DialogHeader
-            actions={
-              <ActionButton
-                type="button"
-                variant="normal"
-                disabledReason={isPending("title") ? t("project.savingClose") : undefined}
-                onClick={() => void closeTitleModal()}
-              >
-                {t("common.close")}
-              </ActionButton>
-            }
+            onClose={() => void closeTitleModal()}
+            closeDisabledReason={isPending("title") ? t("project.savingClose") : undefined}
           >
             <DialogTitle>{t("project.editTitleModal")}</DialogTitle>
           </DialogHeader>
@@ -1042,16 +1023,8 @@ export function ProjectDetailPage() {
       {isSystemPromptModalOpen ? (
         <Dialog onClose={() => void closeSystemPromptModal()}>
           <DialogHeader
-            actions={
-              <ActionButton
-                type="button"
-                variant="normal"
-                disabledReason={isPending("systemPrompt") ? t("project.savingClose") : undefined}
-                onClick={() => void closeSystemPromptModal()}
-              >
-                {t("common.close")}
-              </ActionButton>
-            }
+            onClose={() => void closeSystemPromptModal()}
+            closeDisabledReason={isPending("systemPrompt") ? t("project.savingClose") : undefined}
           >
             <DialogTitle>{t("project.editSystemPromptModal")}</DialogTitle>
           </DialogHeader>
@@ -1097,23 +1070,19 @@ export function ProjectDetailPage() {
       {isMemoryModalOpen ? (
         <Dialog onClose={closeMemoryModal}>
           <DialogHeader
+            onClose={closeMemoryModal}
             actions={
-              <>
-                <ActionButton
-                  ref={organizeRef}
-                  type="button"
-                  variant="normal"
-                  icon={<SlidersIcon />}
-                  busy={isPending("analyze")}
-                  title={isPending("analyze") ? t("project.organizing") : undefined}
-                  onClick={() => void handleAnalyzeMemories()}
-                >
-                  {t("project.organize")}
-                </ActionButton>
-                <ActionButton type="button" variant="normal" onClick={closeMemoryModal}>
-                  {t("common.close")}
-                </ActionButton>
-              </>
+              <ActionButton
+                ref={organizeRef}
+                type="button"
+                variant="normal"
+                icon={<SlidersIcon />}
+                busy={isPending("analyze")}
+                title={isPending("analyze") ? t("project.organizing") : undefined}
+                onClick={() => void handleAnalyzeMemories()}
+              >
+                {t("project.organize")}
+              </ActionButton>
             }
           >
             <DialogTitle>{t("project.projectMemories")}</DialogTitle>
