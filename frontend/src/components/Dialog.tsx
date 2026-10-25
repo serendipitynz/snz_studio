@@ -1,6 +1,9 @@
 import styled from "@emotion/styled";
 import { createContext, CSSProperties, ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
+import { useLanguage } from "../i18n";
 import { ModalBody, ModalCard, ModalFooter, ModalForm, ModalHeader, ModalOverlay, SectionTitle } from "../styles/ui";
+import { ActionButton } from "./ActionButton";
+import { XIcon } from "./icons";
 
 // Innermost last. A confirm dialog raised from inside another dialog must take Escape and
 // Tab alone: both listeners sit on document, so without this one Escape would close both.
@@ -113,11 +116,41 @@ export function DialogTitle({ children, id, title }: { children: ReactNode; id?:
 // A dialog is laid out as DialogHeader, DialogBody and, where it has one action that
 // ends it, DialogActions (snz-design doc-9 §6.6). DialogForm wraps the body and the
 // actions when the action submits.
-export function DialogHeader({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+// Given onClose, the header ends with the dialog's close button: a borderless × in
+// every dialog alike (doc-8 §6.2 in §6.1's subtle variant), after any other actions.
+export function DialogHeader({
+  children,
+  actions,
+  onClose,
+  closeDisabledReason
+}: {
+  children: ReactNode;
+  actions?: ReactNode;
+  onClose?: () => void;
+  closeDisabledReason?: string;
+}) {
+  const { t } = useLanguage();
+  const close = onClose ? (
+    <ActionButton
+      type="button"
+      iconOnly
+      subtle
+      aria-label={t("common.close")}
+      disabledReason={closeDisabledReason}
+      onClick={onClose}
+    >
+      <XIcon />
+    </ActionButton>
+  ) : null;
   return (
     <ModalHeader>
       <HeaderText>{children}</HeaderText>
-      {actions ? <HeaderActions>{actions}</HeaderActions> : null}
+      {actions || close ? (
+        <HeaderActions>
+          {actions}
+          {close}
+        </HeaderActions>
+      ) : null}
     </ModalHeader>
   );
 }

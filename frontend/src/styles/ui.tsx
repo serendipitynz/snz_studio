@@ -734,6 +734,20 @@ export const IconButton = styled.button`
   ${disabledLook}
 `;
 
+// The subtle variant of snz-design doc-8 §6.1 on the icon-only shape: no face and no
+// outline until hovered or pressed. Disabled, the outline returns dashed, since the
+// dashed outline is how a disabled control shows itself by shape (doc-8 §5.4).
+export const SubtleIconButton = styled(IconButton)`
+  border-color: transparent;
+  background: transparent;
+  color: ${({ theme }) => theme.accent};
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    border-color: ${({ theme }) => theme.iconBorder};
+  }
+`;
+
 // The overlay's own way out, at its top right corner: the trigger in the header
 // lies under the overlay while it is open. Tucked into the corner so it clears the
 // first section below the heading, with room left for its focus ring.
