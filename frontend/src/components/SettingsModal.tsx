@@ -20,6 +20,7 @@ import {
   Card,
   Field,
   FieldHeader,
+  FieldRow,
   Input,
   Select,
   Stack,
@@ -625,26 +626,30 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               </InfoNotice>
             ) : null}
             <Field>
-              {t("settings.theme")}
-              <Select
-                ref={familySelectRef}
-                value={family}
-                onChange={(event) => setFamily(event.target.value as ThemeFamily)}
-              >
-                {families.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.id === "standard" ? t("settings.themeStandard") : item.label}
-                  </option>
-                ))}
-              </Select>
+              <FieldRow>
+                <span>{t("settings.theme")}</span>
+                <Select
+                  ref={familySelectRef}
+                  value={family}
+                  onChange={(event) => setFamily(event.target.value as ThemeFamily)}
+                >
+                  {families.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.id === "standard" ? t("settings.themeStandard") : item.label}
+                    </option>
+                  ))}
+                </Select>
+              </FieldRow>
             </Field>
             <Field>
-              {t("settings.mode")}
-              <Select value={mode} onChange={(event) => setMode(event.target.value as ThemeMode)}>
-                <option value="light">{t("settings.modeLight")}</option>
-                <option value="dark">{t("settings.modeDark")}</option>
-                <option value="auto">{t("settings.modeAuto")}</option>
-              </Select>
+              <FieldRow>
+                <span>{t("settings.mode")}</span>
+                <Select value={mode} onChange={(event) => setMode(event.target.value as ThemeMode)}>
+                  <option value="light">{t("settings.modeLight")}</option>
+                  <option value="dark">{t("settings.modeDark")}</option>
+                  <option value="auto">{t("settings.modeAuto")}</option>
+                </Select>
+              </FieldRow>
             </Field>
           </Stack>
         </Card>
@@ -653,11 +658,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <Stack>
             <SubsectionTitle>{t("settings.language")}</SubsectionTitle>
             <Field>
-              {t("settings.displayLanguage")}
-              <Select value={lang} onChange={(event) => setLang(event.target.value as Language)}>
-                <option value="ja">日本語</option>
-                <option value="en">English</option>
-              </Select>
+              <FieldRow>
+                <span>{t("settings.displayLanguage")}</span>
+                <Select value={lang} onChange={(event) => setLang(event.target.value as Language)}>
+                  <option value="ja">日本語</option>
+                  <option value="en">English</option>
+                </Select>
+              </FieldRow>
             </Field>
           </Stack>
         </Card>
@@ -698,32 +705,36 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 nothing that could be sent. */}
             {llmChoice ? (
               <Field>
-                {t("settings.llmReasoning")}
-                <Select
-                  value={reasoningValue}
-                  onChange={(event) =>
-                    setReasoningDraft({ baseUrl: llmBaseUrlDraft, model: llmModelDraft, value: event.target.value })
-                  }
-                >
-                  <ReasoningOptions choice={llmChoice} />
-                </Select>
+                <FieldRow>
+                  <span>{t("settings.llmReasoning")}</span>
+                  <Select
+                    value={reasoningValue}
+                    onChange={(event) =>
+                      setReasoningDraft({ baseUrl: llmBaseUrlDraft, model: llmModelDraft, value: event.target.value })
+                    }
+                  >
+                    <ReasoningOptions choice={llmChoice} />
+                  </Select>
+                </FieldRow>
                 <Subtle>{t("settings.llmReasoningHint")}</Subtle>
               </Field>
             ) : null}
             <Field>
-              {t("settings.llmResponseFormat")}
-              <Select
-                value={configDraft.llmResponseFormat}
-                onChange={(event) =>
-                  setConfigDraft((current) => ({
-                    ...current,
-                    llmResponseFormat: event.target.value as "standard" | "llm_jp_thinking"
-                  }))
-                }
-              >
-                <option value="standard">{t("settings.formatStandard")}</option>
-                <option value="llm_jp_thinking">{t("settings.formatThinking")}</option>
-              </Select>
+              <FieldRow>
+                <span>{t("settings.llmResponseFormat")}</span>
+                <Select
+                  value={configDraft.llmResponseFormat}
+                  onChange={(event) =>
+                    setConfigDraft((current) => ({
+                      ...current,
+                      llmResponseFormat: event.target.value as "standard" | "llm_jp_thinking"
+                    }))
+                  }
+                >
+                  <option value="standard">{t("settings.formatStandard")}</option>
+                  <option value="llm_jp_thinking">{t("settings.formatThinking")}</option>
+                </Select>
+              </FieldRow>
             </Field>
             <Field>
               <FieldHeader>
@@ -752,28 +763,30 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               <Subtle>{modelCandidatesLabel(loadingReviewModels, reviewModelOptions)}</Subtle>
             </Field>
             <Field>
-              <FieldHeader>
-                <span>{t("settings.embeddingSource")}</span>
-                {configDraft.embeddingMode === "external"
-                  ? connectionBadge(Boolean(configuration?.embeddingConnected), [
-                      "embeddingMode",
-                      "embeddingBaseUrl",
-                      "embeddingModel"
-                    ])
-                  : null}
-              </FieldHeader>
-              <Select
-                value={configDraft.embeddingMode}
-                onChange={(event) =>
-                  setConfigDraft((current) => ({
-                    ...current,
-                    embeddingMode: event.target.value as "internal" | "external"
-                  }))
-                }
-              >
-                <option value="internal">{t("settings.embeddingInternal")}</option>
-                <option value="external">{t("settings.embeddingExternal")}</option>
-              </Select>
+              <FieldRow>
+                <span>
+                  <span>{t("settings.embeddingSource")}</span>
+                  {configDraft.embeddingMode === "external"
+                    ? connectionBadge(Boolean(configuration?.embeddingConnected), [
+                        "embeddingMode",
+                        "embeddingBaseUrl",
+                        "embeddingModel"
+                      ])
+                    : null}
+                </span>
+                <Select
+                  value={configDraft.embeddingMode}
+                  onChange={(event) =>
+                    setConfigDraft((current) => ({
+                      ...current,
+                      embeddingMode: event.target.value as "internal" | "external"
+                    }))
+                  }
+                >
+                  <option value="internal">{t("settings.embeddingInternal")}</option>
+                  <option value="external">{t("settings.embeddingExternal")}</option>
+                </Select>
+              </FieldRow>
               {configDraft.embeddingMode === "external" ? (
                 <Subtle>{t("settings.embeddingExternalNote")}</Subtle>
               ) : embeddingStatus?.state === "downloading" ? (
