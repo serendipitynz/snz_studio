@@ -601,16 +601,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   return (
     <Dialog onClose={() => void requestClose()}>
       <DialogHeader
-        actions={
-          <ActionButton
-            type="button"
-            variant="normal"
-            disabledReason={savingConfig ? t("settings.savingClose") : undefined}
-            onClick={() => void requestClose()}
-          >
-            {t("common.close")}
-          </ActionButton>
-        }
+        onClose={() => void requestClose()}
+        closeDisabledReason={savingConfig ? t("settings.savingClose") : undefined}
       >
         <DialogTitle>{t("settings.title")}</DialogTitle>
       </DialogHeader>

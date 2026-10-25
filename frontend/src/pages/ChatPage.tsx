@@ -43,7 +43,6 @@ import { WorkspaceSidebar } from "../components/WorkspaceSidebar";
 import { useLanguage } from "../i18n";
 import {
   Badge,
-  Button,
   Card,
   Composer,
   ComposerBox,
@@ -902,16 +901,8 @@ export function ChatPage() {
       {isTitleModalOpen ? (
         <Dialog onClose={closeTitleModal}>
           <DialogHeader
-            actions={
-              <ActionButton
-                type="button"
-                variant="normal"
-                disabledReason={savingTitle ? t("project.savingClose") : undefined}
-                onClick={closeTitleModal}
-              >
-                {t("common.close")}
-              </ActionButton>
-            }
+            onClose={closeTitleModal}
+            closeDisabledReason={savingTitle ? t("project.savingClose") : undefined}
           >
             <DialogTitle>{t("chat.editTitleModal")}</DialogTitle>
           </DialogHeader>
@@ -942,16 +933,8 @@ export function ChatPage() {
       {isDocumentModalOpen ? (
         <Dialog onClose={closeDocumentModal}>
           <DialogHeader
-            actions={
-              <ActionButton
-                type="button"
-                variant="normal"
-                disabledReason={uploadProgress ? t("chat.uploadingClose") : undefined}
-                onClick={closeDocumentModal}
-              >
-                {t("common.close")}
-              </ActionButton>
-            }
+            onClose={closeDocumentModal}
+            closeDisabledReason={uploadProgress ? t("chat.uploadingClose") : undefined}
           >
             <DialogTitle>{t("chat.addDocumentModal")}</DialogTitle>
           </DialogHeader>
@@ -979,13 +962,7 @@ export function ChatPage() {
 
       {reviewTargetMessageId ? (
         <Dialog onClose={closeReview}>
-          <DialogHeader
-            actions={
-              <Button type="button" variant="normal" onClick={closeReview}>
-                {t("common.close")}
-              </Button>
-            }
-          >
+          <DialogHeader onClose={closeReview}>
             <DialogTitle>{t("chat.editorialReview")}</DialogTitle>
           </DialogHeader>
           {/* No footer: the review is only read, and its copy buttons belong to the
