@@ -1,10 +1,10 @@
 ---
 id: TASK-110
 title: '依存: Go 1.27.3 に上げ、govulncheck が検出した GO-2026-6809 を解消する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-25 10:13'
-updated_date: '2026-10-25 10:57'
+updated_date: '2026-10-25 11:26'
 labels: []
 milestone: m-4
 dependencies: []
@@ -39,7 +39,7 @@ ordinal: 114000
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 go.mod の toolchain が go1.27.3 で、scripts/wails.mjs 経由の wails build と wails dev でビンディング生成が通る
-- [ ] #2 audit ワークフローの govulncheck が macOS と Windows の両方で通る
+- [x] #2 audit ワークフローの govulncheck が macOS と Windows の両方で通る
 - [x] #3 go test ./...、pnpm check:client、pnpm test:client が通る
 <!-- AC:END -->
 
@@ -51,4 +51,6 @@ ordinal: 114000
 - #1: 手元 (macOS 26.7.1、arm64) で `pnpm build:app` が「Generating bindings: Done」まで通り、出来上がった `SNZ Studio` のバイナリを `go version` で見ると go1.27.3。`pnpm dev` もバインド生成から API の起動 (127.0.0.1:8787) まで通ったので止めた。`ld: warning: object file ... was built for newer 'macOS' version (13.0) than being linked (11.0)` は TASK-93 の記録と同じ警告。
 - govulncheck v1.8.0 (`-tags desktop,production`、audit.yml と同じ) を GOTOOLCHAIN=go1.27.3 で走らせ、darwin と GOOS=windows の両方で No vulnerabilities found。同じバイナリを GOTOOLCHAIN=go1.27.2 で走らせると GO-2026-6809 (crypto/x509、Fixed in go1.27.3) が出ることも確かめた。#2 は PR の CI の結果で確かめる。
 - #3: GOTOOLCHAIN=go1.27.3 で `go vet ./...`・`go test ./...` (exit 0、19 パッケージ ok)、`pnpm check:client`・`pnpm test:client` (27 件成功) が通った。
+
+- #2: PR #107 の audit (run 40186943426、ca939f4) と、マージ後の main の audit (run 40188736275、4b2a076) で、govulncheck (macos-latest / windows-latest) と pnpm-audit がすべて成功した。main の audit は 2026-10-25 08:57Z の push から失敗していたが、これで通る状態に戻った。
 <!-- SECTION:NOTES:END -->
