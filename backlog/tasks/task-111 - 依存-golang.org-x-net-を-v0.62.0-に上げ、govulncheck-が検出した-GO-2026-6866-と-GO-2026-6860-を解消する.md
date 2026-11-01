@@ -3,10 +3,10 @@ id: TASK-111
 title: >-
   依存: golang.org/x/net を v0.62.0 に上げ、govulncheck が検出した GO-2026-6866 と
   GO-2026-6860 を解消する
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-01 10:04'
-updated_date: '2026-11-01 10:04'
+updated_date: '2026-11-01 10:06'
 labels: []
 milestone: m-4
 dependencies: []
@@ -38,7 +38,16 @@ ordinal: 115000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 go.mod の golang.org/x/net が v0.62.0 以上で、go mod tidy 後に差分が残らない
+- [x] #1 go.mod の golang.org/x/net が v0.62.0 以上で、go mod tidy 後に差分が残らない
 - [ ] #2 audit ワークフローの govulncheck が macOS と Windows の両方で通る
-- [ ] #3 go test ./... が通り、scripts/wails.mjs 経由の wails build でビンディング生成が通る
+- [x] #3 go test ./... が通り、scripts/wails.mjs 経由の wails build でビンディング生成が通る
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- `go get golang.org/x/net@v0.62.0` と `go mod tidy` を実行した。x/net に引きずられて x/crypto v0.58.0、x/sys v0.49.0、x/text v0.43.0 (直接依存) も上がった。toolchain は go1.27.3、go ディレクティブは 1.26.3、Wails は v2.16.0 のまま。
+- 変更前に手元の govulncheck v1.8.0 (`-tags desktop,production`、audit.yml と同じ) で GO-2026-6866 と GO-2026-6860 が出ることを確かめた。変更後は darwin と GOOS=windows の両方で No vulnerabilities found。GOOS=windows は `go run` だと Windows 用バイナリを作って実行できないので、darwin 用に go install した同じ版で走らせた。
+- #1: go.mod の golang.org/x/net は v0.62.0。`go mod tidy` を再度実行しても go.mod は変わらない。
+- #3: GOTOOLCHAIN=go1.27.3 で `go vet ./...` と `go test ./...` が通った。`pnpm build:app` で「Generating bindings: Done」まで通り、app が出来上がった (`ld: warning: ... newer 'macOS' version (13.0) than being linked (11.0)` は TASK-93・TASK-110 の記録と同じ警告)。
+<!-- SECTION:NOTES:END -->
