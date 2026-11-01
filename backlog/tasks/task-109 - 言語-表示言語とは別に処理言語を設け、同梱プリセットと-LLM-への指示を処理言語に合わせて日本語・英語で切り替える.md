@@ -1,10 +1,10 @@
 ---
 id: TASK-109
 title: '言語: 表示言語とは別に処理言語を設け、同梱プリセットと LLM への指示を処理言語に合わせて日本語・英語で切り替える'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-25 08:51'
-updated_date: '2026-11-01 01:14'
+updated_date: '2026-11-01 11:22'
 labels: []
 dependencies: []
 references:
