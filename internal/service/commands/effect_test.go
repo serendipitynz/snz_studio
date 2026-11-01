@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 )
 
@@ -175,8 +176,8 @@ func TestApplyEffectDice(t *testing.T) {
 	if sheet != "HP: 10/14" || got.Delta != -4 || !reflect.DeepEqual(got.Dice, []int{3}) || got.Modifier != 1 || got.Expression != "-1d6+1" {
 		t.Errorf("dice = (%q, %+v), want 14 - (3+1)", sheet, got)
 	}
-	if EffectLine(got) != "ミラ (神官戦士) HP -1d6+1（3+1 = 4）: 14/14 → 10/14" {
-		t.Errorf("EffectLine = %q", EffectLine(got))
+	if EffectLine(got, lang.Japanese) != "ミラ (神官戦士) HP -1d6+1（3+1 = 4）: 14/14 → 10/14" {
+		t.Errorf("EffectLine = %q", EffectLine(got, lang.Japanese))
 	}
 
 	thrown := false
@@ -227,8 +228,8 @@ func TestEffectLine(t *testing.T) {
 	// A record edited by hand in the database must not panic the prompt build.
 	cases["レン HP -3:  → 4/10"] = model.StateEffect{Kind: "add", Owner: "レン", Item: "HP", Delta: -3, After: "4/10", Applied: true}
 	for want, r := range cases {
-		if got := EffectLine(r); got != want {
-			t.Errorf("EffectLine(%+v) = %q, want %q", r, got, want)
+		if got := EffectLine(r, lang.Japanese); got != want {
+			t.Errorf("EffectLine(%+v, lang.Japanese) = %q, want %q", r, got, want)
 		}
 	}
 }
@@ -282,5 +283,49 @@ func TestExtractEffectLineAbove(t *testing.T) {
 	unreadable := Extract("転ぶ。\n/add ガルド HP -3\n立つ。", both, effectRoster)
 	if unreadable.EffectErr != nil || unreadable.Effect != nil || unreadable.Content != "転ぶ。\n/add ガルド HP -3\n立つ。" {
 		t.Errorf("unreadable = %+v, want the line kept as prose with no error", unreadable)
+	}
+}
+
+// TestEnglishCommandForms: the English words for the shared sheet and a roll with
+// no target are read whichever processing language is set, and a record keeps the
+// one owner it always had, so a chat reads the same across a change of language.
+func TestEnglishCommandForms(t *testing.T) {
+	effect := readEffect(t, "/set shared location Second Shaft")
+	sheet, record := effect.Apply("location: Gate", fixedDie(1))
+	if sheet != "location: Second Shaft" || record.Owner != SharedOwner || record.ParticipantID != "" {
+		t.Fatalf("Apply = (%q, %+v)", sheet, record)
+	}
+	if got := EffectLine(record, lang.English); got != "shared location: Gate → Second Shaft" {
+		t.Errorf("English line = %q", got)
+	}
+	if got := EffectLine(record, lang.Japanese); got != "共通 location: Gate → Second Shaft" {
+		t.Errorf("Japanese line = %q", got)
+	}
+
+	named := []model.Participant{{ID: "s", DisplayName: "Shared"}}
+	if owner, id, _, ok := matchOwner("shared HP -3", named); !ok || id != "s" || owner != "Shared" {
+		t.Errorf("a participant named Shared lost the name: owner %q id %q ok %v", owner, id, ok)
+	}
+
+	cmd, err := parseRollCommand("/roll 1d20 target:none Climb")
+	if err != nil || !cmd.noTarget {
+		t.Errorf("target:none = %+v, %v", cmd, err)
+	}
+}
+
+// TestEnglishDiceMarkerIsTheApps: a forged English record is removed like a
+// Japanese one, with either language set, and a heading stays.
+func TestEnglishDiceMarkerIsTheApps(t *testing.T) {
+	for _, forged := range []string{"【Dice】1d20+3 → 14+3 = 17 (target 12, success)", "【Dice】15 success"} {
+		got, removed := stripDiceMarkers("I climb.\n" + forged)
+		if got != "I climb." || len(removed) != 1 {
+			t.Errorf("stripDiceMarkers(%q) = %q, %v", forged, got, removed)
+		}
+	}
+	if got, removed := stripDiceMarkers("【Dice】 odds, what do you think"); len(removed) != 0 || got == "" {
+		t.Errorf("a heading was removed: %q, %v", got, removed)
+	}
+	if DiceMarkerFor(lang.English) != DiceMarkerEnglish || EffectMarkerFor(lang.Japanese) != EffectMarker {
+		t.Error("the marker does not follow the language")
 	}
 }

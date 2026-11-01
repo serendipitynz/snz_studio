@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 )
 
@@ -25,11 +26,30 @@ var ErrInvalidEffectCommand = errors.New("commands: the effect command could not
 // word from those rules brought it to none, so stripping waits until forgery
 // is seen despite that (§4.8.7 draws such lists from what is observed). A
 // scene prompt of the user's own that names 【効果】 can bring it back.
-const EffectMarker = "【効果】"
+const (
+	EffectMarker        = "【効果】"
+	EffectMarkerEnglish = "【Effect】"
+)
+
+// EffectMarkerFor is the marker the prompt writes in the given language.
+func EffectMarkerFor(language lang.Language) string {
+	if language == lang.English {
+		return EffectMarkerEnglish
+	}
+	return EffectMarker
+}
 
 // SharedOwner is how an effect command names the chat's shared state sheet as
 // its owner (design §4.8.4).
+//
+// It is also what a record stores as the owner, whichever word the command used,
+// so the records of a chat read the same across a change of processing language.
 const SharedOwner = "共通"
+
+// SharedOwnerEnglish is the same owner in the English command form. A participant
+// named "shared" keeps the name: a roster that has one existed before this word
+// did, and its commands must not start landing on the shared sheet.
+const SharedOwnerEnglish = "shared"
 
 const (
 	addKeyword = "/add"
@@ -172,6 +192,9 @@ func matchOwner(args string, roster []model.Participant) (owner, participantID, 
 		}
 	}
 	candidates[SharedOwner] = &candidate{owner: SharedOwner, shared: 1}
+	if _, taken := candidates[SharedOwnerEnglish]; !taken {
+		candidates[SharedOwnerEnglish] = &candidate{owner: SharedOwner, shared: 1}
+	}
 
 	matched := ""
 	for name, c := range candidates {
@@ -351,21 +374,29 @@ func finishInteger(number, rest string, digits int) (int, string, bool) {
 // 4/10", or "レン たいまつ -1 — 適用されず（たいまつが 1 未満）" for one that was
 // not applied. The prompt prefixes it with 【効果】 and the markdown export and
 // the memory draft with 📝 (design §4.8.8), as they do 【ダイス】 and 🎲.
-func EffectLine(r model.StateEffect) string {
-	subject := r.Owner + " " + r.Item
+func EffectLine(r model.StateEffect, language lang.Language) string {
+	owner := r.Owner
+	refused, none := "%s — 適用されず（%s）", "（無し）"
+	if language == lang.English {
+		refused, none = "%s — not applied (%s)", "(none)"
+		if r.ParticipantID == "" && r.Owner == SharedOwner {
+			owner = SharedOwnerEnglish
+		}
+	}
+	subject := owner + " " + r.Item
 	if r.Kind == "set" {
 		if !r.Applied {
-			return fmt.Sprintf("%s → %s — 適用されず（%s）", subject, r.Value, effectReason(r))
+			return fmt.Sprintf(refused, subject+" → "+r.Value, effectReason(r, language))
 		}
-		before := "（無し）"
+		before := none
 		if r.Before != nil {
 			before = *r.Before
 		}
 		return fmt.Sprintf("%s: %s → %s", subject, before, r.After)
 	}
-	change := effectAmount(r)
+	change := effectAmount(r, language)
 	if !r.Applied {
-		return fmt.Sprintf("%s %s — 適用されず（%s）", subject, change, effectReason(r))
+		return fmt.Sprintf(refused, subject+" "+change, effectReason(r, language))
 	}
 	// Apply never records an applied add or use without a line, but a record
 	// is read back from the database, and one edited by hand must not stop
@@ -379,7 +410,7 @@ func EffectLine(r model.StateEffect) string {
 
 // effectAmount is "-3" for a whole number, and "-1d6+1（3+1 = 4）" for dice,
 // with the breakdown only once they were thrown.
-func effectAmount(r model.StateEffect) string {
+func effectAmount(r model.StateEffect, language lang.Language) string {
 	if r.Expression == "" {
 		return fmt.Sprintf("%+d", r.Delta)
 	}
@@ -401,21 +432,37 @@ func effectAmount(r model.StateEffect) string {
 		}
 		breakdown += fmt.Sprintf(" = %d", total)
 	}
+	if language == lang.English {
+		return r.Expression + " (" + breakdown + ")"
+	}
 	return r.Expression + "（" + breakdown + "）"
 }
 
-func effectReason(r model.StateEffect) string {
+func effectReason(r model.StateEffect, language lang.Language) string {
+	english := language == lang.English
 	switch r.Reason {
 	case model.EffectMissingItem:
+		if english {
+			return "no line for " + r.Item
+		}
 		return r.Item + "の行が無い"
 	case model.EffectNotInteger:
+		if english {
+			return "the value of " + r.Item + " does not start with a whole number"
+		}
 		return r.Item + "の値が整数で始まらない"
 	case model.EffectNotPositive:
+		if english {
+			return r.Item + " is below 1"
+		}
 		return r.Item + "が 1 未満"
 	case model.EffectOverLimit:
 		limit := model.ChatStateSheetMaxRunes
 		if r.ParticipantID != "" {
 			limit = model.ParticipantStateSheetMaxRunes
+		}
+		if english {
+			return fmt.Sprintf("the state would exceed %d characters", limit)
 		}
 		return fmt.Sprintf("状態が %d 字を超える", limit)
 	}

@@ -3,13 +3,30 @@ package commands
 import (
 	"regexp"
 	"strings"
+
+	"snzstudio/internal/lang"
 )
 
 // DiceMarker opens the line the prompt adds for each roll (design §4.8.3 item
 // 2). It is the app's notation: a speaker that writes one itself is either
 // forging a result or imitating the command, and the app cannot tell its own
 // record from such a line once both sit in the transcript.
-const DiceMarker = "【ダイス】"
+//
+// The prompt writes the processing language's marker, but both are treated as
+// the app's own whichever language is set: a chat keeps the utterances it had
+// before the language changed, and a model can imitate either from them.
+const (
+	DiceMarker        = "【ダイス】"
+	DiceMarkerEnglish = "【Dice】"
+)
+
+// DiceMarkerFor is the marker the prompt writes in the given language.
+func DiceMarkerFor(language lang.Language) string {
+	if language == lang.English {
+		return DiceMarkerEnglish
+	}
+	return DiceMarker
+}
 
 // diceMarkerArrow is the mapping's "→" and the total's "=", which only a
 // written result carries.
@@ -19,7 +36,7 @@ var diceMarkerArrow = regexp.MustCompile(`→|->|⇒|=|＝`)
 // with no arrow or equals sign (TASK-63), but the word is also ordinary in an
 // action ("交渉を成功させる") and in a heading, so diceMarkerHasResult reads it
 // as a result only beside a number that is not a roll.
-var diceMarkerOutcome = regexp.MustCompile(`成功|失敗`)
+var diceMarkerOutcome = regexp.MustCompile(`成功|失敗|(?i:success|succeeded|fail(?:ed|ure)?)`)
 
 // diceLikeToken is dice written as a field, readable or not ("1d20", "d20").
 var diceLikeToken = regexp.MustCompile(`(?:^|\s)[0-9０-９]*[dDｄＤ][0-9０-９]+`)
@@ -43,10 +60,12 @@ func diceMarkerHasResult(args string) bool {
 // somebody writing about dice, which a general conversation may well do.
 func diceMarkerArgs(line string) (string, bool) {
 	trimmed := strings.TrimLeft(line, " \t　")
-	if !strings.HasPrefix(trimmed, DiceMarker) {
-		return "", false
+	for _, marker := range []string{DiceMarker, DiceMarkerEnglish} {
+		if strings.HasPrefix(trimmed, marker) {
+			return strings.TrimSpace(trimmed[len(marker):]), true
+		}
 	}
-	return strings.TrimSpace(trimmed[len(DiceMarker):]), true
+	return "", false
 }
 
 // readDiceMarkerRoll reads a marker line's arguments as the /roll they stand
@@ -103,7 +122,7 @@ func splitDiceMarkerCommand(content string) (stripped string, found bool, cmd *R
 // forged "【ダイス】1d20+3 → 14+3 = 17（目標 12、成功）" would reach every later
 // speaker as a result the app never rolled.
 func stripDiceMarkers(content string) (string, []string) {
-	if !strings.Contains(content, DiceMarker) {
+	if !strings.Contains(content, DiceMarker) && !strings.Contains(content, DiceMarkerEnglish) {
 		return content, nil
 	}
 	var removed []string

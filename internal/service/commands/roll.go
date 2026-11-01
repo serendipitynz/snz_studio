@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 )
 
@@ -37,8 +38,8 @@ const (
 var rollExpression = regexp.MustCompile(`^(\d+)[dD](\d+)(?:([+\-−－＋])(\d+))?$`)
 
 // rollTarget is the target field: 目標N, or targetN for a table that plays in
-// English, with an optional colon; 目標なし or 0 asks for no comparison.
-var rollTarget = regexp.MustCompile(`^(?i:目標|target)[:：]?(\d*|なし)$`)
+// English, with an optional colon; 目標なし, target:none or 0 asks for no comparison.
+var rollTarget = regexp.MustCompile(`^(?i:目標|target)[:：]?(\d*|なし|(?i:none))$`)
 
 // rollTargetField tells a field meant as the target from the action. Any field
 // starting with 目標 is the target, so a malformed one is refused rather than
@@ -141,7 +142,7 @@ func parseRollCommand(line string) (*Roll, error) {
 			value, afterField = nextField(afterField)
 			value = asciiDigits(value)
 		}
-		if value == "なし" || value == "0" {
+		if value == "なし" || strings.EqualFold(value, "none") || value == "0" {
 			cmd.noTarget = true
 		} else {
 			target, err := strconv.Atoi(value)
@@ -157,7 +158,7 @@ func parseRollCommand(line string) (*Roll, error) {
 }
 
 func errRollTarget() error {
-	return fmt.Errorf("%w: 目標 (target) takes a whole number from 1 to %d, or 0 / なし for no comparison", ErrInvalidRollCommand, model.DiceTargetMax)
+	return fmt.Errorf("%w: 目標 (target) takes a whole number from 1 to %d, or 0 / none / なし for no comparison", ErrInvalidRollCommand, model.DiceTargetMax)
 }
 
 func (c *Roll) readExpression(expression string) error {
@@ -229,7 +230,7 @@ func RollDie(sides int) int {
 // DiceRollLine is one roll as the transcript reads it:
 // "岩棚を渡る — 1d20+3 → 4+3 = 7（目標 12、失敗）". The prompt prefixes it with
 // 【ダイス】 (design §4.8.3 item 2) and the markdown export with the chip's die.
-func DiceRollLine(r model.DiceRoll) string {
+func DiceRollLine(r model.DiceRoll, language lang.Language) string {
 	var b strings.Builder
 	if r.Action != "" {
 		b.WriteString(r.Action + " — ")
@@ -249,6 +250,14 @@ func DiceRollLine(r model.DiceRoll) string {
 		fmt.Fprintf(&b, " = %d", r.Total)
 	}
 	if r.Success != nil {
+		if language == lang.English {
+			outcome := "failure"
+			if *r.Success {
+				outcome = "success"
+			}
+			fmt.Fprintf(&b, " (target %d, %s)", r.Target, outcome)
+			return b.String()
+		}
 		outcome := "失敗"
 		if *r.Success {
 			outcome = "成功"
