@@ -102,8 +102,9 @@ A multi-agent conversation has:
   order. Under `weighted` the facilitator is optional and is only exempt from being held back for
   having spoken recently
 - calls: when a message is stored, the participants it calls on are recorded with it — a trailing
-  `[次: name]` line a participant writes under `weighted` (removed from the stored text), or else the
-  roster names found in the message's last sentence. Your own interventions are matched the same
+  `[次: name]` or `[Next: name]` line a participant writes under `weighted` (removed from the stored
+  text; the role reminder asks for the processing language's form, and both are always read), or else
+  the roster names found in the message's last sentence. Your own interventions are matched the same
   way, so "Alice, go on" reaches Alice under `weighted`
 - slash commands: a command the conversation enables (the inspector's state section, or a preset's
   `commands`) written on the last line of a message — a participant's or yours — is run by the app
@@ -111,7 +112,7 @@ A multi-agent conversation has:
   when the last line has none. `/roll <dice> [目標<n>] [action]` rolls the dice and compares the total
   with the target, recording the dice, the total and the outcome. The effect commands
   `/add <owner> <item> <±n|dice>`, `/use <owner> <item>` and `/set <owner> <item> <value>` change a
-  line of the owner's state sheet (`共通` for the shared one, or a participant's name) and record the
+  line of the owner's state sheet (`共通` or `shared` for the shared one, or a participant's name) and record the
   value before and after, or, for an effect a precondition or the limit kept from applying, why — a
   `/use` of something the sheet shows none of is not applied. The command line leaves the stored text
   and the record is part of the message that wrote it, so no turn rule picks differently for it. A
@@ -329,7 +330,9 @@ Phrases like:
 - “メモリに保存して”
 - “今後の前提にして”
 
-trigger a dedicated memory extraction path.
+trigger a dedicated memory extraction path. With the processing language set to English, “remember this”,
+“please remember”, “don't forget” and “save this to memory” do too, and the rules for automatic extraction
+look for the wider English cues in `internal/service/memory.go` alongside the Japanese ones.
 
 ## Streaming
 
@@ -388,9 +391,11 @@ The Think (reasoning) value is kept per model rather than per workspace: `llmRea
 Environment variables (`LLM_BASE_URL` and the rest) are the initial/default source, and saved app config overrides them. The app does not read a `.env` file.
 `LLM_API_KEY` cannot be set from the UI and is attached only to requests whose scheme, host and port match the default endpoint (README "Where the API key is sent").
 
+`processingLanguage` in the same file (`ja` or `en`, `ja` when absent or unknown) is the language of the bundled presets and of the instructions the app sends to the LLM, for the whole workspace. It is saved on its own through `PUT /api/configuration/processing-language`, like the Think value. Summaries, chat titles, memory extraction and organization, creative review, conclusions, image descriptions, the multi-agent role reminder, the project material headings, the dice and effect lines in a prompt and the markdown export all read it at the time of the request (`internal/service/prompttext.go` holds both versions side by side). The role reminder's last line tells the speaker to write in that language. The assistant chat's system prompt does not change with it and names no language. A multi-agent conversation keeps the scene and role prompts it was created with. Search tokenization and the built-in embedding model do not change with it.
+
 The settings modal (Settings in the left sidebar) has three sections: appearance, language and connection.
-Appearance and language apply as they are chosen and are stored in localStorage. Only the connection settings
-are a draft, sent with "Save configuration".
+Appearance and language apply as they are chosen. Appearance and the display language are stored in localStorage;
+the processing language is stored by the server. Only the connection settings are a draft, sent with "Save configuration".
 
 - A stored theme family or mode this build does not have is drawn as Standard + Auto (follow OS) and left as it is;
   the appearance section says so in a dismissible note (it returns when the modal is reopened). Choosing again here
