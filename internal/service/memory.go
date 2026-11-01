@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"snzstudio/internal/config"
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/util"
@@ -17,11 +19,12 @@ import (
 type MemoryService struct {
 	memories *repository.MemoryRepository
 	llm      *LLMClient
+	cfg      *config.Config
 }
 
 // NewMemoryService builds a MemoryService.
-func NewMemoryService(memories *repository.MemoryRepository, llm *LLMClient) *MemoryService {
-	return &MemoryService{memories: memories, llm: llm}
+func NewMemoryService(memories *repository.MemoryRepository, llm *LLMClient, cfg *config.Config) *MemoryService {
+	return &MemoryService{memories: memories, llm: llm, cfg: cfg}
 }
 
 // durableCue is one rule in the DURABLE_CUES table.
@@ -42,11 +45,58 @@ var durableCues = []durableCue{
 	{regexp.MustCompile(`(前回|以前|先ほど|さっき|今日|昨日|先週|\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|に決めた|を決めた|変更した|追加した|削除した|対応した|採用した)`), "episodic", "Project event"},
 }
 
+// englishDurableCues widens the English cues above for a user working in English,
+// the way the Japanese cues are written for one working in Japanese. The Japanese
+// rules stay in the table: a project can hold both languages, and nothing is gained
+// by no longer noticing what was noticed before the switch.
+var englishDurableCues = []durableCue{
+	{regexp.MustCompile(`(?i)\b(i prefer|prefer|always|never|please use|don't use|do not use|use .* for|style|tone|format|answer in|respond in|reply in|avoid using|from now on|be concise|keep it short|in bullet points)\b`), "procedural", "Working preference"},
+	durableCues[1],
+	{regexp.MustCompile(`(?i)\b(my |i am |i work on|project uses|we use|we are using|my stack|our stack|this project uses|this project is|this app|our (frontend|backend|database)|is built with|is written in)\b`), "semantic", "Project fact"},
+	durableCues[3],
+	{regexp.MustCompile(`(?i)\b(we decided|we shipped|we changed|we added|we removed|we adopted|last time|last week|yesterday|today|earlier|on \d{4}-\d{2}-\d{2}|previously)\b`), "episodic", "Project event"},
+	durableCues[5],
+}
+
+// memoryCues is what the rule-based extractor reads a message with. A processing
+// language picks the set; see japaneseMemoryCues and englishMemoryCues.
+type memoryCues struct {
+	durable           []durableCue
+	remember          *regexp.Regexp
+	transientRequest  *regexp.Regexp
+	durableProcedural *regexp.Regexp
+}
+
+func memoryCuesFor(language lang.Language) *memoryCues {
+	if language == lang.English {
+		return &englishMemoryCues
+	}
+	return &japaneseMemoryCues
+}
+
+const (
+	rememberCuesPattern      = `覚えて|記憶して|メモリに保存|memory に保存|メモリ化|今後の前提に|今のことを覚えて|保存しておいて|残しておいて`
+	transientRequestPattern  = `作成してください|書いてください|考えてください|提案してください|説明してください|要約してください|レビューしてください|翻訳してください|生成してください|直してください|修正してください|教えてください|検討してください|ください。?$|お願いします。?$`
+	durableProceduralPattern = `を優先|は使わない|は禁止|避けてください|簡潔に|日本語で|英語で|箇条書きで|短く|詳しく|敬語で|常に|毎回|必ず|今後は|以後は|文体|口調|フォーマット|形式`
+)
+
+var (
+	japaneseMemoryCues = memoryCues{
+		durable:           durableCues,
+		remember:          regexp.MustCompile(`(?i)(` + rememberCuesPattern + `)`),
+		transientRequest:  regexp.MustCompile(`(` + transientRequestPattern + `)`),
+		durableProcedural: regexp.MustCompile(`(` + durableProceduralPattern + `)`),
+	}
+	englishMemoryCues = memoryCues{
+		durable:           englishDurableCues,
+		remember:          regexp.MustCompile(`(?i)(` + rememberCuesPattern + `|\bremember (this|that|it)\b|\bplease remember\b|\bdon't forget\b|\bsave (this|that|it) (to|in) memory\b)`),
+		transientRequest:  regexp.MustCompile(`(?i)(` + transientRequestPattern + `|^(please |can you |could you )?(write|create|draft|think of|suggest|explain|summari[sz]e|review|translate|generate|fix|correct|tell me|consider)\b)`),
+		durableProcedural: regexp.MustCompile(`(?i)(` + durableProceduralPattern + `|\b(prefer|always|never|don't use|do not use|from now on|be concise|bullet points|tone|style|format|answer in|respond in|reply in)\b)`),
+	}
+)
+
 var (
 	reQuestionCues        = regexp.MustCompile(`[?？]|(ですか|ますか|でしょうか|できますか|してもいいですか|どうでしょう)`)
-	reRememberCues        = regexp.MustCompile(`(?i)(覚えて|記憶して|メモリに保存|memory に保存|メモリ化|今後の前提に|今のことを覚えて|保存しておいて|残しておいて)`)
-	reTransientRequest    = regexp.MustCompile(`(作成してください|書いてください|考えてください|提案してください|説明してください|要約してください|レビューしてください|翻訳してください|生成してください|直してください|修正してください|教えてください|検討してください|ください。?$|お願いします。?$)`)
-	reDurableProcedural   = regexp.MustCompile(`(を優先|は使わない|は禁止|避けてください|簡潔に|日本語で|英語で|箇条書きで|短く|詳しく|敬語で|常に|毎回|必ず|今後は|以後は|文体|口調|フォーマット|形式)`)
 	reHeadingPrefix       = regexp.MustCompile(`(?m)^#+[\s\p{Z}]*`)
 	reTitleSentenceSplit  = regexp.MustCompile(`[。！？.!?\n]`)
 	reNewlineRun          = regexp.MustCompile(`\n+`)
@@ -120,12 +170,12 @@ func GenerateMemoryTitle(content, kind string) string {
 // InferMemoryKind is inferKindFromText for the route that prefills the kind of
 // a memory the user is about to confirm (the multi-agent save dialog), so the
 // dialog's default agrees with what automatic extraction would have chosen.
-func InferMemoryKind(content string) string {
-	return inferKindFromText(content)
+func InferMemoryKind(content string, language lang.Language) string {
+	return inferKindFromText(content, memoryCuesFor(language))
 }
 
-func inferKindFromText(input string) string {
-	for _, cue := range durableCues {
+func inferKindFromText(input string, cues *memoryCues) string {
+	for _, cue := range cues.durable {
 		if cue.regex.MatchString(input) {
 			return cue.kind
 		}
@@ -133,14 +183,14 @@ func inferKindFromText(input string) string {
 	return "episodic"
 }
 
-func shouldSkipAutoMemorySentence(sentence, kind string) bool {
+func shouldSkipAutoMemorySentence(sentence, kind string, cues *memoryCues) bool {
 	if kind != "procedural" {
 		return false
 	}
-	if reDurableProcedural.MatchString(sentence) {
+	if cues.durableProcedural.MatchString(sentence) {
 		return false
 	}
-	return reTransientRequest.MatchString(sentence)
+	return cues.transientRequest.MatchString(sentence)
 }
 
 func memoryRoleLabel(role string) string {
@@ -161,6 +211,7 @@ func normalizeMessageForMemory(m model.Message) string {
 // MaybeStoreFromUserMessage mirrors maybeStoreFromUserMessage: the rule-based
 // extractor that records durable preferences/facts/events from a user message.
 func (s *MemoryService) MaybeStoreFromUserMessage(projectID, chatID, content string) ([]model.Memory, error) {
+	cues := memoryCuesFor(s.cfg.Get().ProcessingLanguage)
 	candidates := []string{}
 	for _, raw := range splitSentences(content) {
 		sentence := strings.TrimSpace(raw)
@@ -182,16 +233,16 @@ func (s *MemoryService) MaybeStoreFromUserMessage(projectID, chatID, content str
 			continue
 		}
 		var matched *durableCue
-		for i := range durableCues {
-			if durableCues[i].regex.MatchString(sentence) {
-				matched = &durableCues[i]
+		for i := range cues.durable {
+			if cues.durable[i].regex.MatchString(sentence) {
+				matched = &cues.durable[i]
 				break
 			}
 		}
 		if matched == nil {
 			continue
 		}
-		if shouldSkipAutoMemorySentence(sentence, matched.kind) {
+		if shouldSkipAutoMemorySentence(sentence, matched.kind, cues) {
 			continue
 		}
 		similar, err := s.memories.HasSimilarMemory(projectID, matched.title, sentence)
@@ -224,7 +275,9 @@ func (s *MemoryService) MaybeStoreFromUserMessage(projectID, chatID, content str
 // falling back to a heuristic when the LLM/JSON path does not yield one. Returns
 // (nil, nil) when nothing should be stored.
 func (s *MemoryService) MaybeStoreFromExplicitRequest(projectID, chatID, content string, recentMessages []model.Message) (*model.Memory, error) {
-	if !reRememberCues.MatchString(content) {
+	language := s.cfg.Get().ProcessingLanguage
+	cues := memoryCuesFor(language)
+	if !cues.remember.MatchString(content) {
 		return nil, nil
 	}
 
@@ -246,14 +299,8 @@ func (s *MemoryService) MaybeStoreFromExplicitRequest(projectID, chatID, content
 		contextLines = append(contextLines, normalizeMessageForMemory(m))
 	}
 	resp, llmErr := s.llm.CreateChatCompletion(ChatCompletionInput{
-		SystemPrompt: strings.Join([]string{
-			"あなたは project memory 抽出専用アシスタントです。",
-			"ユーザーが『覚えて』と明示したので、直前の会話から project をまたいで有用な durable memory を 1 件だけ抽出してください。",
-			"返答は JSON のみとし、形式は {\"kind\":\"semantic|procedural|episodic\",\"content\":\"...\"} または {\"skip\":true,\"reason\":\"...\"} にしてください。",
-			"content は 1 から 2 文の短い日本語にしてください。",
-			"雑談や一時的な話題は保存しないでください。",
-		}, "\n"),
-		Messages: []model.Message{},
+		SystemPrompt: promptTextFor(language).memoryExtractionSystem,
+		Messages:     []model.Message{},
 		UserInput: strings.Join([]string{
 			"recent conversation:",
 			joinLines(contextLines),
@@ -273,7 +320,7 @@ func (s *MemoryService) MaybeStoreFromExplicitRequest(projectID, chatID, content
 				normalizedContent := util.Truncate(strings.TrimSpace(parsed.Content), 220)
 				kind := parsed.Kind
 				if kind != "semantic" && kind != "procedural" && kind != "episodic" {
-					kind = inferKindFromText(normalizedContent)
+					kind = inferKindFromText(normalizedContent, cues)
 				}
 				if !parsed.Skip && normalizedContent != "" {
 					title := generateMemoryTitle(normalizedContent, kind)
@@ -334,7 +381,7 @@ func (s *MemoryService) MaybeStoreFromExplicitRequest(projectID, chatID, content
 		return nil, nil
 	}
 
-	kind := inferKindFromText(content + "\n" + normalizedContent)
+	kind := inferKindFromText(content+"\n"+normalizedContent, cues)
 	title := generateMemoryTitle(normalizedContent, kind)
 	similar, err := s.memories.HasSimilarMemory(projectID, title, normalizedContent)
 	if err != nil {
