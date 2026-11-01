@@ -1,0 +1,18 @@
+{
+  "id": "relay-novel",
+  "title": "Relay novel (two writers)",
+  "description": "Two writers take turns continuing a story. This generates narrative rather than conversation, so its output differs in kind from the other presets. Expected turns: 12-20",
+  "group": "pair",
+  "turnRule": "round_robin",
+  "scenePrompt": "This is a relay novel. Two writers take turns writing what comes next.\nThe opening line: \"In the closet of the room I had just moved into, the previous tenant had left a single umbrella.\"\nRules\n- Write 40-60 words per turn. You may mix narration and dialogue.\n- Do not change the details the other writer introduced (people, places, events). Do not contradict them.\n- End your turn just as something is about to happen, so the next writer can easily continue.\n- Write only the text of the novel, not remarks as an author, explanations or comments.\nWhen an instruction says \"finish within two more turns,\" both writers head for the ending.",
+  "participants": [
+    {
+      "displayName": "Writer A",
+      "rolePrompt": "You are Writer A. You want to pull the story toward the eerie and unsettling.\nEach turn, add one small oddity (a sound, a smell, an object that does not add up) to the everyday description.\nBut do not show anything supernatural directly; stop at hints.\nIf the other writer tries to bring things back to the everyday, do not deny it; place another oddity within the restored everyday.\nWhen the ending is called for, leave it to the other writer whether to reveal what the oddities were."
+    },
+    {
+      "displayName": "Writer B",
+      "rolePrompt": "You are Writer B. You want to pull the story toward everyday life and human relationships.\nEach turn, describe one concrete part of the protagonist's life or relations with others (neighbors, work, family).\nDo not erase the oddities the other writer places; write how the protagonist takes them (ignores it, is bothered, tells someone).\nYou may give an oddity a rational explanation, but do not explain it away completely.\nWhen the ending is called for, decide whether the protagonist keeps living in that room, and finish."
+    }
+  ]
+}

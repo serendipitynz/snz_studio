@@ -12,12 +12,15 @@ import (
 
 // addresseeDirective is what a participant is asked to write on the last line
 // under the weighted rule when it wants someone in particular to speak next
-// (design §4.6.5 (a)): "[次: 表示名]", several names separated by 読点. It is
-// matched at the very end of the utterance, so one a model appends to its last
-// sentence without a line break is stripped too. Full-width brackets and colon
-// are accepted because a Japanese-writing model switches between the two forms
-// freely.
-var addresseeDirective = regexp.MustCompile(`[\[［]\s*次\s*[:：]\s*([^\]］\n]*?)\s*[\]］]$`)
+// (design §4.6.5 (a)): "[次: 表示名]", several names separated by 読点, or
+// "[Next: name]" when the processing language is English. Both are read whichever
+// language is set: a directive left in the text would reach every later speaker
+// as control syntax, and a chat keeps the utterances it had before the language
+// changed. It is matched at the very end of the utterance, so one a model appends
+// to its last sentence without a line break is stripped too. Full-width brackets
+// and colon are accepted because a Japanese-writing model switches between the two
+// forms freely.
+var addresseeDirective = regexp.MustCompile(`[\[［]\s*(?:次|(?i:next))\s*[:：]\s*([^\]］\n]*?)\s*[\]］]$`)
 
 // addresseeDirectiveSeparators splits the names inside a directive. The reminder
 // asks for 読点, but a model that writes a comma instead still means a list.
@@ -37,6 +40,7 @@ var nameAnnotation = regexp.MustCompile(`\s*[(（][^()（）]*[)）]\s*$`)
 // substring match would otherwise find inside ordinary words ("リン" in "リンゴ").
 // The match has to be a substring one: Japanese has no word boundaries to match
 // on, which is why SillyTavern's \b\w+\b never finds a Japanese name (§4.6.5).
+// containsName still holds a Latin name to its edges.
 const minMatchedNameLength = 2
 
 // storedUtterance is what an utterance becomes at store time: the body with its
@@ -153,13 +157,38 @@ func matchNamesInLastSentence(content, speakerID string, roster []model.Particip
 			continue
 		}
 		for name := range namesOf(p, minMatchedNameLength) {
-			if callable[name] == p.ID && strings.Contains(sentence, name) {
+			if callable[name] == p.ID && containsName(sentence, name) {
 				addressees = appendUnique(addressees, p.ID)
 				break
 			}
 		}
 	}
 	return addressees
+}
+
+// containsName finds name in the lower-cased sentence. An edge of the name that is
+// an ASCII letter or digit must not continue into another one: "ren" is no call in
+// "parent", while "ren" followed by さん still is, and a Japanese name is a plain
+// substring match.
+func containsName(sentence, name string) bool {
+	for start := 0; ; {
+		i := strings.Index(sentence[start:], name)
+		if i < 0 {
+			return false
+		}
+		i += start
+		end := i + len(name)
+		before := i > 0 && isASCIIWordByte(name[0]) && isASCIIWordByte(sentence[i-1])
+		after := end < len(sentence) && isASCIIWordByte(name[len(name)-1]) && isASCIIWordByte(sentence[end])
+		if !before && !after {
+			return true
+		}
+		start = i + 1
+	}
+}
+
+func isASCIIWordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
 }
 
 // callableNames maps each name form to the one participant it calls. A form

@@ -1,0 +1,43 @@
+[system]
+あなたは project memory の整理専用アシスタントです。
+semantic / procedural / episodic の区別を守り、重複統合、書き換え、不要候補の削除、新規 memory 候補の作成だけを提案してください。
+必ず JSON のみを返してください。
+[user]
+現在の memories:
+
+[
+  {
+    "content": "Hi",
+    "id": "ID",
+    "kind": "episodic",
+    "locked": true,
+    "source": "chat",
+    "title": "Hi"
+  },
+  {
+    "content": "A fact",
+    "id": "ID",
+    "kind": "semantic",
+    "locked": false,
+    "source": "manual",
+    "title": "Fact"
+  }
+]
+
+recent chat summaries:
+
+[
+  {
+    "chatId": "ID",
+    "summary": ""
+  }
+]
+
+次の JSON だけを返してください。
+{ "summary": "short summary", "changes": [
+  { "action": "create"|"update"|"remove", "memoryId": "existing id for update/remove", "kind": "semantic|procedural|episodic", "title": "title", "content": "content", "reason": "reason" }
+] }
+更新は既存 memory の整理に限定し、無意味な全面書き換えは避けてください。
+locked=true の memory は update/remove しないでください。
+雑談は memory にしないでください。
+changes は最大 8 件に抑えてください。

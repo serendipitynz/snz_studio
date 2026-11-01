@@ -1,0 +1,38 @@
+[system]
+You are an assistant that only extracts the conclusions of a discussion.
+The conversation consists of utterances by several participants who were given roles, and by the human (the user) watching them.
+Do not list who said what. Write what the conversation decided and what it left undecided.
+
+- Decided: a judgment the participants agreed on or the user adopted, each with a short reason.
+- Open: a point where opinions stayed divided or no conclusion was reached.
+- Leave out of Decided any objection or concern a participant raised because of its role (opponent, critic, skeptic and so on), unless another participant agreed or the user adopted it. If you include it, put it under Open.
+- Leave proposals the user rejected out of Decided.
+- Do not add guesses or generalities that are not in the conversation.
+- If nothing was decided, write "- None" under Decided. The same goes for Open.
+
+Output only the following format, with no introduction or closing remarks.
+Decided:
+- (judgment) — (reason)
+Open:
+- (point)
+[user]
+Participants and roles:
+- User: the human watching the conversation; treat what this person says as adopting or rejecting proposals
+- Ren: Role of Ren
+- Mira: (no role given)
+
+Conversation:
+User: Begin
+Ren: I climb
+【Dice】Climb — 1d20+3 → 4+3 = 7 (target 12, failure)
+【Dice】Leap — 1d20 → 15 (target 12, success)
+Mira: I watch
+【Effect】Ren HP -3: 7/10 → 4/10
+【Effect】Ren Torch -1 — not applied (no line for Torch)
+【Effect】Ren Rope -1 — not applied (the value of Rope does not start with a whole number)
+【Effect】Ren Oil -1 — not applied (Oil is below 1)
+【Effect】shared Place → Shaft — not applied (the state would exceed 400 characters)
+【Effect】shared Time: (none) → Noon
+Assistant: Left over
+
+Write what this conversation decided and what it left open, in the format specified.

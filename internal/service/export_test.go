@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 )
 
@@ -44,12 +45,12 @@ func TestBuildChatMarkdownFacilitatorRule(t *testing.T) {
 	project, chat, participants, messages := exportFixture()
 	chat.TurnRule = model.TurnRuleFacilitatorAlternating
 	chat.FacilitatorID = "pa1"
-	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); !strings.Contains(got, "facilitator_alternating（進行役「田中」と他の参加者が交互に発言する）") {
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese); !strings.Contains(got, "facilitator_alternating（進行役「田中」と他の参加者が交互に発言する）") {
 		t.Errorf("markdown does not name the facilitator\n--- got ---\n%s", got)
 	}
 
 	chat.FacilitatorID = "pa2" // 除籍済み
-	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); !strings.Contains(got, "facilitator_alternating（進行役が編成に居ないため、編成順に回す）") {
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese); !strings.Contains(got, "facilitator_alternating（進行役が編成に居ないため、編成順に回す）") {
 		t.Errorf("markdown does not report the fallback\n--- got ---\n%s", got)
 	}
 }
@@ -60,18 +61,18 @@ func TestBuildChatMarkdownWeightedRule(t *testing.T) {
 	project, chat, participants, messages := exportFixture()
 	chat.TurnRule = model.TurnRuleWeighted
 	chat.FacilitatorID = "pa1"
-	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); !strings.Contains(got, "weighted（呼びかけと沈黙の長さで次の話者を決める。進行役「田中」）") {
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese); !strings.Contains(got, "weighted（呼びかけと沈黙の長さで次の話者を決める。進行役「田中」）") {
 		t.Errorf("markdown does not describe the weighted rule\n--- got ---\n%s", got)
 	}
 	chat.FacilitatorID = "pa2" // 除籍済み
-	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); !strings.Contains(got, "weighted（呼びかけと沈黙の長さで次の話者を決める）\n") {
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese); !strings.Contains(got, "weighted（呼びかけと沈黙の長さで次の話者を決める）\n") {
 		t.Errorf("markdown names a removed facilitator\n--- got ---\n%s", got)
 	}
 }
 
 func TestBuildChatMarkdownMultiAgent(t *testing.T) {
 	project, chat, participants, messages := exportFixture()
-	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese)
 
 	// AC #2: the scene, the turn rule and the roster with display and model names.
 	for _, want := range []string{
@@ -117,7 +118,7 @@ func TestBuildChatMarkdownStateSection(t *testing.T) {
 	chat.StateSheet = "場所: 会議室\n時刻: 14 時"
 	participants[0].StateSheet = "持ち時間: 5 分"
 	participants[1].StateSheet = "持ち時間: 0 分"
-	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese)
 
 	want := "## 現在の状態\n\n### 共通\n\n- 場所: 会議室\n- 時刻: 14 時\n\n### 田中\n\n- 持ち時間: 5 分\n"
 	section := strings.Index(got, want)
@@ -133,7 +134,7 @@ func TestBuildChatMarkdownStateSection(t *testing.T) {
 
 	chat.StateSheet = ""
 	participants[0].StateSheet = ""
-	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow()); strings.Contains(got, "## 現在の状態") {
+	if got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese); strings.Contains(got, "## 現在の状態") {
 		t.Errorf("empty sheets must leave the section out\n--- got ---\n%s", got)
 	}
 }
@@ -154,7 +155,7 @@ func TestBuildChatMarkdownAssistantChatOmitsMultiAgentSections(t *testing.T) {
 		{ID: "m2", ChatID: "c2", Role: "assistant", Content: "3 点あります。", ModelName: strPtr("qwen3-8b")},
 	}
 
-	got := BuildChatMarkdown(project, chat, nil, messages, exportTestNow())
+	got := BuildChatMarkdown(project, chat, nil, messages, exportTestNow(), lang.Japanese)
 
 	for _, unwanted := range []string{"## 場面設定", "## ターン進行ルール", "## 編成"} {
 		if strings.Contains(got, unwanted) {
@@ -182,7 +183,7 @@ func TestBuildChatMarkdownPrefersTheModelTheMessageRecorded(t *testing.T) {
 		{ID: "m2", ChatID: "c1", Role: "assistant", Content: "記録が無い発言。", ParticipantID: strPtr("pa1")},
 	}
 
-	got := BuildChatMarkdown(nil, chat, participants, messages, exportTestNow())
+	got := BuildChatMarkdown(nil, chat, participants, messages, exportTestNow(), lang.Japanese)
 
 	if !strings.Contains(got, "### 田中 (old-model)") {
 		t.Errorf("expected the recorded model on the utterance\n--- got ---\n%s", got)
@@ -199,7 +200,7 @@ func TestBuildChatMarkdownPrefersTheModelTheMessageRecorded(t *testing.T) {
 func TestBuildChatMarkdownEmptyChat(t *testing.T) {
 	chat := &model.Chat{ID: "c1", Title: "  ", Kind: model.ChatKindMultiAgent}
 
-	got := BuildChatMarkdown(nil, chat, nil, nil, exportTestNow())
+	got := BuildChatMarkdown(nil, chat, nil, nil, exportTestNow(), lang.Japanese)
 
 	for _, want := range []string{"# 無題のチャット", "## 場面設定\n\n（未設定）", "（未設定）", "（参加者なし）", "（発言なし）"} {
 		if !strings.Contains(got, want) {
@@ -221,7 +222,7 @@ func TestBuildChatMarkdownFlattensMetadataNewlines(t *testing.T) {
 		{ID: "m1", ChatID: "c1", Role: "assistant", Content: "本文", ParticipantID: strPtr("pa1")},
 	}
 
-	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese)
 
 	for _, want := range []string{
 		"# 第 1 回 ### 偽の見出し",
@@ -253,7 +254,7 @@ func TestBuildChatMarkdownDiceRolls(t *testing.T) {
 	messages[1].DiceRolls = []model.DiceRoll{{Expression: "1d20+3", Action: "数字を読む", Dice: []int{4}, Modifier: 3, Total: 7, Target: 12, Success: &failed}}
 	messages = append(messages, model.Message{ID: "m4", ChatID: "c1", Role: "user", DiceRolls: []model.DiceRoll{{Expression: "2d6", Dice: []int{3, 5}, Total: 8}}})
 
-	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese)
 	if !strings.Contains(got, "まず前期の数字を見ましょう。\n\n> 🎲 数字を読む — 1d20+3 → 4+3 = 7（目標 12、失敗）\n") {
 		t.Errorf("markdown does not quote the roll after the body\n--- got ---\n%s", got)
 	}
@@ -271,7 +272,7 @@ func TestBuildChatMarkdownStateEffects(t *testing.T) {
 	messages[1].StateEffects = []model.StateEffect{{Kind: "add", Owner: "レン", Item: "HP", Delta: -3, Before: &before, After: "4/10", Applied: true}}
 	messages = append(messages, model.Message{ID: "m4", ChatID: "c1", Role: "user", StateEffects: []model.StateEffect{{Kind: "use", Owner: "レン", Item: "たいまつ", Delta: -1, Reason: model.EffectMissingItem}}})
 
-	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow())
+	got := BuildChatMarkdown(project, chat, participants, messages, exportTestNow(), lang.Japanese)
 	if !strings.Contains(got, "まず前期の数字を見ましょう。\n\n> 📝 レン HP -3: 7/10 → 4/10\n") {
 		t.Errorf("markdown does not quote the effect after the body\n--- got ---\n%s", got)
 	}

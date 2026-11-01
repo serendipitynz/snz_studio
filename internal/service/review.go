@@ -64,15 +64,8 @@ func (s *ReviewService) prepareReview(messageID string) (*preparedReview, error)
 		modelName = settings.LLMModel
 	}
 
-	systemPrompt := strings.Join([]string{
-		"あなたは創作文レビュー専用の編集者です。",
-		"与えられた文章を書き直さず、レビューだけを返してください。",
-		"日本語で、短く具体的に指摘してください。",
-		"特に次を見てください: 設定整合、人物の一貫性、時系列、用語ぶれ、文体の不自然さ、冗長さ、説明過多。",
-		"大きな問題がなければ、その旨を述べたうえで軽い改善提案だけを返してください。",
-		"出力は markdown で、`Overall`、`Issues`、`Suggestions` の 3 セクションにしてください。",
-		assembled.PromptContext,
-	}, "\n\n")
+	instructions := promptTextFor(settings.ProcessingLanguage).reviewSystem
+	systemPrompt := strings.Join(append(append([]string{}, instructions...), assembled.PromptContext), "\n\n")
 
 	return &preparedReview{
 		systemPrompt: systemPrompt,

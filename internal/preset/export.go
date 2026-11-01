@@ -3,6 +3,7 @@ package preset
 import (
 	"strings"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 )
 
@@ -17,11 +18,11 @@ import (
 // would not make one — fewer than two participants, or facilitator_alternating
 // with its facilitator off the roster — is refused with ErrInvalid instead of
 // being exported as a file that would then fail to load.
-func FromChat(chat *model.Chat, roster []model.Participant) (*MultiAgentPreset, error) {
+func FromChat(chat *model.Chat, roster []model.Participant, language lang.Language) (*MultiAgentPreset, error) {
 	title := strings.TrimSpace(chat.Title)
 	// A preset cannot carry an empty title (Validate refuses one).
 	if title == "" {
-		title = model.UntitledChatTitle
+		title = model.UntitledChatTitle(language)
 	}
 	commands := chat.Commands
 	if commands.Roll != nil {

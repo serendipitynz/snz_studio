@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 )
 
@@ -155,7 +156,7 @@ func TestDiceRollLine(t *testing.T) {
 		{model.DiceRoll{Expression: "1d20", Action: "見張る", Dice: []int{14}, Total: 14}, "見張る — 1d20 → 14"},
 	}
 	for _, tc := range cases {
-		if got := DiceRollLine(tc.roll); got != tc.want {
+		if got := DiceRollLine(tc.roll, lang.Japanese); got != tc.want {
 			t.Errorf("DiceRollLine = %q, want %q", got, tc.want)
 		}
 	}

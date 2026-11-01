@@ -3,9 +3,12 @@ package service
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
+	"snzstudio/internal/preset"
 	"snzstudio/internal/service/commands"
 )
 
@@ -227,5 +230,69 @@ func TestPrepareUtteranceWithoutRoll(t *testing.T) {
 		if u.content != tc.wantBody || u.roll != nil || u.rollErr != nil || u.removedDice != nil || !reflect.DeepEqual(u.addressees, tc.want) {
 			t.Errorf("%s: prepareUtterance = (%q, %+v, %v, %q, %v), want (%q, no roll, %v)", tc.name, u.content, u.roll, u.rollErr, u.removedDice, u.addressees, tc.wantBody, tc.want)
 		}
+	}
+}
+
+// TestEnglishDirectiveAndNames: both directive forms are read whichever language is
+// set, and a Latin name is held to its edges, which Japanese has none of.
+func TestEnglishDirectiveAndNames(t *testing.T) {
+	roster := []model.Participant{{ID: "ren", DisplayName: "Ren (scout)"}, {ID: "mira", DisplayName: "Mira"}, {ID: "alice", DisplayName: "アリス"}}
+	u := prepareUtterance("I agree.\n[Next: Ren, Mira]", "alice", roster, model.ChatCommands{})
+	if u.content != "I agree." || !reflect.DeepEqual(u.addressees, []string{"ren", "mira"}) {
+		t.Errorf("[Next:] = %+v", u)
+	}
+	u = prepareUtterance("なるほど。[next： Mira]", "alice", roster, model.ChatCommands{})
+	if u.content != "なるほど。" || !reflect.DeepEqual(u.addressees, []string{"mira"}) {
+		t.Errorf("[next：] = %+v", u)
+	}
+	for sentence, want := range map[string][]string{
+		"Ask your parent about it":    {},
+		"Ren, what do you think":      {"ren"},
+		"What do you say, Ren?":       {"ren"},
+		"Renさん、どう思いますか":               {"ren"},
+		"Mira's turn":                 {"mira"},
+		"アリスさん、どう思いますか":               {"alice"},
+		"Admiration is not an answer": {},
+	} {
+		if got := matchNamesInLastSentence(sentence, "", roster); !reflect.DeepEqual(got, want) {
+			t.Errorf("%q called %v, want %v", sentence, got, want)
+		}
+	}
+}
+
+// TestEnglishTRPGPresetCommandsWork runs the commands the English trpg-table's scene
+// shows as examples against its own roster and sheets, so the instructions a model
+// follows are ones the app can carry out.
+func TestEnglishTRPGPresetCommandsWork(t *testing.T) {
+	table, ok := preset.Find(lang.English, "trpg-table")
+	if !ok {
+		t.Fatal("no English trpg-table")
+	}
+	roster := make([]model.Participant, len(table.Participants))
+	for i, p := range table.Participants {
+		roster[i] = model.Participant{ID: p.DisplayName, DisplayName: p.DisplayName, StateSheet: p.StateSheet}
+	}
+	ren := roster[1]
+	for _, example := range []struct{ line, sheet, want string }{
+		{"/add Ren HP -3", ren.StateSheet, "HP: 7/10"},
+		{"/use Ren torch", ren.StateSheet, "torch: 1"},
+		{"/set shared location Second Shaft", table.StateSheet, "location: Second Shaft"},
+	} {
+		if !strings.Contains(table.ScenePrompt, example.line) {
+			t.Errorf("the scene no longer shows %q", example.line)
+		}
+		u := prepareUtterance("I act.\n"+example.line, "", roster, *table.Commands)
+		if u.effect == nil {
+			t.Errorf("%q was not read: %+v", example.line, u)
+			continue
+		}
+		sheet, record := u.effect.Apply(example.sheet, func(int) int { return 1 })
+		if !record.Applied || !strings.Contains(sheet, example.want) {
+			t.Errorf("%q gave %q, %+v, want %q", example.line, sheet, record, example.want)
+		}
+	}
+	u := prepareUtterance("I cross.\n/roll 1d20+3 cross the ledge", "", roster, *table.Commands)
+	if u.roll == nil {
+		t.Errorf("the /roll example was not read: %+v", u)
 	}
 }

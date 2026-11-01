@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"snzstudio/internal/config"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 )
@@ -19,11 +20,12 @@ type MemoryOrganizerService struct {
 	chats         *repository.ChatRepository
 	llm           *LLMClient
 	embeddingSync *EmbeddingSyncService
+	cfg           *config.Config
 }
 
 // NewMemoryOrganizerService builds a MemoryOrganizerService.
-func NewMemoryOrganizerService(memories *repository.MemoryRepository, chats *repository.ChatRepository, llm *LLMClient, embeddingSync *EmbeddingSyncService) *MemoryOrganizerService {
-	return &MemoryOrganizerService{memories: memories, chats: chats, llm: llm, embeddingSync: embeddingSync}
+func NewMemoryOrganizerService(memories *repository.MemoryRepository, chats *repository.ChatRepository, llm *LLMClient, embeddingSync *EmbeddingSyncService, cfg *config.Config) *MemoryOrganizerService {
+	return &MemoryOrganizerService{memories: memories, chats: chats, llm: llm, embeddingSync: embeddingSync, cfg: cfg}
 }
 
 func isMemoryKind(value string) bool {
@@ -62,7 +64,7 @@ func sanitizePlan(summary string, rawChanges []model.MemoryOrganizationChange) m
 // buildFallbackPlan mirrors buildFallbackPlan: dedupe identical memories (removing
 // the non-locked duplicates) and, failing that, synthesize one episodic memory from
 // recent chat summaries.
-func buildFallbackPlan(memories []model.Memory, summaries []model.ChatSummary) model.MemoryOrganizationPlan {
+func buildFallbackPlan(memories []model.Memory, summaries []model.ChatSummary, text *promptText) model.MemoryOrganizationPlan {
 	seen := map[string]string{}
 	changes := []model.MemoryOrganizationChange{}
 
@@ -75,7 +77,7 @@ func buildFallbackPlan(memories []model.Memory, summaries []model.ChatSummary) m
 			changes = append(changes, model.MemoryOrganizationChange{
 				Action:   "remove",
 				MemoryID: memory.ID,
-				Reason:   fmt.Sprintf("同一内容の memory (%s) と重複しています。", existingID),
+				Reason:   fmt.Sprintf(text.organizerDuplicate, existingID),
 			})
 			continue
 		}
@@ -106,20 +108,21 @@ func buildFallbackPlan(memories []model.Memory, summaries []model.ChatSummary) m
 				Kind:    "episodic",
 				Title:   "Recent project progress",
 				Content: strings.Join(parts, " "),
-				Reason:  "直近の chat summary から継続判断に役立つ経緯を 1 件だけ補完します。",
+				Reason:  text.organizerFromSummary,
 			})
 		}
 	}
 
-	summary := "整頓対象は見つかりませんでした。"
+	summary := text.organizerNoChanges
 	if len(changes) > 0 {
-		summary = "重複統合と recent summary 由来の補完候補を作成しました。"
+		summary = text.organizerProposed
 	}
 	return model.MemoryOrganizationPlan{Summary: summary, Changes: changes}
 }
 
 // AnalyzeProject mirrors analyzeProject.
 func (s *MemoryOrganizerService) AnalyzeProject(projectID string) (model.MemoryOrganizationPlan, error) {
+	text := promptTextFor(s.cfg.Get().ProcessingLanguage)
 	memories, err := s.memories.ListByProject(projectID)
 	if err != nil {
 		return model.MemoryOrganizationPlan{}, err
@@ -134,7 +137,7 @@ func (s *MemoryOrganizerService) AnalyzeProject(projectID string) (model.MemoryO
 
 	if len(memories) == 0 && len(summaries) == 0 {
 		return model.MemoryOrganizationPlan{
-			Summary: "整理対象の memory と chat summary がありません。",
+			Summary: text.organizerNothing,
 			Changes: []model.MemoryOrganizationChange{},
 		}, nil
 	}
@@ -167,34 +170,21 @@ func (s *MemoryOrganizerService) AnalyzeProject(projectID string) (model.MemoryO
 	}
 
 	userInput := strings.Join([]string{
-		"現在の memories:",
+		text.organizerMemories,
 		memoryJSON,
 		"recent chat summaries:",
 		summaryJSON,
-		strings.Join([]string{
-			"次の JSON だけを返してください。",
-			`{ "summary": "short summary", "changes": [`,
-			`  { "action": "create"|"update"|"remove", "memoryId": "existing id for update/remove", "kind": "semantic|procedural|episodic", "title": "title", "content": "content", "reason": "reason" }`,
-			"] }",
-			"更新は既存 memory の整理に限定し、無意味な全面書き換えは避けてください。",
-			"locked=true の memory は update/remove しないでください。",
-			"雑談は memory にしないでください。",
-			"changes は最大 8 件に抑えてください。",
-		}, "\n"),
+		strings.Join(text.organizerInstructions, "\n"),
 	}, "\n\n")
 
 	resp, llmErr := s.llm.CreateChatCompletion(ChatCompletionInput{
-		SystemPrompt: strings.Join([]string{
-			"あなたは project memory の整理専用アシスタントです。",
-			"semantic / procedural / episodic の区別を守り、重複統合、書き換え、不要候補の削除、新規 memory 候補の作成だけを提案してください。",
-			"必ず JSON のみを返してください。",
-		}, "\n"),
-		Messages:    []model.Message{},
-		UserInput:   userInput,
-		Temperature: float64Ptr(0.1),
+		SystemPrompt: text.organizerSystem,
+		Messages:     []model.Message{},
+		UserInput:    userInput,
+		Temperature:  float64Ptr(0.1),
 	})
 	if llmErr != nil {
-		return buildFallbackPlan(memories, summaries), nil
+		return buildFallbackPlan(memories, summaries, text), nil
 	}
 
 	jsonText := extractJSONObject(resp.Content)
@@ -205,14 +195,14 @@ func (s *MemoryOrganizerService) AnalyzeProject(projectID string) (model.MemoryO
 	if jsonText != "" {
 		if err := json.Unmarshal([]byte(jsonText), &raw); err != nil {
 			// A malformed JSON payload behaves like the TS catch: fall back.
-			return buildFallbackPlan(memories, summaries), nil
+			return buildFallbackPlan(memories, summaries, text), nil
 		}
 	}
 	plan := sanitizePlan(raw.Summary, raw.Changes)
 	if len(plan.Changes) > 0 || plan.Summary != "" {
 		return plan, nil
 	}
-	return buildFallbackPlan(memories, summaries), nil
+	return buildFallbackPlan(memories, summaries, text), nil
 }
 
 // ErrMalformedPlan reports a plan with a change sanitizePlan would drop: an

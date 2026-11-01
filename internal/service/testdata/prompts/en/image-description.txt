@@ -1,0 +1,6 @@
+Describe this image so the description can later serve as material for keyword search and for chat.
+
+- Write in English, briefly.
+- Give priority to the objects, how people look, the place, any text in the image (verbatim as far as it is legible), the structure of diagrams and tables, and proper names.
+- Do not guess at what is not shown or cannot be read.
+- Return only the description, with no greeting or closing remark.

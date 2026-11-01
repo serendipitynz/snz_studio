@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"snzstudio/internal/lang"
 )
 
 func TestDefaultsEnvFallbacks(t *testing.T) {
@@ -488,5 +490,37 @@ func TestSetReasoningPersistsPerEndpointAndModel(t *testing.T) {
 	}
 	if got := Load(path).Get().LLMReasoning; len(got) != 0 {
 		t.Fatalf("reloaded reasoning = %v, want empty", got)
+	}
+}
+
+// TestProcessingLanguage is the storage half of TASK-109 AC #1: Japanese until
+// chosen otherwise, kept across a reload, and surviving the connection settings'
+// save, which writes the whole file.
+func TestProcessingLanguage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app-config.json")
+	c := Load(path)
+	if got := c.Get().ProcessingLanguage; got != lang.Japanese {
+		t.Fatalf("default = %q, want Japanese", got)
+	}
+	if err := c.SetProcessingLanguage(lang.English); err != nil {
+		t.Fatalf("SetProcessingLanguage: %v", err)
+	}
+	if got := c.Get().ProcessingLanguage; got != lang.English {
+		t.Fatalf("after the save = %q", got)
+	}
+	if got := Load(path).Get().ProcessingLanguage; got != lang.English {
+		t.Fatalf("after a reload = %q", got)
+	}
+	if _, err := c.UpdateEditable(c.GetEditable()); err != nil {
+		t.Fatalf("UpdateEditable: %v", err)
+	}
+	if got := Load(path).Get().ProcessingLanguage; got != lang.English {
+		t.Fatalf("after the connection save and a reload = %q", got)
+	}
+	if err := os.WriteFile(path, []byte(`{"processingLanguage":"fr"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := Load(path).Get().ProcessingLanguage; got != lang.Japanese {
+		t.Fatalf("an unknown value = %q, want the default", got)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"snzstudio/internal/config"
 	"snzstudio/internal/doccategory"
 	"snzstudio/internal/embed"
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
@@ -235,6 +236,30 @@ func (s *Server) handlePutReasoning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"value": value})
+}
+
+func (s *Server) handleGetProcessingLanguage(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"value": s.cfg.Get().ProcessingLanguage})
+}
+
+// handlePutProcessingLanguage is its own endpoint rather than part of PUT
+// /api/configuration because that save warms the models and may start a rebuild,
+// and this choice applies as it is made.
+func (s *Server) handlePutProcessingLanguage(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	language, known := lang.Parse(strings.TrimSpace(bodyString(m, "value")))
+	if !known {
+		writeError(w, http.StatusBadRequest, "value must be \"ja\" or \"en\"")
+		return
+	}
+	if err := s.cfg.SetProcessingLanguage(language); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"value": language})
 }
 
 // handleGetEmbeddingStatus reports the internal embedding sidecar's lifecycle state

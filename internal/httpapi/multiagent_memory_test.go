@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 	"snzstudio/internal/service/commands"
 )
@@ -150,7 +151,7 @@ func TestMultiAgentMessageMemoryDraftRolls(t *testing.T) {
 	}
 
 	rollOnlyID, roll := postRoll("/roll 2d6 目標7 毎回の成功判定")
-	wantRollOnly := "🎲 " + commands.DiceRollLine(roll)
+	wantRollOnly := "🎲 " + commands.DiceRollLine(roll, lang.Japanese)
 	if !strings.Contains(wantRollOnly, "毎回の成功判定 — 2d6 → ") || !strings.Contains(wantRollOnly, "（目標 7、") {
 		t.Fatalf("roll line = %q, want the action, the expression and the target", wantRollOnly)
 	}
@@ -159,7 +160,7 @@ func TestMultiAgentMessageMemoryDraftRolls(t *testing.T) {
 	}
 
 	withBodyID, roll := postRoll("このプロジェクトは Go で構成します。\n/roll 1d20+3 必ず跳ぶ")
-	wantWithBody := "このプロジェクトは Go で構成します。\n\n🎲 " + commands.DiceRollLine(roll)
+	wantWithBody := "このプロジェクトは Go で構成します。\n\n🎲 " + commands.DiceRollLine(roll, lang.Japanese)
 	if content, kind := getDraft(withBodyID); content != wantWithBody || kind != "semantic" {
 		t.Fatalf("draft = %q (%s), want %q under the body's semantic kind", content, kind, wantWithBody)
 	}

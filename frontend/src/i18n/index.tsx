@@ -116,6 +116,10 @@ const en = {
   "settings.connected": "Connected",
   "settings.notConnected": "Not connected",
   "settings.displayLanguage": "Display language",
+  "settings.processingLanguage": "Processing language",
+  "settings.processingLanguageNote":
+    "The language of the bundled presets and of the instructions the app sends to the LLM, separate from the language of this screen. A change applies from the next request, in every chat; a multi-agent conversation already created keeps its scene and role prompts as they are.",
+  "settings.processingLanguageFailed": "The processing language could not be read or saved.",
   "settings.storedChoiceUnknown":
     "The saved theme choice is not available in this version, so Standard with Auto (follow OS) is shown. The saved value is kept until you choose again here.",
   "settings.themeSaveFailed": "Your theme choice applies until the app quits, but it could not be saved.",
@@ -463,6 +467,7 @@ const en = {
   "multiAgent.stateEffectRefused": "Effect the app did not apply:",
   "multiAgent.effectNotApplied": "not applied ({reason})",
   "multiAgent.effectNoValue": "(none)",
+  "multiAgent.effectSharedOwner": "shared",
   "multiAgent.effectMissingItem": "no {item} line",
   "multiAgent.effectNotInteger": "{item} does not start with a number",
   "multiAgent.effectNotPositive": "{item} is below 1",
@@ -478,7 +483,7 @@ const en = {
   "multiAgent.effectItem": "item",
   "multiAgent.effectValue": "value",
   "multiAgent.addFormat":
-    "/add <owner> <item> <±number or dice> — the owner is a participant's name or 共通 (the shared state). Adds to the number the item's value starts with; dice such as -1d6 are rolled by the app. Write it on the last line.",
+    "/add <owner> <item> <±number or dice> — the owner is a participant's name or shared (or 共通) for the shared state. Adds to the number the item's value starts with; dice such as -1d6 are rolled by the app. Write it on the last line.",
   "multiAgent.useFormat":
     "/use <owner> <item> — takes 1 from the number the item's value starts with, and is not applied when that is below 1. Write it on the last line.",
   "multiAgent.setFormat":
@@ -546,12 +551,12 @@ const en = {
   "participants.facilitatorWeightedNote": "The facilitator is not held back for having spoken recently, so it comes back between the others. Without one, everyone is weighed alike.",
   "participants.rollEnabled": "Roll dice with /roll",
   "participants.rollEnabledHint":
-    "When on, the app rolls a /roll written on the last line of a message and treats lines starting with 【ダイス】 as its own notation. When off, both stay in the message as written. Rolls already recorded stay. Takes effect from the next message.",
+    "When on, the app rolls a /roll written on the last line of a message and treats lines starting with 【Dice】 or 【ダイス】 as its own notation. When off, both stay in the message as written. Rolls already recorded stay. Takes effect from the next message.",
   "participants.addEnabled": "Add to a number with /add",
   "participants.useEnabled": "Use one up with /use",
   "participants.setEnabled": "Replace a value with /set",
   "participants.effectsHint":
-    "When on, the app applies the command written on the last line of a message to the state below — 共通 or a participant's name says whose — and shows what it did under the message, an effect it did not apply included, with why. When off, the line stays in the message as written. Takes effect from the next message.",
+    "When on, the app applies the command written on the last line of a message to the state below — shared, 共通 or a participant's name says whose — and shows what it did under the message, an effect it did not apply included, with why. When off, the line stays in the message as written. Takes effect from the next message.",
   "participants.diceTarget": "Default dice target",
   "participants.diceTargetHint":
     "The number a /roll without a target (target or 目標) is compared with: a total at or above it succeeds. 0 compares nothing and records the total alone, as target0 does for one roll. Takes effect from the next /roll.",
@@ -737,6 +742,10 @@ const ja: Record<MessageKey, string> = {
   "settings.connected": "接続済み",
   "settings.notConnected": "未接続",
   "settings.displayLanguage": "表示言語",
+  "settings.processingLanguage": "処理言語",
+  "settings.processingLanguageNote":
+    "同梱プリセットと、アプリが LLM に送る指示の言語です。画面の文言の言語とは別に選べます。変更は次のリクエストからすべてのチャットに反映されます。作成済みの多人数会話の場面設定と役割プロンプトはそのまま残ります。",
+  "settings.processingLanguageFailed": "処理言語を読み込めないか、保存できませんでした。",
   "settings.storedChoiceUnknown":
     "保存されている配色の選択はこのバージョンにないため、標準・自動（OSに従う）で表示しています。保存値は、ここで選び直すまでそのまま残ります。",
   "settings.themeSaveFailed": "選んだ配色はアプリを終了するまで効きますが、保存できませんでした。",
@@ -1081,6 +1090,7 @@ const ja: Record<MessageKey, string> = {
   "multiAgent.stateEffectRefused": "アプリが当てなかった効果:",
   "multiAgent.effectNotApplied": "適用されず（{reason}）",
   "multiAgent.effectNoValue": "（無し）",
+  "multiAgent.effectSharedOwner": "共通",
   "multiAgent.effectMissingItem": "{item}の行が無い",
   "multiAgent.effectNotInteger": "{item}の値が整数で始まらない",
   "multiAgent.effectNotPositive": "{item}が 1 未満",
@@ -1094,7 +1104,7 @@ const ja: Record<MessageKey, string> = {
   "multiAgent.effectItem": "項目",
   "multiAgent.effectValue": "値",
   "multiAgent.addFormat":
-    "/add <持ち主> <項目名> <±整数 または 式> — 持ち主は参加者の名前か「共通」。項目の値の先頭の整数に加減します。-1d6 のような式はアプリが振ります。最後の行に書いてください。",
+    "/add <持ち主> <項目名> <±整数 または 式> — 持ち主は参加者の名前か「共通」（shared でも可）。項目の値の先頭の整数に加減します。-1d6 のような式はアプリが振ります。最後の行に書いてください。",
   "multiAgent.useFormat": "/use <持ち主> <項目名> — 項目の値の先頭の整数から 1 を引きます。1 未満なら適用しません。最後の行に書いてください。",
   "multiAgent.setFormat": "/set <持ち主> <項目名> <値> — 項目の値を置き換えます。行が無ければ足します。最後の行に書いてください。",
   "multiAgent.saveMemory": "メモリに保存",
@@ -1157,12 +1167,12 @@ const ja: Record<MessageKey, string> = {
   "participants.facilitatorWeightedNote": "進行役は直近に話したことで順番を下げられないので、他の参加者の合間に戻ってきます。未選択なら全員を同じに扱います。",
   "participants.rollEnabled": "/roll でダイスを振る",
   "participants.rollEnabledHint":
-    "オンにすると、発言の最後の行の /roll をアプリが振り、【ダイス】で始まる行をアプリの記法として扱います。オフなら、どちらも書かれたとおりの本文として残ります。記録済みの判定は残ります。次の発言から反映されます。",
+    "オンにすると、発言の最後の行の /roll をアプリが振り、【ダイス】か【Dice】で始まる行をアプリの記法として扱います。オフなら、どちらも書かれたとおりの本文として残ります。記録済みの判定は残ります。次の発言から反映されます。",
   "participants.addEnabled": "/add で値を加減する",
   "participants.useEnabled": "/use で 1 つ使う",
   "participants.setEnabled": "/set で値を置き換える",
   "participants.effectsHint":
-    "オンにすると、発言の最後の行のコマンドを、アプリが下の状態に当てます（「共通」か参加者の名前で、どの状態かを指します）。当てた結果は発言の下に出し、当てなかった効果もその理由とともに出します。オフなら、その行は書かれたとおりの本文として残ります。次の発言から反映されます。",
+    "オンにすると、発言の最後の行のコマンドを、アプリが下の状態に当てます（「共通」、shared、参加者の名前で、どの状態かを指します）。当てた結果は発言の下に出し、当てなかった効果もその理由とともに出します。オフなら、その行は書かれたとおりの本文として残ります。次の発言から反映されます。",
   "participants.diceTarget": "既定の目標値",
   "participants.diceTargetHint":
     "目標を書かない /roll の合計と比べる値です。合計がこの値以上なら成功になります。0 なら比べずに合計だけを記録します（1 回だけ比べないときは /roll に「目標なし」と書きます）。次の /roll から反映されます。",

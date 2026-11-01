@@ -1,0 +1,60 @@
+# Untitled chat
+
+- Project: Saga
+- Exported at: 2026-01-02 03:04
+
+## Scene
+
+(not set)
+
+## Current state
+
+### Shared
+
+- Place: Gate
+
+### Ren
+
+- HP: 10/10
+
+## Turn rule
+
+weighted (the next speaker follows from calls and how long each has been silent; facilitator "Ren")
+
+## Roster
+
+- Ren
+- Mira
+- Gone (removed)
+
+## Conversation
+
+### User
+
+Begin
+
+### Ren
+
+I climb
+
+> 🎲 Climb — 1d20+3 → 4+3 = 7 (target 12, failure)
+> 🎲 Leap — 1d20 → 15 (target 12, success)
+
+### Mira
+
+I watch
+
+> 📝 Ren HP -3: 7/10 → 4/10
+> 📝 Ren Torch -1 — not applied (no line for Torch)
+> 📝 Ren Rope -1 — not applied (the value of Rope does not start with a whole number)
+> 📝 Ren Oil -1 — not applied (Oil is below 1)
+> 📝 shared Place → Shaft — not applied (the state would exceed 400 characters)
+> 📝 shared Time: (none) → Noon
+
+### Assistant
+
+Left over
+
+### Assistant
+
+(empty utterance)

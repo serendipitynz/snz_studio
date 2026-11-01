@@ -47,13 +47,6 @@ func ImageDescriptionFormats() []string {
 	return append([]string(nil), imageDescriptionFormats...)
 }
 
-const imageDescriptionPrompt = `この画像を、あとでキーワード検索とチャットの参考資料として使うための説明文にしてください。
-
-- 日本語で、簡潔に書く。
-- 写っている物・人物の様子・場所、画像内の文字 (読める範囲でそのまま)、図や表の構造、固有名を優先して書く。
-- 写っていないこと、読み取れないことは推測で書かない。
-- 前置きや結びの挨拶は書かず、説明文だけを返す。`
-
 // ImageDescriptionService turns an image into a draft description with a
 // multimodal model. It stores nothing: the caller decides what to persist.
 type ImageDescriptionService struct {
@@ -123,7 +116,7 @@ func (s *ImageDescriptionService) DescribeImage(ctx context.Context, image []byt
 		Messages: []visionMessage{{
 			Role: "user",
 			Content: []visionContentPart{
-				{Type: "text", Text: imageDescriptionPrompt},
+				{Type: "text", Text: promptTextFor(settings.ProcessingLanguage).imageDescription},
 				{Type: "image_url", ImageURL: &visionImageURL{URL: "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(image)}},
 			},
 		}},

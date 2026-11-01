@@ -34,6 +34,9 @@ filesystem** — a standalone desktop app you install and launch.
     your own presets loaded from JSON files (format: `docs/multi-agent-presets.md`)
   - A spectator view that advances one turn at a time or runs automatically, and lets you speak
     into the conversation as a human at any point
+- A processing language (Japanese or English), chosen in the settings separately from the display
+  language: it decides the version of the bundled presets and the wording of the instructions the
+  app sends to the LLM (see "Processing language")
 - Connects to OpenAI-compatible APIs
   - LM Studio
   - Ollama's OpenAI-compatible endpoint
@@ -114,7 +117,7 @@ internal/
   search/              Japanese tokenizer port + FTS query construction
   vector/              cosine similarity
   service/             retrieval / context / llm / embedding / summary / memory / review / turnengine
-  preset/              bundled multi-agent presets (bundled/*.json via go:embed) + validation
+  preset/              bundled multi-agent presets (bundled/{ja,en}/*.json via go:embed) + validation
   httpapi/             35 route handlers + SSE
 frontend/
   src/
@@ -544,6 +547,36 @@ When it is empty or unset, `LLM_API_KEY` is borrowed under the same rule: only w
 endpoint has the default endpoint's scheme, host and port. The bundled embedding (`internal`) never
 receives either key.
 
+## Processing language
+
+The settings' language section has two choices. The display language decides the words on screen and
+stays in the browser's storage. The processing language (`processingLanguage` in `app-config.json`,
+Japanese by default) decides the following, for the whole workspace, from the next request on:
+
+- which version of the 25 bundled presets the picker lists and applies (`internal/preset/bundled/ja`
+  and `en` hold the same ids)
+- the wording of the instructions sent to the LLM: summaries, chat titles, memory extraction and
+  organization, creative review, conclusions, image descriptions, and a multi-agent turn's role
+  reminder, project material headings and dice and effect lines
+- the role reminder's instruction to write in that language, so a model is told even when the scene
+  says nothing about it
+- the headings of the markdown export
+- which words the memory rules look for in your messages
+
+What it leaves alone:
+
+- A multi-agent conversation keeps the scene and role prompts it was created with. A preset is copied
+  into the chat when applied, so switching makes a Japanese conversation run under English
+  instructions rather than translating it.
+- The assistant chat's system prompt is the same in both languages and does not name a language, so
+  the model keeps answering in whatever language you write in.
+- Search tokenization and the built-in embedding model stay tuned for Japanese.
+- Both forms of the app's notation are always read: `[次: name]` and `[Next: name]`, `共通` and `shared`,
+  `【ダイス】` and `【Dice】`, so a conversation keeps working across a switch.
+
+A scene asking for another language loses to the role reminder, which comes last in the prompt. Choose
+the processing language that matches the conversation.
+
 ## Implementation approach
 
 - No vector database
@@ -568,7 +601,8 @@ receives either key.
 - `POST /api/projects/:projectId/documents`
 - `GET /api/chats/:chatId`
 - `POST /api/chats/:chatId/messages`
-- `GET /api/multi-agent-presets`
+- `GET /api/multi-agent-presets` (in the processing language)
+- `GET` / `PUT /api/configuration/processing-language`
 - `GET /api/chats/:chatId/export/preset` (the conversation's line-up as a preset, endpoints included)
 - `GET / POST /api/chats/:chatId/participants`
 - `PATCH / DELETE /api/participants/:participantId`

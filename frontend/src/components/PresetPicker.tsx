@@ -23,10 +23,18 @@ const EndpointList = styled.ul`
   overflow-wrap: anywhere;
 `;
 
-// The bundled list is fixed for the life of the process, so it is fetched once
-// and kept here rather than per mount: the picker is mounted and unmounted as
+// The bundled list changes only with the processing language, so it is fetched
+// once and kept here rather than per mount: the picker is mounted and unmounted as
 // the chat kind is switched and as the organisation panel opens.
 let bundledRequest: Promise<MultiAgentPreset[]> | null = null;
+const bundledReloadListeners = new Set<() => void>();
+
+// A picker can stay mounted behind the settings modal, so one already on screen has
+// to hear of the change as well as the next one to mount.
+export function reloadBundledPresets() {
+  bundledRequest = null;
+  bundledReloadListeners.forEach((listener) => listener());
+}
 
 function loadBundledPresets(): Promise<MultiAgentPreset[]> {
   if (!bundledRequest) {
@@ -67,6 +75,15 @@ export function PresetPicker(props: PresetPickerProps) {
   const [choice, setChoice] = useState("");
   const [imported, setImported] = useState<MultiAgentPreset | null>(null);
   const [error, setError] = useState("");
+  const [reloads, setReloads] = useState(0);
+
+  useEffect(() => {
+    const listener = () => setReloads((current) => current + 1);
+    bundledReloadListeners.add(listener);
+    return () => {
+      bundledReloadListeners.delete(listener);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -84,7 +101,16 @@ export function PresetPicker(props: PresetPickerProps) {
     return () => {
       active = false;
     };
-  }, [t]);
+  }, [t, reloads]);
+
+  // What was chosen stays chosen across a language change (both versions hold the
+  // same ids), so the parent is told the chosen preset's new wording.
+  useEffect(() => {
+    if (reloads > 0 && choice !== "" && choice !== IMPORTED_PRESET_CHOICE) {
+      report(choice, imported);
+    }
+    // Only the list arriving triggers this, not the choice changing.
+  }, [presets]);
 
   const groups = useMemo(() => {
     const byGroup = new Map<string, MultiAgentPreset[]>();

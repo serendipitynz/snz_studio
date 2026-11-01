@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, EmbeddingRebuildState, EmbeddingStatus, ReasoningChoice, WorkspaceConfiguration } from "../api/client";
+import { api, EmbeddingRebuildState, EmbeddingStatus, ProcessingLanguage, ReasoningChoice, WorkspaceConfiguration } from "../api/client";
 import { Language, MessageKey, useLanguage } from "../i18n";
 import { ThemeMode, useThemeController } from "../styles/ThemeController";
 import type { ThemeFamily } from "../styles/themes";
@@ -11,6 +11,8 @@ import { useConfirm } from "./ConfirmDialog";
 import { Dialog, DialogBody, DialogHeader, DialogTitle } from "./Dialog";
 import { FailureNotice, InfoNotice } from "./FailureNotice";
 import { CheckIcon, RotateCwIcon } from "./icons";
+import { createLatestValueSaver } from "./latestValueSaver";
+import { reloadBundledPresets } from "./PresetPicker";
 import { Progress } from "./Progress";
 import { pollRebuildState } from "./rebuildPoll";
 import { ReasoningOptions } from "./reasoningOptions";
@@ -142,6 +144,76 @@ function embeddingStatusLabel(t: Translate, status: EmbeddingStatus | null): str
     default:
       return t("settings.embedKeywordOnly");
   }
+}
+
+// Applies as it is chosen, like the display language above it, and is read from the
+// server because the server is what acts on it.
+function ProcessingLanguageField({ t }: { t: Translate }) {
+  const [language, setLanguage] = useState<ProcessingLanguage | null>(null);
+  const [failed, setFailed] = useState(false);
+  const saved = useRef<ProcessingLanguage | null>(null);
+  const saveLanguage = useRef(
+    createLatestValueSaver<ProcessingLanguage>(
+      (value) => api.setProcessingLanguage(value),
+      (value) => {
+        saved.current = value;
+      },
+      (lastFailed) => {
+        reloadBundledPresets();
+        if (lastFailed) {
+          setLanguage(saved.current);
+          setFailed(true);
+        }
+      }
+    )
+  );
+
+  useEffect(() => {
+    let active = true;
+    api
+      .getProcessingLanguage()
+      .then((response) => {
+        if (active) {
+          saved.current = response.value;
+          setLanguage(response.value);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFailed(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function change(next: ProcessingLanguage) {
+    setLanguage(next);
+    setFailed(false);
+    void saveLanguage.current(next);
+  }
+
+  return (
+    <>
+      <Field>
+        <FieldRow>
+          <span>{t("settings.processingLanguage")}</span>
+          <Select
+            value={language ?? ""}
+            disabled={language === null}
+            onChange={(event) => change(event.target.value as ProcessingLanguage)}
+          >
+            {language === null ? <option value="" /> : null}
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </Select>
+        </FieldRow>
+      </Field>
+      <Subtle>{t("settings.processingLanguageNote")}</Subtle>
+      {failed ? <FailureNotice>{t("settings.processingLanguageFailed")}</FailureNotice> : null}
+    </>
+  );
 }
 
 type CheckOutcome = { kind: "upToDate" } | { kind: "available"; update: AvailableUpdate } | { kind: "failed" };
@@ -666,6 +738,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 </Select>
               </FieldRow>
             </Field>
+            <ProcessingLanguageField t={t} />
           </Stack>
         </Card>
 

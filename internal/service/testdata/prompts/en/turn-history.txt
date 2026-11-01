@@ -1,0 +1,12 @@
+[user] User: Begin
+[assistant] I climb
+【Dice】Climb — 1d20+3 → 4+3 = 7 (target 12, failure)
+【Dice】Leap — 1d20 → 15 (target 12, success)
+[user] Mira: I watch
+【Effect】Ren HP -3: 7/10 → 4/10
+【Effect】Ren Torch -1 — not applied (no line for Torch)
+【Effect】Ren Rope -1 — not applied (the value of Rope does not start with a whole number)
+【Effect】Ren Oil -1 — not applied (Oil is below 1)
+【Effect】shared Place → Shaft — not applied (the state would exceed 400 characters)
+【Effect】shared Time: (none) → Noon
+[user] Assistant: Left over

@@ -3,9 +3,11 @@ package preset
 import (
 	"errors"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 )
 
@@ -13,7 +15,7 @@ import (
 // fields the picker groups and labels by, and the two presets the design fixes
 // as the initial pair (§6) are among them.
 func TestBundledPresets(t *testing.T) {
-	presets := Bundled()
+	presets := Bundled(lang.Japanese)
 	if len(presets) < 2 {
 		t.Fatalf("%d bundled presets, want at least the debate and improv pair", len(presets))
 	}
@@ -43,10 +45,10 @@ func TestBundledPresets(t *testing.T) {
 		}
 	}
 
-	if _, ok := Find("debate"); !ok {
+	if _, ok := Find(lang.Japanese, "debate"); !ok {
 		t.Fatal("Find(debate) = not found")
 	}
-	if _, ok := Find("no-such-preset"); ok {
+	if _, ok := Find(lang.Japanese, "no-such-preset"); ok {
 		t.Fatal("Find(no-such-preset) found something")
 	}
 }
@@ -54,10 +56,10 @@ func TestBundledPresets(t *testing.T) {
 // TestBundledIsACopy guards the picker's list against being mutated through the
 // slice a caller received.
 func TestBundledIsACopy(t *testing.T) {
-	first := Bundled()
+	first := Bundled(lang.Japanese)
 	first[0].Title = "mutated"
-	if Bundled()[0].Title == "mutated" {
-		t.Fatal("Bundled() handed out its backing array")
+	if Bundled(lang.Japanese)[0].Title == "mutated" {
+		t.Fatal("Bundled(lang.Japanese) handed out its backing array")
 	}
 }
 
@@ -133,7 +135,7 @@ func TestParseFacilitator(t *testing.T) {
 		t.Fatalf("facilitator marked on %+v", p.Participants)
 	}
 
-	trpg, ok := Find("trpg-table")
+	trpg, ok := Find(lang.Japanese, "trpg-table")
 	if !ok {
 		t.Fatal("bundled presets lack the TRPG table")
 	}
@@ -181,7 +183,7 @@ func TestParseReceivesProjectMaterial(t *testing.T) {
 	// so a bundled preset may do it — but only the presets built around one, and
 	// never as the side effect of a copied roster entry.
 	withholds := map[string]bool{"trpg-table": true}
-	for _, bundledPreset := range Bundled() {
+	for _, bundledPreset := range Bundled(lang.Japanese) {
 		for _, participant := range bundledPreset.Participants {
 			if participant.ReceivesProjectMaterial == nil {
 				t.Errorf("bundled %s: participant %q left receivesProjectMaterial nil; Validate must fill the default", bundledPreset.ID, participant.DisplayName)
@@ -253,7 +255,7 @@ func TestParseEndpoints(t *testing.T) {
 		t.Fatalf("participants[1] = %+v, want no endpoint", p.Participants[1])
 	}
 
-	for _, bundledPreset := range Bundled() {
+	for _, bundledPreset := range Bundled(lang.Japanese) {
 		for i, participant := range bundledPreset.Participants {
 			if participant.BaseURL != "" || participant.ModelName != "" {
 				t.Errorf("%s: participants[%d] carries an endpoint or a model", bundledPreset.ID, i)
@@ -306,7 +308,7 @@ func TestPresetCommands(t *testing.T) {
 		}
 	}
 
-	for _, p := range Bundled() {
+	for _, p := range Bundled(lang.Japanese) {
 		if p.ID == "trpg-table" {
 			if p.Commands.Roll == nil || p.Commands.Roll.Target != 12 {
 				t.Errorf("trpg-table commands = %+v, want roll against 12", p.Commands)
@@ -317,5 +319,76 @@ func TestPresetCommands(t *testing.T) {
 		} else if p.Commands.Roll != nil {
 			t.Errorf("%s enables /roll, want only trpg-table to", p.ID)
 		}
+	}
+}
+
+var japaneseText = regexp.MustCompile(`[\p{Han}\p{Hiragana}\p{Katakana}]`)
+
+// TestBundledLanguagesMatch is TASK-109 AC #2: the two versions hold the same ids
+// in the same picker order and differ only in their wording, so switching the
+// language never changes what a preset does.
+func TestBundledLanguagesMatch(t *testing.T) {
+	japanese, english := Bundled(lang.Japanese), Bundled(lang.English)
+	if len(japanese) == 0 || len(japanese) != len(english) {
+		t.Fatalf("%d Japanese and %d English presets", len(japanese), len(english))
+	}
+	for i, ja := range japanese {
+		en := english[i]
+		if ja.ID != en.ID {
+			t.Errorf("position %d: id %q and %q", i, ja.ID, en.ID)
+			continue
+		}
+		if ja.Group != en.Group || ja.TurnRule != en.TurnRule || !reflect.DeepEqual(ja.Commands, en.Commands) {
+			t.Errorf("%s: group, rule or commands differ: %+v / %+v", ja.ID, ja, en)
+		}
+		if (ja.StateSheet == "") != (en.StateSheet == "") {
+			t.Errorf("%s: only one version has a shared state sheet", ja.ID)
+		}
+		if len(ja.Participants) != len(en.Participants) {
+			t.Errorf("%s: %d and %d participants", ja.ID, len(ja.Participants), len(en.Participants))
+			continue
+		}
+		for j, participant := range ja.Participants {
+			other := en.Participants[j]
+			if participant.Facilitator != other.Facilitator || *participant.ReceivesProjectMaterial != *other.ReceivesProjectMaterial ||
+				(participant.StateSheet == "") != (other.StateSheet == "") {
+				t.Errorf("%s: participant %d differs: %+v / %+v", ja.ID, j, participant, other)
+			}
+		}
+	}
+}
+
+// TestEnglishPresetsAreEnglish is the data half of TASK-109 AC #3: nothing a chat
+// copies from the English version is Japanese.
+func TestEnglishPresetsAreEnglish(t *testing.T) {
+	for _, p := range Bundled(lang.English) {
+		fields := []string{p.Title, p.Description, p.ScenePrompt, p.StateSheet}
+		for _, participant := range p.Participants {
+			fields = append(fields, participant.DisplayName, participant.RolePrompt, participant.StateSheet)
+		}
+		for _, field := range fields {
+			if found := japaneseText.FindString(field); found != "" {
+				t.Errorf("%s: %q holds Japanese text: %s", p.ID, found, field)
+			}
+		}
+	}
+}
+
+func TestFindFollowsTheLanguage(t *testing.T) {
+	ja, _ := Find(lang.Japanese, "debate")
+	en, _ := Find(lang.English, "debate")
+	if ja == nil || en == nil || ja.Title == en.Title {
+		t.Fatalf("Find(debate) = %+v / %+v, want each language's own version", ja, en)
+	}
+}
+
+// TestFromChatNamesAnUntitledChatInTheLanguage: the title of an exported preset is
+// the only word FromChat writes itself.
+func TestFromChatNamesAnUntitledChatInTheLanguage(t *testing.T) {
+	chat := &model.Chat{TurnRule: model.TurnRuleRoundRobin}
+	roster := []model.Participant{{ID: "a", DisplayName: "A"}, {ID: "b", DisplayName: "B"}}
+	p, err := FromChat(chat, roster, lang.English)
+	if err != nil || p.Title != "Untitled chat" {
+		t.Fatalf("FromChat = %+v, %v", p, err)
 	}
 }

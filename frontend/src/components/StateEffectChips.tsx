@@ -35,7 +35,7 @@ type Translate = (key: MessageKey, vars?: Record<string, string | number>) => st
 // 1)": the line the prompt's 【効果】 gives the speakers (commands.EffectLine),
 // with the words in the UI's language.
 export function stateEffectText(effect: StateEffect, t: Translate): string {
-  const subject = `${effect.owner} ${effect.item}`;
+  const subject = `${effect.participantId ? effect.owner : t("multiAgent.effectSharedOwner")} ${effect.item}`;
   const refused = () => ` — ${t("multiAgent.effectNotApplied", { reason: effectReason(effect, t) })}`;
   if (effect.kind === "set") {
     if (!effect.applied) {

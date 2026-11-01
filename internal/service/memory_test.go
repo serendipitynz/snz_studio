@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/repository"
 )
 
@@ -26,7 +27,7 @@ func TestInferKindFromText(t *testing.T) {
 		"無関係な文章":            "episodic", // default
 	}
 	for input, want := range cases {
-		if got := inferKindFromText(input); got != want {
+		if got := inferKindFromText(input, &japaneseMemoryCues); got != want {
 			t.Fatalf("inferKindFromText(%q) = %q, want %q", input, got, want)
 		}
 	}
@@ -34,15 +35,15 @@ func TestInferKindFromText(t *testing.T) {
 
 func TestShouldSkipAutoMemorySentence(t *testing.T) {
 	// A transient one-off request is skipped for procedural...
-	if !shouldSkipAutoMemorySentence("この文章を要約してください", "procedural") {
+	if !shouldSkipAutoMemorySentence("この文章を要約してください", "procedural", &japaneseMemoryCues) {
 		t.Fatal("transient procedural request should be skipped")
 	}
 	// ...unless it also carries a durable procedural cue.
-	if shouldSkipAutoMemorySentence("常に日本語で要約してください", "procedural") {
+	if shouldSkipAutoMemorySentence("常に日本語で要約してください", "procedural", &japaneseMemoryCues) {
 		t.Fatal("durable procedural cue should override the transient skip")
 	}
 	// Non-procedural kinds are never skipped here.
-	if shouldSkipAutoMemorySentence("要約してください", "semantic") {
+	if shouldSkipAutoMemorySentence("要約してください", "semantic", &japaneseMemoryCues) {
 		t.Fatal("non-procedural sentence should not be skipped")
 	}
 }
@@ -65,7 +66,8 @@ func TestMaybeStoreFromUserMessageRuleExtraction(t *testing.T) {
 	projects := repository.NewProjectRepository(d)
 	memories := repository.NewMemoryRepository(d)
 	// The LLM client is never reached on this rule-based path.
-	svc := NewMemoryService(memories, NewLLMClient(testConfig(streamSettings("http://127.0.0.1:0", "standard"))))
+	cfg := testConfig(streamSettings("http://127.0.0.1:0", "standard"))
+	svc := NewMemoryService(memories, NewLLMClient(cfg), cfg)
 
 	chats := repository.NewChatRepository(d)
 	project, err := projects.CreateProject(repository.CreateProjectInput{Title: "P"})
@@ -106,5 +108,55 @@ func TestMaybeStoreFromUserMessageRuleExtraction(t *testing.T) {
 	}
 	if len(none) != 0 {
 		t.Fatalf("cue-free chit-chat should not create memories, got %d", len(none))
+	}
+}
+
+// TestEnglishMemoryCues covers the checks that read a user's words: English finds
+// what its wording says, keeps what Japanese found, and Japanese is untouched.
+func TestEnglishMemoryCues(t *testing.T) {
+	for input, want := range map[string]string{
+		"From now on, be concise":     "procedural",
+		"Never use semicolons here":   "procedural",
+		"This app is built with Go":   "semantic",
+		"Yesterday the schema moved":  "episodic",
+		"今後は箇条書きで":                    "procedural",
+		"Nothing particular about it": "episodic",
+	} {
+		if got := InferMemoryKind(input, lang.English); got != want {
+			t.Errorf("InferMemoryKind(%q) = %q, want %q", input, got, want)
+		}
+	}
+	for _, input := range []string{
+		"I remember the old days",
+		"I remember that day fondly.",
+		"Do you remember this?",
+		"Remember that day?",
+		"I don't forget things",
+		"Did you save this to memory?",
+	} {
+		if englishMemoryCues.remember.MatchString(input) {
+			t.Errorf("%q is not a request to save anything", input)
+		}
+	}
+	for _, input := range []string{
+		"Please remember this",
+		"Remember that we deploy on Fridays.",
+		"That was useful. Remember this!",
+		"Don't forget this",
+		"Save it to memory",
+		"覚えて",
+	} {
+		if !englishMemoryCues.remember.MatchString(input) {
+			t.Errorf("the explicit request %q was not noticed", input)
+		}
+	}
+	if japaneseMemoryCues.remember.MatchString("Please remember this") {
+		t.Error("the Japanese cues changed")
+	}
+	if !shouldSkipAutoMemorySentence("Please write a poem", "procedural", &englishMemoryCues) {
+		t.Error("a one-off request was kept as a preference")
+	}
+	if shouldSkipAutoMemorySentence("Always answer in bullet points", "procedural", &englishMemoryCues) {
+		t.Error("a standing preference was dropped")
 	}
 }

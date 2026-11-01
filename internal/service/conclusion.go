@@ -47,6 +47,8 @@ func (e *ConclusionTooLongError) Error() string {
 // participants is every row of the chat, removed ones included, so an older
 // speaker keeps their name and role.
 func (s *SummaryService) DraftConclusion(messages []model.Message, participants []model.Participant) (string, error) {
+	language := s.cfg.Get().ProcessingLanguage
+	text := promptTextFor(language)
 	byID := make(map[string]model.Participant, len(participants))
 	for _, p := range participants {
 		byID[p.ID] = p
@@ -58,14 +60,14 @@ func (s *SummaryService) DraftConclusion(messages []model.Message, participants 
 	for _, m := range messages {
 		// The rolls and effects go in with the body, as the speakers read them:
 		// an outcome the conversation turned on is part of what it concluded.
-		content := contentWithRecords(m)
+		content := contentWithRecords(m, language)
 		if m.Role == "system" || content == "" {
 			continue
 		}
-		label := assistantSpeakerLabel
+		label := text.assistantSpeaker
 		switch {
 		case m.Role == "user":
-			label = humanSpeakerLabel
+			label = text.humanSpeaker
 		case m.ParticipantID != nil:
 			if p, ok := byID[*m.ParticipantID]; ok {
 				label = p.DisplayName
@@ -83,25 +85,25 @@ func (s *SummaryService) DraftConclusion(messages []model.Message, participants 
 		return "", &ConclusionTooLongError{Chars: chars, Limit: ConclusionCharLimit}
 	}
 
-	roles := []string{"- " + humanSpeakerLabel + ": 会話を見ている人間。この人の発言は採用・却下の判断として扱う"}
+	roles := []string{"- " + text.humanSpeaker + ": " + text.conclusionHumanRole}
 	for _, p := range participants {
 		if !spoke[p.ID] {
 			continue
 		}
 		role := util.Truncate(collapseWhitespace(p.RolePrompt), conclusionRolePromptChars)
 		if role == "" {
-			role = "（役割の指定なし）"
+			role = text.conclusionNoRole
 		}
 		roles = append(roles, "- "+p.DisplayName+": "+role)
 	}
 
 	result, err := s.llm.CreateChatCompletion(ChatCompletionInput{
-		SystemPrompt: conclusionSystemPrompt,
+		SystemPrompt: text.conclusionSystem,
 		Messages:     []model.Message{},
 		UserInput: strings.Join([]string{
-			"参加者と役割:\n" + joinLines(roles),
-			"会話:\n" + joinLines(lines),
-			"この会話で何が決まり、何が未決かを、指定の形式で書いてください。",
+			text.conclusionRoster + joinLines(roles),
+			text.conclusionTranscript + joinLines(lines),
+			text.conclusionRequest,
 		}, "\n\n"),
 		Temperature: float64Ptr(0.15),
 	})
@@ -110,26 +112,3 @@ func (s *SummaryService) DraftConclusion(messages []model.Message, participants 
 	}
 	return strings.TrimSpace(reTripleNewline.ReplaceAllString(result.Content, "\n\n")), nil
 }
-
-// conclusionSystemPrompt separates decided from open, and keeps an objection
-// that a participant raised because its role told it to (a critic, a devil's
-// advocate) out of the decisions unless someone else took it up. Without that
-// line a small model reports the last strong objection as the outcome.
-var conclusionSystemPrompt = strings.Join([]string{
-	"あなたは議論の結論を抜き出す専用のアシスタントです。",
-	"会話は、役割を与えられた複数の参加者と、それを見ている人間（ユーザー）の発言です。",
-	"誰が何を言ったかを並べるのではなく、会話の結果として何が決まったか、何が決まっていないかを書いてください。",
-	"",
-	"- 決定: 参加者が合意した判断、またはユーザーが採用した判断。それぞれに短い理由を添える。",
-	"- 未決: 意見が分かれたまま、または結論が出ていない論点。",
-	"- 参加者が役割（反対役・批判役・懐疑役など）に沿って出した反論や懸念は、他の参加者が同意したかユーザーが採用した場合を除き、決定に入れない。扱うなら未決に書く。",
-	"- ユーザーが却下した案は決定に入れない。",
-	"- 会話に無い推測や一般論を足さない。",
-	"- 決定が無ければ「決定」の下に「- なし」と書く。未決も同じ。",
-	"",
-	"出力は次の形式だけにしてください。前置きや締めの文は書かないでください。",
-	"決定:",
-	"- （判断）— （理由）",
-	"未決:",
-	"- （論点）",
-}, "\n")
