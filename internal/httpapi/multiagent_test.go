@@ -1231,3 +1231,81 @@ func TestMultiAgentInterventionRolls(t *testing.T) {
 		t.Fatalf("stored %d messages, want the refusals to store nothing", len(listed))
 	}
 }
+
+// TestProcessingLanguageRoute covers the route half of TASK-109 AC #1 and AC #3:
+// the setting starts Japanese, the preset list and what a chat copies from a preset
+// follow it, and a chat already created keeps what it copied.
+func TestProcessingLanguageRoute(t *testing.T) {
+	s := newTestServer(t)
+	h := s.Handler()
+	projectID := createProject(t, h, "Saga")
+
+	language := func() string {
+		rec := doJSON(t, h, "GET", "/api/configuration/processing-language", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET = %d: %s", rec.Code, rec.Body.String())
+		}
+		var value string
+		unmarshalField(t, decodeJSONMap(t, rec), "value", &value)
+		return value
+	}
+	listed := func() string {
+		rec := doJSON(t, h, "GET", "/api/multi-agent-presets", nil)
+		var presets []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		unmarshalField(t, decodeJSONMap(t, rec), "presets", &presets)
+		for _, p := range presets {
+			if p.ID == "debate" {
+				return p.Title
+			}
+		}
+		t.Fatalf("debate is not listed: %s", rec.Body.String())
+		return ""
+	}
+	create := func() (string, string) {
+		rec := doJSON(t, h, "POST", "/api/projects/"+projectID+"/chats", map[string]any{"kind": "multi_agent", "presetId": "debate"})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+		}
+		var chat struct {
+			ID          string `json:"id"`
+			ScenePrompt string `json:"scenePrompt"`
+		}
+		unmarshalField(t, decodeJSONMap(t, rec), "chat", &chat)
+		return chat.ID, chat.ScenePrompt
+	}
+
+	if got := language(); got != "ja" {
+		t.Fatalf("default = %q", got)
+	}
+	jaTitle := listed()
+	jaChat, jaScene := create()
+
+	if rec := doJSON(t, h, "PUT", "/api/configuration/processing-language", map[string]any{"value": "fr"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("PUT fr = %d", rec.Code)
+	}
+	if rec := doJSON(t, h, "PUT", "/api/configuration/processing-language", map[string]any{"value": "en"}); rec.Code != http.StatusOK {
+		t.Fatalf("PUT en = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := language(); got != "en" {
+		t.Fatalf("after PUT = %q", got)
+	}
+	if listed() == jaTitle {
+		t.Fatal("the list did not follow the language")
+	}
+	_, enScene := create()
+	if !strings.Contains(enScene, "competitive debate") || strings.Contains(enScene, "ディベート") {
+		t.Fatalf("English scene = %q", enScene)
+	}
+
+	rec := doJSON(t, h, "GET", "/api/chats/"+jaChat, nil)
+	var kept struct {
+		ScenePrompt string `json:"scenePrompt"`
+	}
+	unmarshalField(t, decodeJSONMap(t, rec), "chat", &kept)
+	if kept.ScenePrompt != jaScene {
+		t.Fatalf("the chat created in Japanese changed: %q", kept.ScenePrompt)
+	}
+}

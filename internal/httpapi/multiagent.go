@@ -268,7 +268,7 @@ func (s *Server) requireMultiAgentChat(w http.ResponseWriter, chatID string) (*m
 // (design §6). Imported presets are not listed: they are applied once, from the
 // file, and leave no record of their own.
 func (s *Server) handleListMultiAgentPresets(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"presets": preset.Bundled()})
+	writeJSON(w, http.StatusOK, map[string]any{"presets": preset.Bundled(s.cfg.Get().ProcessingLanguage)})
 }
 
 // presetFromBody reads the preset a chat creation names: presetId picks a
@@ -290,7 +290,7 @@ func (s *Server) presetFromBody(w http.ResponseWriter, m map[string]any, kind st
 		return nil, false
 	}
 	if presetID != "" {
-		p, ok := preset.Find(presetID)
+		p, ok := preset.Find(s.cfg.Get().ProcessingLanguage, presetID)
 		if !ok {
 			writeError(w, http.StatusNotFound, "preset not found")
 			return nil, false
@@ -329,7 +329,7 @@ func (s *Server) handleExportMultiAgentPreset(w http.ResponseWriter, r *http.Req
 		fail(w, err)
 		return
 	}
-	exported, err := preset.FromChat(chat, roster)
+	exported, err := preset.FromChat(chat, roster, s.cfg.Get().ProcessingLanguage)
 	if errors.Is(err, preset.ErrInvalid) {
 		writeError(w, http.StatusConflict, err.Error())
 		return

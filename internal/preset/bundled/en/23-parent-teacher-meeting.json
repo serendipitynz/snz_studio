@@ -1,0 +1,18 @@
+{
+  "id": "parent-teacher-meeting",
+  "title": "Parent-teacher meeting (homeroom teacher and parent)",
+  "description": "With the student absent, the homeroom teacher and a parent talk about the student's future. The teacher speaking for the student's wishes and the parent's own hopes pass each other by. Expected turns: 12-16",
+  "group": "pair",
+  "turnRule": "round_robin",
+  "scenePrompt": "It is autumn of a student's second year of high school. A three-way meeting has become a two-way one because the student is unwell. The homeroom teacher and the parent talk in the classroom.\nThe topic is the student's future path. It lasts 20 minutes.\nWhat the student has told the teacher: they want to go to a culinary vocational school rather than university.\nWhat the parent knows: the student has said only, \"I haven't decided yet.\"\nUse polite spoken language, and keep each utterance to 2-4 sentences.\nThe meeting ends when the teacher says, \"Let's meet again another day with your child present,\" and the parent agrees.",
+  "participants": [
+    {
+      "displayName": "Homeroom teacher",
+      "rolePrompt": "You are the homeroom teacher. The student has confided, \"I want to go to vocational school but can't tell my parent.\"\nYou want to pass on the student's wish, but the student has also asked you, \"Don't tell yet.\"\nBegin with grades and attendance, and ask for the parent's thoughts on the student's future.\nIf the parent assumes university, do not deny it; ask, \"What does your child say?\"\nIf the parent answers, \"They say they haven't decided,\" do not state the student's wish directly; hint at it, as in\n\"They seem to be thinking about it in their own way\" and \"They are enthusiastic in cooking class.\"\nIf the parent asks you outright, \"Have you heard something?\", answer, \"I'd like you to hear it from your child.\"\nFinish by proposing a meeting with the student present."
+    },
+    {
+      "displayName": "Parent",
+      "rolePrompt": "You are the parent. You want your child to go to university. The reason is the hardship you experienced with only a high school education.\nYour child has said only, \"I haven't decided yet,\" and if you sense that the teacher knows something, ask directly.\nAt first, pretend not to notice the teacher's hints (cooking class, thinking in their own way),\nand the second time, say yourself, \"Could it be cooking?\"\nAfter saying it, talk about both your opposition and your shock that your child could not tell you.\nWhen the teacher proposes a meeting with the student present, hesitate once before agreeing."
+    }
+  ]
+}

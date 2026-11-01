@@ -14,14 +14,17 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 )
 
 // The bundled presets ship inside the binary so the desktop app has them
 // wherever it is installed. They are JSON rather than Go literals so a preset
-// can be authored, and imported later, without touching the engine.
+// can be authored, and imported later, without touching the engine. Each
+// processing language has its own directory holding the same set of ids, so a
+// version is a complete file another author can write without reading the other.
 //
-//go:embed bundled/*.json
+//go:embed bundled/ja/*.json bundled/en/*.json
 var bundledFS embed.FS
 
 // Groups are the values of MultiAgentPreset.Group, in the order the picker lists
@@ -80,19 +83,23 @@ type MultiAgentPreset struct {
 	Participants []Participant       `json:"participants"`
 }
 
-var bundled = mustLoadBundled()
-
-// Bundled returns the presets shipped with the app in picker order (the file
-// names carry a numeric prefix that fixes it).
-func Bundled() []MultiAgentPreset {
-	return append([]MultiAgentPreset(nil), bundled...)
+var bundled = map[lang.Language][]MultiAgentPreset{
+	lang.Japanese: mustLoadBundled(lang.Japanese),
+	lang.English:  mustLoadBundled(lang.English),
 }
 
-// Find returns the bundled preset with the given id.
-func Find(id string) (*MultiAgentPreset, bool) {
-	for i := range bundled {
-		if bundled[i].ID == id {
-			p := bundled[i]
+// Bundled returns the presets shipped with the app in the given language, in
+// picker order (the file names carry a numeric prefix that fixes it).
+func Bundled(language lang.Language) []MultiAgentPreset {
+	return append([]MultiAgentPreset(nil), bundled[language]...)
+}
+
+// Find returns the bundled preset with the given id in the given language.
+func Find(language lang.Language, id string) (*MultiAgentPreset, bool) {
+	presets := bundled[language]
+	for i := range presets {
+		if presets[i].ID == id {
+			p := presets[i]
 			return &p, true
 		}
 	}
@@ -224,15 +231,16 @@ func (p *MultiAgentPreset) foldCommands() error {
 // mustLoadBundled reads every embedded preset at package init. A broken bundled
 // file is a build defect, not a runtime condition, so it panics the way
 // regexp.MustCompile does; the package test exercises the same load.
-func mustLoadBundled() []MultiAgentPreset {
-	entries, err := bundledFS.ReadDir("bundled")
+func mustLoadBundled(language lang.Language) []MultiAgentPreset {
+	dir := "bundled/" + string(language)
+	entries, err := bundledFS.ReadDir(dir)
 	if err != nil {
 		panic(fmt.Sprintf("preset: read bundled dir: %v", err))
 	}
 	presets := make([]MultiAgentPreset, 0, len(entries))
 	seen := map[string]string{}
 	for _, entry := range entries {
-		raw, err := bundledFS.ReadFile("bundled/" + entry.Name())
+		raw, err := bundledFS.ReadFile(dir + "/" + entry.Name())
 		if err != nil {
 			panic(fmt.Sprintf("preset: read %s: %v", entry.Name(), err))
 		}

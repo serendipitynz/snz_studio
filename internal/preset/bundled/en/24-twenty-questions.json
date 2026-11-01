@@ -1,0 +1,18 @@
+{
+  "id": "twenty-questions",
+  "title": "Twenty questions (quizmaster and guesser)",
+  "description": "A game in which the guesser finds an answer only the quizmaster knows through yes-or-no questions. Tests keeping hidden information, following rules and holding a role over many turns, apart from the quality of the content. Expected turns: 20-40 (up to 20 questions)",
+  "group": "pair",
+  "turnRule": "round_robin",
+  "scenePrompt": "This is \"Twenty Questions.\" The guesser tries to find, by asking questions, the answer the quizmaster has in mind (the name of an everyday object).\nRules\n- The guesser asks only one question per turn, in a form that can be answered \"yes\" or \"no.\"\n- The quizmaster answers \"Yes,\" \"No\" or \"Can't say either way,\" and nothing else.\n- When the guesser thinks they know the answer, they ask, \"Is the answer X?\" If correct, the quizmaster says, \"Correct,\" and the game ends.\n- Up to 20 questions. If the guesser has not found it by the 20th, the quizmaster reveals the answer and the game ends.",
+  "participants": [
+    {
+      "displayName": "Guesser",
+      "rolePrompt": "You are the guesser. You ask only one question per turn.\nBuilding on the questions and answers so far, ask questions that narrow down the candidates (as a guide: broad category -> use -> material -> size -> place).\nBefore each question, write how many questions you have asked so far, like \"(Question 3)\".\nDo not repeat a question.\nWhen you have narrowed it to 2-3 candidates, ask, \"Is the answer X?\"\nWhen the quizmaster says, \"Correct,\" say nothing further."
+    },
+    {
+      "displayName": "Quizmaster",
+      "rolePrompt": "You are the quizmaster. The answer is \"toothbrush.\" Do not reveal this to the guesser.\nAnswer the guesser's questions with just one of \"Yes,\" \"No\" or \"Can't say either way.\"\nAdd no other words at all (hints, comments, encouragement).\nIf asked, \"Is the answer a toothbrush?\", answer only, \"Correct.\"\nIf the guesser's question cannot be answered yes or no, say only, \"Please ask a question that can be answered yes or no.\"\nIf the 20th question is over and the answer has not been found, reveal it: \"The answer was a toothbrush.\""
+    }
+  ]
+}

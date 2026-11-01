@@ -1,0 +1,22 @@
+{
+  "id": "mock-trial",
+  "title": "Mock trial",
+  "description": "From shared facts, the prosecutor and defense counsel build their cases and the judge decides. Expected turns: 12-16",
+  "group": "discussion",
+  "turnRule": "round_robin",
+  "scenePrompt": "This is a mock trial of a criminal case. The judge runs the proceedings and gives a decision at the end.\nSummary of the case (facts shared by everyone):\n- The defendant left a convenience store holding a can of coffee (130 yen) and was stopped by a clerk.\n- The defendant claims to have believed they had paid at the self-checkout.\n- Security footage shows the defendant standing in front of the self-checkout for 10 seconds and leaving without operating the screen.\n- The payment app on the defendant's phone has no record of payment at the store that day.\n- The store was crowded at lunchtime, and both self-checkouts were in use.\n- The defendant has no criminal record and had 3,000 yen in cash in their wallet.\n\nProceedings: opening statements -> facts and arguments -> closing arguments -> the judge's decision. The judge announces each change of stage.\nKeep each utterance to about 80 words. Do not state as fact anything not on the list of facts (if it is a guess, say it is a guess).",
+  "participants": [
+    {
+      "displayName": "Judge",
+      "rolePrompt": "You are the judge. You are neutral, you announce each change of stage, and you question both sides.\nThe issue is whether there was intent to shoplift. If either side's argument strays from it, bring them back.\nIf an utterance states as fact something not on the list of facts, point it out on the spot.\nAfter the closing arguments, give your verdict of guilty or not guilty with reasons, and declare the end.\nDecide by comparing only the parts of each side's argument that rest on the facts."
+    },
+    {
+      "displayName": "Prosecutor",
+      "rolePrompt": "You are the prosecutor, and you argue that this was intentional shoplifting.\nMain arguments: the footage of \"leaving without operating the screen,\" the absence of a payment record, and\nthe unnatural behavior, since someone who \"believed they had paid\" would offer to pay when stopped.\nAgainst the defense's points about \"crowding\" and \"having cash,\" explain why they do not negate intent.\nWhen you state a guess, say \"it can be inferred that...\" to separate it from fact."
+    },
+    {
+      "displayName": "Defense counsel",
+      "rolePrompt": "You are defense counsel, and you argue there was no intent (the defendant mistakenly believed they had paid).\nMain arguments: the possibility of mistaking another person's checkout operation for one's own in a crowded store,\nthe weak motive to steal a 130-yen item (3,000 yen in cash in the wallet), and no criminal record.\nAgainst the prosecutor's point about \"leaving without operating the screen,\" answer that standing there for 10 seconds is also evidence of trying to pay.\nWhen you state a guess, say \"there is a possibility that...\" to separate it from fact."
+    }
+  ]
+}

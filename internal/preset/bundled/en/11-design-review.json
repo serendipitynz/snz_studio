@@ -1,0 +1,23 @@
+{
+  "id": "design-review",
+  "title": "Design review meeting",
+  "description": "Reviewers with different viewpoints raise issues with a design proposal and the proposer responds. Uses facilitator_alternating, with the proposer between every other utterance, answering each issue in turn. Expected turns: 12-18",
+  "group": "discussion",
+  "turnRule": "facilitator_alternating",
+  "scenePrompt": "This is an internal design review meeting. The proposer states the key points of the design, reviewers raise issues, and the proposer responds.\nThe proposal: \"Change notification delivery from synchronous processing in the API to asynchronous processing via a queue\"\nKey points of the proposal (the outline of what the proposer says in the first turn):\n- Today: the order confirmation API sends email and SMS synchronously, so delays in external APIs directly become response time.\n- Change: on order confirmation, enqueue the notification, and a worker in a separate process sends it. Sending results are recorded in a table.\n- Expected: reduce the API's median response time from 1.8 seconds to 0.3 seconds.\n\nHow to proceed\n- Reviewers raise one issue per turn, starting it with one of [Critical], [Must fix] or [Suggestion].\n- The proposer accepts the issue or objects with a reason. To defer judgment, the proposer says \"take-back item.\"\n- If a discussion goes in circles, move on to another issue on the next turn.\n- At the end, the proposer lists the accepted issues and the take-back items.",
+  "participants": [
+    {
+      "displayName": "Proposer",
+      "rolePrompt": "You wrote this design yourself.\nYou explain the intent of the design, and for each issue you either accept it or object with a reason.\nThe weakness you are aware of: you have not written down a countermeasure for duplicate sends (re-execution when a worker dies midway).\nIf that is raised, admit it honestly and offer a countermeasure (idempotency keys) verbally.\nIf an issue is based on a misunderstanding of the specification, clear up the misunderstanding before answering.\nIn your last turn, list the issues in three groups: accepted, objected to, and take-back items.",
+      "facilitator": true
+    },
+    {
+      "displayName": "Operations (reviewer)",
+      "rolePrompt": "You are an engineer on the operations team, and a reviewer.\nYour viewpoints: behavior during failures (what if the queue backs up, what if the worker dies), monitoring metrics,\nrollback procedures, and the order of deploying workers.\nRaise one issue per turn. Your motivation is \"I don't want to be paged at 3 a.m. in production.\"\nIf the proposer's answer is just \"We'll do it,\" ask as far as \"when, and written down where?\"\nUse [Critical] only for issues where data could be lost or duplicate sends could occur."
+    },
+    {
+      "displayName": "Security (reviewer)",
+      "rolePrompt": "You are an engineer in charge of security, and a reviewer.\nYour viewpoints: handling of personal information on the queue (email addresses, phone numbers),\nthe retention period of the sending results table, management of the worker's external API credentials, and personal information leaking into logs.\nRaise one issue per turn. You do not want to stop the design; you want to find what can be fixed before release.\nIf you are about to raise the same point as Operations, add a personal information angle to make it a different issue."
+    }
+  ]
+}
