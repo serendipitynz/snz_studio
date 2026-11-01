@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"snzstudio/internal/lang"
 )
 
 // Editable mirrors EditableAppConfiguration: the fields the configuration endpoint
@@ -75,6 +77,9 @@ type Settings struct {
 	// maps are shared between snapshots and never modified: SetReasoning replaces
 	// them.
 	LLMReasoning map[string]map[string]string
+	// ProcessingLanguage is the language of the bundled presets and of the
+	// instructions the app sends to the LLM.
+	ProcessingLanguage lang.Language
 }
 
 // Config holds the current Settings snapshot and the path it persists edits to.
@@ -100,18 +105,24 @@ type Config struct {
 	// autoCheckUpdates, and because it is edited from a participant's card as well
 	// as from the settings screen.
 	reasoning map[string]map[string]string
+
+	// processingLanguage is saved on its own for the same reason as
+	// autoCheckUpdates, and applies as it is chosen, like the display language.
+	processingLanguage lang.Language
 }
 
 // persistedFile is the shape UpdateEditable writes to app-config.json.
 type persistedFile struct {
 	Editable
-	AutoCheckUpdates bool                         `json:"autoCheckUpdates"`
-	LLMReasoning     map[string]map[string]string `json:"llmReasoning,omitempty"`
+	AutoCheckUpdates   bool                         `json:"autoCheckUpdates"`
+	LLMReasoning       map[string]map[string]string `json:"llmReasoning,omitempty"`
+	ProcessingLanguage lang.Language                `json:"processingLanguage"`
 }
 
 const (
-	autoCheckUpdatesKey = "autoCheckUpdates"
-	llmReasoningKey     = "llmReasoning"
+	autoCheckUpdatesKey   = "autoCheckUpdates"
+	llmReasoningKey       = "llmReasoning"
+	processingLanguageKey = "processingLanguage"
 )
 
 func getenv(key, fallback string) string {
@@ -229,7 +240,11 @@ func New(settings Settings, appConfigPath string) *Config {
 	}
 	// On unless app-config.json says otherwise (decided in TASK-92): with the check
 	// off by default, almost nobody would learn that a newer version exists.
-	return &Config{settings: settings, appConfigPath: appConfigPath, autoCheckUpdates: true}
+	language, ok := lang.Parse(string(settings.ProcessingLanguage))
+	if !ok {
+		language = lang.Japanese
+	}
+	return &Config{settings: settings, appConfigPath: appConfigPath, autoCheckUpdates: true, processingLanguage: language}
 }
 
 // Load builds Config from the environment defaults and then applies the persisted
@@ -311,6 +326,15 @@ func (c *Config) applyOverrides(path string) {
 		}
 	}
 
+	if v, ok := overrides[processingLanguageKey]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			if language, known := lang.Parse(s); known {
+				c.processingLanguage = language
+			}
+		}
+	}
+
 	// embeddingMode override + migration. When the key is present we honour a
 	// valid value; an invalid value keeps the env default. When the key is ABSENT
 	// from an existing app-config.json (a pre-Track-B user), migrate by intent: a
@@ -347,6 +371,7 @@ func (c *Config) Get() Settings {
 	defer c.mu.RUnlock()
 	s := c.settings
 	s.LLMReasoning = c.reasoning
+	s.ProcessingLanguage = c.processingLanguage
 	if s.EmbeddingMode == "internal" {
 		s.EmbeddingBaseURL = c.internalEmbedURL
 		s.EmbeddingModel = c.internalEmbedModel
@@ -413,7 +438,7 @@ func (c *Config) UpdateEditable(input Editable) (Editable, error) {
 	// in the opposite order. The file is a few hundred bytes, so readers blocked on
 	// Get for the duration of the write wait only briefly.
 	if c.appConfigPath != "" {
-		encoded, err := json.MarshalIndent(persistedFile{Editable: editable, AutoCheckUpdates: c.autoCheckUpdates, LLMReasoning: c.reasoning}, "", "  ")
+		encoded, err := json.MarshalIndent(persistedFile{Editable: editable, AutoCheckUpdates: c.autoCheckUpdates, LLMReasoning: c.reasoning, ProcessingLanguage: c.processingLanguage}, "", "  ")
 		if err != nil {
 			return editable, err
 		}
@@ -480,6 +505,22 @@ func (c *Config) SetReasoning(apiRoot, modelKey, value string) error {
 		return err
 	}
 	c.reasoning = next
+	return nil
+}
+
+// SetProcessingLanguage saves the processing language. Like SetAutoCheckUpdates,
+// only that key of app-config.json is rewritten, and on error nothing changes.
+func (c *Config) SetProcessingLanguage(language lang.Language) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	encoded, err := json.Marshal(language)
+	if err != nil {
+		return err
+	}
+	if err := c.rewriteKey(processingLanguageKey, encoded); err != nil {
+		return err
+	}
+	c.processingLanguage = language
 	return nil
 }
 
