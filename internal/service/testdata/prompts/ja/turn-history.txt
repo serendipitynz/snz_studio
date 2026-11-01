@@ -1,0 +1,12 @@
+[user] ユーザー: Begin
+[assistant] I climb
+【ダイス】Climb — 1d20+3 → 4+3 = 7（目標 12、失敗）
+【ダイス】Leap — 1d20 → 15（目標 12、成功）
+[user] Mira: I watch
+【効果】Ren HP -3: 7/10 → 4/10
+【効果】Ren Torch -1 — 適用されず（Torchの行が無い）
+【効果】Ren Rope -1 — 適用されず（Ropeの値が整数で始まらない）
+【効果】Ren Oil -1 — 適用されず（Oilが 1 未満）
+【効果】共通 Place → Shaft — 適用されず（状態が 400 字を超える）
+【効果】共通 Time: （無し） → Noon
+[user] アシスタント: Left over

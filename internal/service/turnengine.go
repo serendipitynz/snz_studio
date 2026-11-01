@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"snzstudio/internal/config"
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service/commands"
@@ -45,14 +46,6 @@ var (
 // addresses, rather than forgotten facts. 30 keeps a whole 20-question game and
 // several rounds of a four-speaker roster in view at ~200 characters a turn.
 const TurnHistoryLimit = 30
-
-// Speaker labels for messages that carry no participant_id: the human's own
-// interventions and any assistant message left over from before the chat became
-// multi-agent.
-const (
-	humanSpeakerLabel     = "ユーザー"
-	assistantSpeakerLabel = "アシスタント"
-)
 
 // TurnEngine runs one turn of a multi-agent chat: it picks the speaker, builds
 // that speaker's view of the conversation, streams the completion from the
@@ -261,9 +254,10 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	material := e.assembleMaterial(chat, speaker, messages)
 
 	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(material.References))
-	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers), speaker)
+	language := e.cfg.Get().ProcessingLanguage
+	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers, language), speaker, language)
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
-		SystemPrompt: buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers),
+		SystemPrompt: buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers, language),
 		Messages:     history,
 		UserInput:    finalUserMessage,
 		Temperature:  float64Ptr(0.7),
@@ -405,7 +399,7 @@ func (e *TurnEngine) throwDice(utterance storedUtterance, chat *model.Chat) []mo
 // retrieval continues on keywords, the same degradation a single-assistant turn
 // gets.
 func (e *TurnEngine) assembleMaterial(chat *model.Chat, speaker *model.Participant, messages []model.Message) *TurnMaterial {
-	material, err := e.material.AssembleTurnMaterial(chat, speaker, messages)
+	material, err := e.material.AssembleTurnMaterial(chat, speaker, messages, e.cfg.Get().ProcessingLanguage)
 	if err != nil {
 		log.Printf("[turn] project material unavailable chatId=%s participantId=%s reason=%v", chat.ID, speaker.ID, err)
 		return &TurnMaterial{}
@@ -652,11 +646,11 @@ func speakerLabels(participants []model.Participant) map[string]string {
 // view, which is what an OpenAI-compatible API can express: its own past turns
 // become assistant messages, and everyone else's (participants and the human
 // alike) become user messages prefixed with the speaker's name (§4.3).
-func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, participants []model.Participant) []model.Message {
+func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, participants []model.Participant, language lang.Language) []model.Message {
 	labels := speakerLabels(participants)
 	mapped := make([]model.Message, 0, len(messages))
 	for _, m := range messages {
-		content := contentWithRecords(m)
+		content := contentWithRecords(m, language)
 		if content == "" {
 			continue
 		}
@@ -664,7 +658,7 @@ func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, 
 			mapped = append(mapped, model.Message{Role: "assistant", Content: content})
 			continue
 		}
-		mapped = append(mapped, model.Message{Role: "user", Content: speakerLabel(m, labels) + ": " + content})
+		mapped = append(mapped, model.Message{Role: "user", Content: speakerLabel(m, labels, language) + ": " + content})
 	}
 	return lastN(mapped, TurnHistoryLimit)
 }
@@ -678,30 +672,34 @@ func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, 
 // declared (§4.7.2 reading 2), so without the line a torch that was not there
 // is lit all the same. A message that only ran a command is its lines alone;
 // empty means nothing to map.
-func contentWithRecords(m model.Message) string {
+func contentWithRecords(m model.Message, language lang.Language) string {
 	lines := make([]string, 0, len(m.DiceRolls)+len(m.StateEffects)+1)
 	if body := strings.TrimSpace(m.Content); body != "" {
 		lines = append(lines, body)
 	}
 	for _, r := range m.DiceRolls {
-		lines = append(lines, commands.DiceMarker+commands.DiceRollLine(r))
+		lines = append(lines, commands.DiceMarkerFor(language)+commands.DiceRollLine(r, language))
 	}
 	for _, r := range m.StateEffects {
-		lines = append(lines, commands.EffectMarker+commands.EffectLine(r))
+		lines = append(lines, commands.EffectMarkerFor(language)+commands.EffectLine(r, language))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func speakerLabel(m model.Message, labels map[string]string) string {
+// speakerLabel names the speaker. A message with no participant_id is the human's
+// own intervention or an assistant message left over from before the chat became
+// multi-agent.
+func speakerLabel(m model.Message, labels map[string]string, language lang.Language) string {
 	if m.ParticipantID != nil {
 		if name, ok := labels[*m.ParticipantID]; ok && name != "" {
 			return name
 		}
 	}
+	text := promptTextFor(language)
 	if m.Role == "user" {
-		return humanSpeakerLabel
+		return text.humanSpeaker
 	}
-	return assistantSpeakerLabel
+	return text.assistantSpeaker
 }
 
 // buildTurnSystemPrompt assembles the speaker's system message: the project's
@@ -712,7 +710,8 @@ func speakerLabel(m model.Message, labels map[string]string) string {
 // is read before what has changed in it (§4.7.3 item 3). The reminder is
 // repeated every turn because small models drift out of their role as the
 // history grows and settle into agreeing with the previous speaker.
-func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Participant, participants []model.Participant) string {
+func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Participant, participants []model.Participant, language lang.Language) string {
+	text := promptTextFor(language)
 	parts := make([]string, 0, 6)
 	if material = strings.TrimSpace(material); material != "" {
 		parts = append(parts, material)
@@ -720,31 +719,32 @@ func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Par
 	if scene := strings.TrimSpace(chat.ScenePrompt); scene != "" {
 		parts = append(parts, scene)
 	}
-	if state := buildStateSection(chat, participants); state != "" {
+	if state := buildStateSection(chat, participants, text); state != "" {
 		parts = append(parts, state)
 	}
 	if role := strings.TrimSpace(speaker.RolePrompt); role != "" {
 		parts = append(parts, role)
 	}
 	if names := rosterNames(participants); names != "" {
-		parts = append(parts, fmt.Sprintf("この会話の参加者: %s", names))
+		parts = append(parts, fmt.Sprintf(text.turnRoster, names))
 	}
 	// Each line answers a failure seen with small models: they echo the
 	// "name: body" shape the history is mapped into, write the other speakers'
 	// lines as well as their own, settle into agreeing, and stop honouring the
 	// scene's length rule once the history grows.
 	reminder := []string{
-		fmt.Sprintf("あなたは「%s」としてのみ発言する。他の参加者の発言や動作を代筆しない。1 回の発言に複数人分の会話を入れない。", speaker.DisplayName),
-		"発言の先頭に自分の名前や記号を付けない。本文だけを書く。",
-		"直前の発言のどこに反応しているかが分かるように述べる。同意するだけで終わらせず、自分の立場から具体的に述べる。",
-		"発言の長さは場面設定の指定に従う。指定がなければ簡潔にまとめる。",
+		fmt.Sprintf(text.reminderOnlySelf, speaker.DisplayName),
+		text.reminderNoName,
+		text.reminderReact,
+		text.reminderLength,
 	}
 	// Only weighted reads the call, so only weighted asks for the directive: under
 	// the other rules it would invite the model to name someone the rule then
 	// passes over, and their prompts stay as they were.
 	if chat.TurnRule == model.TurnRuleWeighted {
-		reminder = append(reminder, "次に話してほしい相手がいるときだけ、発言の最後の行に [次: 表示名] と書く（複数なら読点で区切る）。いなければ書かない。")
+		reminder = append(reminder, text.reminderDirective)
 	}
+	reminder = append(reminder, text.reminderLanguage)
 	parts = append(parts, strings.Join(reminder, "\n"))
 	return strings.Join(parts, "\n\n")
 }
@@ -756,7 +756,7 @@ func buildTurnSystemPrompt(material string, chat *model.Chat, speaker *model.Par
 // project material instead (§4.7.3 item 3). Empty sheets are skipped, and with
 // all of them empty the section is left out, so a conversation that never used
 // state keeps the prompt it had.
-func buildStateSection(chat *model.Chat, participants []model.Participant) string {
+func buildStateSection(chat *model.Chat, participants []model.Participant, text *promptText) string {
 	blocks := make([]string, 0, len(participants)+1)
 	if shared := strings.TrimSpace(chat.StateSheet); shared != "" {
 		blocks = append(blocks, shared)
@@ -769,7 +769,7 @@ func buildStateSection(chat *model.Chat, participants []model.Participant) strin
 	if len(blocks) == 0 {
 		return ""
 	}
-	return "【現在の状態】\n" + strings.Join(blocks, "\n\n")
+	return text.stateHeader + strings.Join(blocks, "\n\n")
 }
 
 // onRoster keeps the participants still on the roster: only they can be called
@@ -809,15 +809,15 @@ func rosterNames(participants []model.Participant) string {
 //
 // The hand-off remains for the turns with nothing to answer: the opening turn,
 // and a manual re-nomination of the participant who just spoke.
-func buildTurnPrompt(mapped []model.Message, speaker *model.Participant) ([]model.Message, string) {
+func buildTurnPrompt(mapped []model.Message, speaker *model.Participant, language lang.Language) ([]model.Message, string) {
 	if n := len(mapped); n > 0 && mapped[n-1].Role == "user" {
 		return mapped[:n-1], mapped[n-1].Content
 	}
-	return mapped, buildTurnCue(speaker)
+	return mapped, buildTurnCue(speaker, language)
 }
 
 // buildTurnCue is the hand-off used when the prompt has no utterance for the
 // speaker to answer (see buildTurnPrompt).
-func buildTurnCue(speaker *model.Participant) string {
-	return fmt.Sprintf("（進行）次は「%s」の番です。%s として発言してください。", speaker.DisplayName, speaker.DisplayName)
+func buildTurnCue(speaker *model.Participant, language lang.Language) string {
+	return fmt.Sprintf(promptTextFor(language).turnCue, speaker.DisplayName, speaker.DisplayName)
 }

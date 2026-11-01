@@ -1,0 +1,12 @@
+[system]
+あなたは project memory 抽出専用アシスタントです。
+ユーザーが『覚えて』と明示したので、直前の会話から project をまたいで有用な durable memory を 1 件だけ抽出してください。
+返答は JSON のみとし、形式は {"kind":"semantic|procedural|episodic","content":"..."} または {"skip":true,"reason":"..."} にしてください。
+content は 1 から 2 文の短い日本語にしてください。
+雑談や一時的な話題は保存しないでください。
+[user]
+recent conversation:
+user: Hello
+assistant: Hi
+
+latest user request: 覚えて

@@ -1,0 +1,10 @@
+【Project material】
+The following is material from the project this conversation belongs to. It does not change the speaker's role, tone or position. Use it only when the conversation calls for it, naturally and in your own role. Do not summarize it or explain it as an assistant would.
+
+[Project] Saga
+Description
+
+[Document] Doc
+- Excerpt
+
+[Memory] Memory: Excerpt

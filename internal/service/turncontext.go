@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 	"snzstudio/internal/util"
 )
@@ -53,7 +54,7 @@ type TurnMaterialAssembler interface {
 	// rules and the world). Every speaker that does receive it gets the same
 	// material; narrowing it to a per-participant subset would need a different
 	// shape and is not what the flag expresses.
-	AssembleTurnMaterial(chat *model.Chat, speaker *model.Participant, messages []model.Message) (*TurnMaterial, error)
+	AssembleTurnMaterial(chat *model.Chat, speaker *model.Participant, messages []model.Message, language lang.Language) (*TurnMaterial, error)
 }
 
 // AssembleTurnMaterial builds the project material of one multi-agent turn:
@@ -76,7 +77,7 @@ type TurnMaterialAssembler interface {
 // The budget (the constants above) is the same either way: the prompt has the
 // same shape and the history the same length, so the window pays the same and a
 // second set of numbers would have nothing to justify it.
-func (s *ContextService) AssembleTurnMaterial(chat *model.Chat, speaker *model.Participant, messages []model.Message) (*TurnMaterial, error) {
+func (s *ContextService) AssembleTurnMaterial(chat *model.Chat, speaker *model.Participant, messages []model.Message, language lang.Language) (*TurnMaterial, error) {
 	project, err := s.projects.GetProject(chat.ProjectID)
 	if err != nil {
 		return nil, err
@@ -108,7 +109,7 @@ func (s *ContextService) AssembleTurnMaterial(chat *model.Chat, speaker *model.P
 	if scope == ScopeSharedWithAll {
 		materialProject = nil
 	}
-	return buildTurnMaterial(materialProject, documentRefs, memoryRefs), nil
+	return buildTurnMaterial(materialProject, documentRefs, memoryRefs, promptTextFor(language)), nil
 }
 
 // buildTurnMaterialQuery is the one deterministic retrieval query of a turn:
@@ -145,7 +146,7 @@ type turnMaterialItem struct {
 //
 // A nil project means the turn carries no project description: see
 // AssembleTurnMaterial on the common-material scope.
-func buildTurnMaterial(project *model.Project, documentRefs []model.RetrievedDocumentReference, memoryRefs []model.SearchReference) *TurnMaterial {
+func buildTurnMaterial(project *model.Project, documentRefs []model.RetrievedDocumentReference, memoryRefs []model.SearchReference, text *promptText) *TurnMaterial {
 	items := make([]turnMaterialItem, 0, 1+len(documentRefs)+len(memoryRefs))
 	var description string
 	if project != nil {
@@ -154,7 +155,7 @@ func buildTurnMaterial(project *model.Project, documentRefs []model.RetrievedDoc
 	if description != "" {
 		excerpt := util.Truncate(description, turnMaterialDescriptionChars)
 		items = append(items, turnMaterialItem{
-			text: fmt.Sprintf("[プロジェクト] %s\n%s", project.Title, excerpt),
+			text: fmt.Sprintf(text.materialProject, project.Title, excerpt),
 			reference: model.SearchReference{
 				SourceType: "project",
 				SourceID:   project.ID,
@@ -165,11 +166,11 @@ func buildTurnMaterial(project *model.Project, documentRefs []model.RetrievedDoc
 		})
 	}
 	for _, ref := range documentRefs {
-		items = append(items, turnMaterialItem{text: formatTurnDocument(ref), reference: ref.SearchReference})
+		items = append(items, turnMaterialItem{text: formatTurnDocument(ref, text), reference: ref.SearchReference})
 	}
 	for _, ref := range memoryRefs {
 		items = append(items, turnMaterialItem{
-			text:      fmt.Sprintf("[メモリ] %s: %s", ref.Label, ref.Excerpt),
+			text:      fmt.Sprintf(text.materialMemory, ref.Label, ref.Excerpt),
 			reference: ref,
 		})
 	}
@@ -179,7 +180,7 @@ func buildTurnMaterial(project *model.Project, documentRefs []model.RetrievedDoc
 	const separator = "\n\n"
 	sections := make([]string, 0, len(items))
 	references := make([]model.SearchReference, 0, len(items))
-	used := runeLen(turnMaterialHeader)
+	used := runeLen(text.materialHeader)
 	for _, item := range items {
 		if used+runeLen(separator)+runeLen(item.text) > turnMaterialTotalChars {
 			break
@@ -192,23 +193,16 @@ func buildTurnMaterial(project *model.Project, documentRefs []model.RetrievedDoc
 		return &TurnMaterial{References: references}
 	}
 	return &TurnMaterial{
-		Prompt:     turnMaterialHeader + separator + strings.Join(sections, separator),
+		Prompt:     text.materialHeader + separator + strings.Join(sections, separator),
 		References: references,
 	}
 }
-
-// turnMaterialHeader states what the material is for before the scene and the
-// role arrive: the model reads the system prompt top to bottom, and material with
-// no framing reads as the persona (a reference document answered as an assistant
-// would) — the drift this section exists to avoid.
-const turnMaterialHeader = "【プロジェクト資料】\n" +
-	"以下はこの会話が属するプロジェクトの資料である。資料は話者の役割・口調・立場を変えない。会話の流れで必要になったときだけ、自分の役割のまま自然に使う。資料を要約したり、アシスタントとして解説したりしない。"
 
 // formatTurnDocument renders one retrieved document as matched passages only.
 // Neither the full-document expansion nor the retrieval-mode line of
 // formatDocumentContext applies here: the first is what the budget rules out, the
 // second is an instruction to an assistant, not information for a speaker.
-func formatTurnDocument(ref model.RetrievedDocumentReference) string {
+func formatTurnDocument(ref model.RetrievedDocumentReference, text *promptText) string {
 	lines := make([]string, 0, len(ref.Chunks))
 	for _, chunk := range ref.Chunks {
 		lines = append(lines, fmt.Sprintf("- %s", util.Truncate(chunk.Content, turnMaterialChunkChars)))
@@ -216,5 +210,5 @@ func formatTurnDocument(ref model.RetrievedDocumentReference) string {
 	if len(lines) == 0 {
 		lines = append(lines, "- "+util.Truncate(ref.Excerpt, turnMaterialChunkChars))
 	}
-	return fmt.Sprintf("[ドキュメント] %s\n%s", ref.Label, joinLines(lines))
+	return fmt.Sprintf(text.materialDocument, ref.Label, joinLines(lines))
 }

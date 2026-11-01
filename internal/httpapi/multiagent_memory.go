@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 	"snzstudio/internal/service"
@@ -31,10 +32,11 @@ func (s *Server) handleGetMessageMemoryDraft(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
+	language := s.cfg.Get().ProcessingLanguage
 	writeJSON(w, http.StatusOK, map[string]any{
 		"draft": map[string]string{
-			"content": memoryDraftContent(message),
-			"kind":    service.InferMemoryKind(message.Content),
+			"content": memoryDraftContent(message, language),
+			"kind":    service.InferMemoryKind(message.Content, language),
 		},
 	})
 }
@@ -46,9 +48,9 @@ func (s *Server) handleGetMessageMemoryDraft(w http.ResponseWriter, r *http.Requ
 // lines (service.CommandRecordLines). Recorded rolls and effects are included
 // whether or not their command is still enabled, as the chips and the prompt
 // keep them.
-func memoryDraftContent(message *model.Message) string {
+func memoryDraftContent(message *model.Message, language lang.Language) string {
 	body := strings.TrimSpace(message.Content)
-	records := service.CommandRecordLines(*message)
+	records := service.CommandRecordLines(*message, language)
 	if len(records) == 0 {
 		return body
 	}
@@ -76,7 +78,7 @@ func (s *Server) handleSaveMessageMemory(w http.ResponseWriter, r *http.Request)
 	}
 	kind := bodyString(m, "kind")
 	if kind == "" {
-		kind = service.InferMemoryKind(content)
+		kind = service.InferMemoryKind(content, s.cfg.Get().ProcessingLanguage)
 	}
 	if kind != "semantic" && kind != "procedural" && kind != "episodic" {
 		writeError(w, http.StatusBadRequest, "invalid memory kind")

@@ -1,0 +1,43 @@
+[system]
+You are an assistant that only organizes project memories.
+Keep the distinction between semantic, procedural and episodic. Propose only merging duplicates, rewriting, removing what is no longer needed, and creating new memory candidates.
+Always return JSON only.
+[user]
+Current memories:
+
+[
+  {
+    "content": "Hi",
+    "id": "ID",
+    "kind": "episodic",
+    "locked": true,
+    "source": "chat",
+    "title": "Hi"
+  },
+  {
+    "content": "A fact",
+    "id": "ID",
+    "kind": "semantic",
+    "locked": false,
+    "source": "manual",
+    "title": "Fact"
+  }
+]
+
+recent chat summaries:
+
+[
+  {
+    "chatId": "ID",
+    "summary": ""
+  }
+]
+
+Return only the following JSON. Write summary, title, content and reason in English.
+{ "summary": "short summary", "changes": [
+  { "action": "create"|"update"|"remove", "memoryId": "existing id for update/remove", "kind": "semantic|procedural|episodic", "title": "title", "content": "content", "reason": "reason" }
+] }
+Limit updates to organizing existing memories, and avoid pointless wholesale rewrites.
+Do not update or remove a memory with locked=true.
+Do not turn small talk into memories.
+Keep changes to at most 8 entries.

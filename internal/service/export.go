@@ -5,14 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 	"snzstudio/internal/service/commands"
 )
-
-// exportRemovedSuffix marks a speaker whose participant row has left the roster.
-// It matches the observation view's `multiAgent.speakerRemoved` so a transcript
-// read beside the screen names the same speaker the same way.
-const exportRemovedSuffix = "（除籍済み）"
 
 const exportTimeLayout = "2006-01-02 15:04"
 
@@ -23,40 +19,45 @@ const exportTimeLayout = "2006-01-02 15:04"
 // participant that has since left the roster, and its speaker still has to be
 // named (docs/multi-agent-chat-design.md §3).
 //
+// The headings and labels follow the processing language rather than the display
+// language: the transcript the file carries was written in the former, and the
+// server does not know the latter.
+//
 // The scene, state, turn rule and roster sections carry no meaning for a
 // single-assistant chat, so they are emitted only for a multi-agent one; the
 // heading and the transcript are common to both kinds.
-func BuildChatMarkdown(project *model.Project, chat *model.Chat, participants []model.Participant, messages []model.Message, now time.Time) string {
+func BuildChatMarkdown(project *model.Project, chat *model.Chat, participants []model.Participant, messages []model.Message, now time.Time, language lang.Language) string {
 	var b strings.Builder
+	text := promptTextFor(language)
 
 	title := singleLine(chat.Title)
 	if title == "" {
-		title = model.UntitledChatTitle
+		title = model.UntitledChatTitle(language)
 	}
 	fmt.Fprintf(&b, "# %s\n\n", title)
 	if project != nil {
-		fmt.Fprintf(&b, "- プロジェクト: %s\n", singleLine(project.Title))
+		fmt.Fprintf(&b, text.exportProject, singleLine(project.Title))
 	}
-	fmt.Fprintf(&b, "- 出力日時: %s\n", now.Format(exportTimeLayout))
+	fmt.Fprintf(&b, text.exportGeneratedAt, now.Format(exportTimeLayout))
 
 	if chat.Kind == model.ChatKindMultiAgent {
-		writeSceneSection(&b, chat)
-		writeStateSection(&b, chat, participants)
-		writeTurnRuleSection(&b, chat, participants)
-		writeRosterSection(&b, participants)
+		writeSceneSection(&b, chat, text)
+		writeStateSection(&b, chat, participants, text)
+		writeTurnRuleSection(&b, chat, participants, text)
+		writeRosterSection(&b, participants, text)
 	}
 
-	writeTranscript(&b, participants, messages)
+	writeTranscript(&b, participants, messages, language)
 	return b.String()
 }
 
-func writeSceneSection(b *strings.Builder, chat *model.Chat) {
-	b.WriteString("\n## 場面設定\n\n")
+func writeSceneSection(b *strings.Builder, chat *model.Chat, text *promptText) {
+	b.WriteString(text.exportScene)
 	if scene := strings.TrimSpace(chat.ScenePrompt); scene != "" {
 		b.WriteString(scene)
 		b.WriteString("\n")
 	} else {
-		b.WriteString("（未設定）\n")
+		b.WriteString(text.exportUnset + "\n")
 	}
 }
 
@@ -64,23 +65,23 @@ func writeSceneSection(b *strings.Builder, chat *model.Chat) {
 // prompt carries it (§4.7.3 item 3). Like the prompt's section it is left out
 // when every sheet is empty, so a conversation that never used state exports
 // as it did before the sheets existed.
-func writeStateSection(b *strings.Builder, chat *model.Chat, participants []model.Participant) {
+func writeStateSection(b *strings.Builder, chat *model.Chat, participants []model.Participant, text *promptText) {
 	blocks := make([]string, 0, len(participants)+1)
 	if shared := strings.TrimSpace(chat.StateSheet); shared != "" {
-		blocks = append(blocks, "### 共通\n\n"+stateSheetList(shared))
+		blocks = append(blocks, text.exportStateShared+stateSheetList(shared))
 	}
 	for _, p := range participants {
 		if p.DeletedAt != nil {
 			continue
 		}
 		if sheet := strings.TrimSpace(p.StateSheet); sheet != "" {
-			blocks = append(blocks, fmt.Sprintf("### %s\n\n%s", participantLabel(p), stateSheetList(sheet)))
+			blocks = append(blocks, fmt.Sprintf("### %s\n\n%s", participantLabel(p, text), stateSheetList(sheet)))
 		}
 	}
 	if len(blocks) == 0 {
 		return
 	}
-	b.WriteString("\n## 現在の状態\n\n")
+	b.WriteString(text.exportState)
 	b.WriteString(strings.Join(blocks, "\n"))
 }
 
@@ -97,35 +98,35 @@ func stateSheetList(sheet string) string {
 	return b.String()
 }
 
-func writeTurnRuleSection(b *strings.Builder, chat *model.Chat, participants []model.Participant) {
-	b.WriteString("\n## ターン進行ルール\n\n")
-	fmt.Fprintf(b, "%s\n", turnRuleDescription(chat, participants))
+func writeTurnRuleSection(b *strings.Builder, chat *model.Chat, participants []model.Participant, text *promptText) {
+	b.WriteString(text.exportTurnRule)
+	fmt.Fprintf(b, "%s\n", turnRuleDescription(chat, participants, text))
 }
 
 // turnRuleDescription spells out the stored rule. An unrecognised value is
 // passed through rather than replaced, so a rule added later still exports
 // something truthful before this list catches up.
-func turnRuleDescription(chat *model.Chat, participants []model.Participant) string {
+func turnRuleDescription(chat *model.Chat, participants []model.Participant, text *promptText) string {
 	switch chat.TurnRule {
 	case model.TurnRuleRoundRobin:
-		return "round_robin（編成順に回す）"
+		return text.ruleRoundRobin
 	case model.TurnRuleManual:
-		return "manual（1 ターンごとに発言者を指名する）"
+		return text.ruleManual
 	case model.TurnRuleFacilitatorAlternating:
 		// The export says what the conversation actually did, so an unresolvable
 		// facilitator reports the fallback the engine took rather than the setting
 		// the chat carries (§4.2 step 1).
 		if name := facilitatorName(chat.FacilitatorID, participants); name != "" {
-			return fmt.Sprintf("facilitator_alternating（進行役「%s」と他の参加者が交互に発言する）", name)
+			return fmt.Sprintf(text.ruleFacilitator, name)
 		}
-		return "facilitator_alternating（進行役が編成に居ないため、編成順に回す）"
+		return text.ruleNoFacilitator
 	case model.TurnRuleWeighted:
 		if name := facilitatorName(chat.FacilitatorID, participants); name != "" {
-			return fmt.Sprintf("weighted（呼びかけと沈黙の長さで次の話者を決める。進行役「%s」）", name)
+			return fmt.Sprintf(text.ruleWeightedNamed, name)
 		}
-		return "weighted（呼びかけと沈黙の長さで次の話者を決める）"
+		return text.ruleWeighted
 	case "":
-		return "（未設定）"
+		return text.exportUnset
 	default:
 		return chat.TurnRule
 	}
@@ -143,34 +144,35 @@ func facilitatorName(facilitatorID string, participants []model.Participant) str
 	return ""
 }
 
-func writeRosterSection(b *strings.Builder, participants []model.Participant) {
-	b.WriteString("\n## 編成\n\n")
+func writeRosterSection(b *strings.Builder, participants []model.Participant, text *promptText) {
+	b.WriteString(text.exportRoster)
 	if len(participants) == 0 {
-		b.WriteString("（参加者なし）\n")
+		b.WriteString(text.exportNoRoster)
 		return
 	}
 	for _, p := range participants {
-		fmt.Fprintf(b, "- %s%s\n", participantLabel(p), modelSuffix(p.ModelName))
+		fmt.Fprintf(b, "- %s%s\n", participantLabel(p, text), modelSuffix(p.ModelName))
 	}
 }
 
-func writeTranscript(b *strings.Builder, participants []model.Participant, messages []model.Message) {
-	b.WriteString("\n## 会話\n")
+func writeTranscript(b *strings.Builder, participants []model.Participant, messages []model.Message, language lang.Language) {
+	text := promptTextFor(language)
+	b.WriteString(text.exportTranscript)
 	if len(messages) == 0 {
-		b.WriteString("\n（発言なし）\n")
+		b.WriteString(text.exportNoMessages)
 		return
 	}
 	byID := participantsByID(participants)
 	for _, m := range messages {
-		fmt.Fprintf(b, "\n### %s\n\n", exportSpeakerLabel(m, byID))
+		fmt.Fprintf(b, "\n### %s\n\n", exportSpeakerLabel(m, byID, text))
 		body := strings.TrimRight(m.Content, "\n")
 		if strings.TrimSpace(body) != "" {
 			b.WriteString(body)
 			b.WriteString("\n")
 		} else if len(m.DiceRolls) == 0 && len(m.StateEffects) == 0 {
-			b.WriteString("（空の発言）\n")
+			b.WriteString(text.exportEmptyMessage)
 		}
-		writeCommandRecords(b, m, strings.TrimSpace(body) != "")
+		writeCommandRecords(b, m, strings.TrimSpace(body) != "", language)
 	}
 }
 
@@ -178,8 +180,8 @@ func writeTranscript(b *strings.Builder, participants []model.Participant, messa
 // for a message, set apart from the body as a quote so a reader away from the
 // app can tell them from what the speaker wrote, as the chips do on screen
 // (design §4.8.3 item 3, §4.8.8).
-func writeCommandRecords(b *strings.Builder, m model.Message, afterBody bool) {
-	lines := CommandRecordLines(m)
+func writeCommandRecords(b *strings.Builder, m model.Message, afterBody bool, language lang.Language) {
+	lines := CommandRecordLines(m, language)
 	if len(lines) == 0 {
 		return
 	}
@@ -197,13 +199,13 @@ func writeCommandRecords(b *strings.Builder, m model.Message, afterBody bool) {
 // reaches every conversation in the project, and in one with the command
 // enabled a bracketed line in the material would read as a record the app just
 // made.
-func CommandRecordLines(m model.Message) []string {
+func CommandRecordLines(m model.Message, language lang.Language) []string {
 	lines := make([]string, 0, len(m.DiceRolls)+len(m.StateEffects))
 	for _, r := range m.DiceRolls {
-		lines = append(lines, "🎲 "+commands.DiceRollLine(r))
+		lines = append(lines, "🎲 "+commands.DiceRollLine(r, language))
 	}
 	for _, r := range m.StateEffects {
-		lines = append(lines, "📝 "+commands.EffectLine(r))
+		lines = append(lines, "📝 "+commands.EffectLine(r, language))
 	}
 	return lines
 }
@@ -224,9 +226,9 @@ func participantsByID(participants []model.Participant) map[string]model.Partici
 // The model name comes from the message when it recorded one — that is the
 // model the turn actually ran against, which the participant's current setting
 // may no longer be.
-func exportSpeakerLabel(m model.Message, byID map[string]model.Participant) string {
+func exportSpeakerLabel(m model.Message, byID map[string]model.Participant, text *promptText) string {
 	if m.Role == "user" {
-		return humanSpeakerLabel
+		return text.humanSpeaker
 	}
 	modelName := ""
 	if m.ModelName != nil {
@@ -237,22 +239,25 @@ func exportSpeakerLabel(m model.Message, byID map[string]model.Participant) stri
 			if modelName == "" {
 				modelName = p.ModelName
 			}
-			return participantLabel(p) + modelSuffix(modelName)
+			return participantLabel(p, text) + modelSuffix(modelName)
 		}
 	}
 	// A multi-agent chat reaches here only for a participant row that is gone
 	// entirely; rows are never hard-deleted, so in practice this is the
 	// single-assistant chat's own assistant.
-	return assistantSpeakerLabel + modelSuffix(modelName)
+	return text.assistantSpeaker + modelSuffix(modelName)
 }
 
-func participantLabel(p model.Participant) string {
+// participantLabel matches the observation view's `multiAgent.speakerRemoved` for
+// a removed participant, so a transcript read beside the screen names the same
+// speaker the same way.
+func participantLabel(p model.Participant, text *promptText) string {
 	name := singleLine(p.DisplayName)
 	if name == "" {
-		name = assistantSpeakerLabel
+		name = text.assistantSpeaker
 	}
 	if p.DeletedAt != nil {
-		return name + exportRemovedSuffix
+		return name + text.exportRemoved
 	}
 	return name
 }

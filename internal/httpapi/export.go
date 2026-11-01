@@ -50,7 +50,7 @@ func (s *Server) handleExportChatMarkdown(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	markdown := service.BuildChatMarkdown(project, chat, participants, messages, time.Now())
+	markdown := service.BuildChatMarkdown(project, chat, participants, messages, time.Now(), s.cfg.Get().ProcessingLanguage)
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(markdown))

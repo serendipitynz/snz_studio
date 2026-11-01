@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"snzstudio/internal/config"
+	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
 	"snzstudio/internal/repository"
 )
@@ -55,7 +56,7 @@ func TestBuildTurnMaterialBudget(t *testing.T) {
 		memories = append(memories, model.SearchReference{SourceType: "memory", SourceID: fmt.Sprintf("mem_%d", i), Label: fmt.Sprintf("記憶%d", i), Excerpt: strings.Repeat("憶", 220), Score: 0.5})
 	}
 
-	material := buildTurnMaterial(project, documents, memories)
+	material := buildTurnMaterial(project, documents, memories, &japanesePromptText)
 
 	if !strings.HasPrefix(material.Prompt, "【プロジェクト資料】") {
 		t.Fatalf("prompt does not open with the section header:\n%s", material.Prompt)
@@ -95,7 +96,7 @@ func TestBuildTurnMaterialBudget(t *testing.T) {
 }
 
 func TestBuildTurnMaterialEmpty(t *testing.T) {
-	material := buildTurnMaterial(&model.Project{ID: "proj_1", Title: "無題", Description: "  "}, nil, nil)
+	material := buildTurnMaterial(&model.Project{ID: "proj_1", Title: "無題", Description: "  "}, nil, nil, &japanesePromptText)
 	if material.Prompt != "" || len(material.References) != 0 {
 		t.Fatalf("a project with no description and no matches must produce nothing, got %+v", material)
 	}
@@ -263,7 +264,7 @@ func TestTurnEngineOpeningTurnSearchesScene(t *testing.T) {
 
 type failingAssembler struct{}
 
-func (failingAssembler) AssembleTurnMaterial(*model.Chat, *model.Participant, []model.Message) (*TurnMaterial, error) {
+func (failingAssembler) AssembleTurnMaterial(*model.Chat, *model.Participant, []model.Message, lang.Language) (*TurnMaterial, error) {
 	return nil, errors.New("fts index unavailable")
 }
 
@@ -384,7 +385,7 @@ func TestAssembleTurnMaterialNarrowsToCommonMaterial(t *testing.T) {
 	chat := &model.Chat{ID: "chat_1", ProjectID: fx.project.ID, ScenePrompt: "場面: 港町の酒場。"}
 	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
 
-	material, err := g.material.AssembleTurnMaterial(chat, &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}, messages)
+	material, err := g.material.AssembleTurnMaterial(chat, &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}, messages, lang.Japanese)
 	if err != nil {
 		t.Fatalf("AssembleTurnMaterial: %v", err)
 	}
@@ -420,7 +421,7 @@ func TestAssembleTurnMaterialDropsRewrittenMemory(t *testing.T) {
 	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
 	speaker := &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}
 
-	before, err := g.material.AssembleTurnMaterial(chat, speaker, messages)
+	before, err := g.material.AssembleTurnMaterial(chat, speaker, messages, lang.Japanese)
 	if err != nil {
 		t.Fatalf("AssembleTurnMaterial before: %v", err)
 	}
@@ -438,7 +439,7 @@ func TestAssembleTurnMaterialDropsRewrittenMemory(t *testing.T) {
 		t.Fatalf("ApplyOrganization: %v", err)
 	}
 
-	after, err := g.material.AssembleTurnMaterial(chat, speaker, messages)
+	after, err := g.material.AssembleTurnMaterial(chat, speaker, messages, lang.Japanese)
 	if err != nil {
 		t.Fatalf("AssembleTurnMaterial after: %v", err)
 	}
@@ -457,7 +458,7 @@ func TestAssembleTurnMaterialEmptyWhenNothingShared(t *testing.T) {
 	chat := &model.Chat{ID: "chat_1", ProjectID: fx.project.ID, ScenePrompt: "場面: 港町の酒場。"}
 	messages := []model.Message{{Content: "オルガの霧笛の話を聞かせて"}}
 
-	material, err := g.material.AssembleTurnMaterial(chat, &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}, messages)
+	material, err := g.material.AssembleTurnMaterial(chat, &model.Participant{ID: "p_1", ReceivesProjectMaterial: false}, messages, lang.Japanese)
 	if err != nil {
 		t.Fatalf("AssembleTurnMaterial: %v", err)
 	}

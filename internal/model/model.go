@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"snzstudio/internal/lang"
 )
 
 // Project mirrors the Project interface. chatCount is derived (COUNT of chats).
@@ -75,10 +77,15 @@ const (
 // UntitledChatTitle names a chat whose title is empty in what the app writes
 // out of it: the markdown export's heading, and the title of a preset exported
 // from it, which becomes the chat title wherever that preset is applied without
-// one. It is Japanese like the rest of those files (the markdown export's
-// section headings), not following the UI language: both files are written by
-// the server, which does not know it.
-const UntitledChatTitle = "無題のチャット"
+// one. It follows the processing language like the rest of those files (the
+// markdown export's section headings), not the display language: both files are
+// written by the server, which does not know it.
+func UntitledChatTitle(language lang.Language) string {
+	if language == lang.English {
+		return "Untitled chat"
+	}
+	return "無題のチャット"
+}
 
 // Chat mirrors the Chat interface. Kind is "assistant" (the single-assistant
 // chat) or "multi_agent"; TurnRule, ScenePrompt, FacilitatorID and StateSheet only carry

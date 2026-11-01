@@ -56,10 +56,10 @@ func newServiceGraph(t *testing.T, llmBaseURL string) *serviceGraph {
 	retrieval := NewRetrievalService(d, embeddings)
 	embeddingSync := NewEmbeddingSyncService(documents, memories, embeddings)
 	contextSvc := NewContextService(projects, chats, documents, memories, retrieval)
-	summary := NewSummaryService(llm)
-	memoryService := NewMemoryService(memories, llm)
+	summary := NewSummaryService(llm, cfg)
+	memoryService := NewMemoryService(memories, llm, cfg)
 	chatSvc := NewChatService(chats, contextSvc, llm, summary, memoryService, embeddingSync, cfg)
-	organizer := NewMemoryOrganizerService(memories, chats, llm, embeddingSync)
+	organizer := NewMemoryOrganizerService(memories, chats, llm, embeddingSync, cfg)
 
 	return &serviceGraph{
 		db:        d,

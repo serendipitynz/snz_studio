@@ -96,11 +96,11 @@ func NewServer(db *sql.DB, cfg *config.Config, uploadDir string, embedManager *e
 	// Whatever was saved while the endpoint was unreachable has no vector yet.
 	embedding.SetOnReconnect(embeddingSync.RequestSyncMissing)
 	contextService := service.NewContextService(projects, chats, documents, memories, retrieval)
-	summary := service.NewSummaryService(llm)
-	memoryService := service.NewMemoryService(memories, llm)
+	summary := service.NewSummaryService(llm, cfg)
+	memoryService := service.NewMemoryService(memories, llm, cfg)
 	chatService := service.NewChatService(chats, contextService, llm, summary, memoryService, embeddingSync, cfg)
 	reviewService := service.NewReviewService(chats, contextService, llm, cfg)
-	memoryOrg := service.NewMemoryOrganizerService(memories, chats, llm, embeddingSync)
+	memoryOrg := service.NewMemoryOrganizerService(memories, chats, llm, embeddingSync, cfg)
 	turnEngine := service.NewTurnEngine(chats, participants, llm, cfg, contextService)
 
 	srv := &Server{
