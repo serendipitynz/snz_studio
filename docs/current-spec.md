@@ -331,7 +331,7 @@ Phrases like:
 - “今後の前提にして”
 
 trigger a dedicated memory extraction path. With the processing language set to English, “remember this”,
-“please remember”, “don't forget” and “save this to memory” do too, and the rules for automatic extraction
+“please remember”, “don't forget” and “save this to memory” do too when they open a sentence that is not a question, and the rules for automatic extraction
 look for the wider English cues in `internal/service/memory.go` alongside the Japanese ones.
 
 ## Streaming

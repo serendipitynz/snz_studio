@@ -88,8 +88,11 @@ var (
 		durableProcedural: regexp.MustCompile(`(` + durableProceduralPattern + `)`),
 	}
 	englishMemoryCues = memoryCues{
-		durable:           englishDurableCues,
-		remember:          regexp.MustCompile(`(?i)(` + rememberCuesPattern + `|\bremember (this|that|it)\b|\bplease remember\b|\bdon't forget\b|\bsave (this|that|it) (to|in) memory\b)`),
+		durable: englishDurableCues,
+		// English only counts as a request when it opens a sentence and is not a
+		// question: "I remember that day" and "Do you remember this?" also hold the
+		// words, and this trigger stores a locked memory even if the extractor skips.
+		remember:          regexp.MustCompile(`(?im)(` + rememberCuesPattern + `|(?:^|[.!]\s+)(?:please\s+remember\b|(?:please\s+)?(?:remember\s+(?:this|that|it)\b|don't\s+forget\b|save\s+(?:this|that|it)\s+(?:to|in)\s+memory\b))[^?\n]*(?:[.!]|$))`),
 		transientRequest:  regexp.MustCompile(`(?i)(` + transientRequestPattern + `|^(please |can you |could you )?(write|create|draft|think of|suggest|explain|summari[sz]e|review|translate|generate|fix|correct|tell me|consider)\b)`),
 		durableProcedural: regexp.MustCompile(`(?i)(` + durableProceduralPattern + `|\b(prefer|always|never|don't use|do not use|from now on|be concise|bullet points|tone|style|format|answer in|respond in|reply in)\b)`),
 	}

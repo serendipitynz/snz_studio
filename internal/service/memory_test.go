@@ -126,11 +126,29 @@ func TestEnglishMemoryCues(t *testing.T) {
 			t.Errorf("InferMemoryKind(%q) = %q, want %q", input, got, want)
 		}
 	}
-	if englishMemoryCues.remember.MatchString("I remember the old days") {
-		t.Error("remembering something is not a request to save it")
+	for _, input := range []string{
+		"I remember the old days",
+		"I remember that day fondly.",
+		"Do you remember this?",
+		"Remember that day?",
+		"I don't forget things",
+		"Did you save this to memory?",
+	} {
+		if englishMemoryCues.remember.MatchString(input) {
+			t.Errorf("%q is not a request to save anything", input)
+		}
 	}
-	if !englishMemoryCues.remember.MatchString("Please remember this") || !englishMemoryCues.remember.MatchString("覚えて") {
-		t.Error("an explicit request was not noticed")
+	for _, input := range []string{
+		"Please remember this",
+		"Remember that we deploy on Fridays.",
+		"That was useful. Remember this!",
+		"Don't forget this",
+		"Save it to memory",
+		"覚えて",
+	} {
+		if !englishMemoryCues.remember.MatchString(input) {
+			t.Errorf("the explicit request %q was not noticed", input)
+		}
 	}
 	if japaneseMemoryCues.remember.MatchString("Please remember this") {
 		t.Error("the Japanese cues changed")
