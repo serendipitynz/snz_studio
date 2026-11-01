@@ -11,6 +11,7 @@ import { useConfirm } from "./ConfirmDialog";
 import { Dialog, DialogBody, DialogHeader, DialogTitle } from "./Dialog";
 import { FailureNotice, InfoNotice } from "./FailureNotice";
 import { CheckIcon, RotateCwIcon } from "./icons";
+import { createLatestValueSaver } from "./latestValueSaver";
 import { reloadBundledPresets } from "./PresetPicker";
 import { Progress } from "./Progress";
 import { pollRebuildState } from "./rebuildPoll";
@@ -151,7 +152,21 @@ function ProcessingLanguageField({ t }: { t: Translate }) {
   const [language, setLanguage] = useState<ProcessingLanguage | null>(null);
   const [failed, setFailed] = useState(false);
   const saved = useRef<ProcessingLanguage | null>(null);
-  const latestChange = useRef(0);
+  const saveLanguage = useRef(
+    createLatestValueSaver<ProcessingLanguage>(
+      (value) => api.setProcessingLanguage(value),
+      (value) => {
+        saved.current = value;
+      },
+      (lastFailed) => {
+        reloadBundledPresets();
+        if (lastFailed) {
+          setLanguage(saved.current);
+          setFailed(true);
+        }
+      }
+    )
+  );
 
   useEffect(() => {
     let active = true;
@@ -173,22 +188,10 @@ function ProcessingLanguageField({ t }: { t: Translate }) {
     };
   }, []);
 
-  async function change(next: ProcessingLanguage) {
-    // Only the latest choice may touch the select: an earlier one failing late
-    // would otherwise replace what is on screen.
-    const change = ++latestChange.current;
+  function change(next: ProcessingLanguage) {
     setLanguage(next);
     setFailed(false);
-    try {
-      await api.setProcessingLanguage(next);
-      saved.current = next;
-      reloadBundledPresets();
-    } catch {
-      if (change === latestChange.current) {
-        setLanguage(saved.current);
-        setFailed(true);
-      }
-    }
+    void saveLanguage.current(next);
   }
 
   return (
@@ -199,7 +202,7 @@ function ProcessingLanguageField({ t }: { t: Translate }) {
           <Select
             value={language ?? ""}
             disabled={language === null}
-            onChange={(event) => void change(event.target.value as ProcessingLanguage)}
+            onChange={(event) => change(event.target.value as ProcessingLanguage)}
           >
             {language === null ? <option value="" /> : null}
             <option value="ja">日本語</option>
