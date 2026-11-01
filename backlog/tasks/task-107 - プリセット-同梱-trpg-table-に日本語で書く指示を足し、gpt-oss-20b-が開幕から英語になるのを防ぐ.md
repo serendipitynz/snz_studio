@@ -1,10 +1,10 @@
 ---
 id: TASK-107
 title: 'プリセット: 同梱 trpg-table に日本語で書く指示を足し、gpt-oss-20b が開幕から英語になるのを防ぐ'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 23:35'
-updated_date: '2026-11-01 21:46'
+updated_date: '2026-11-01 21:52'
 labels: []
 dependencies: []
 references:
