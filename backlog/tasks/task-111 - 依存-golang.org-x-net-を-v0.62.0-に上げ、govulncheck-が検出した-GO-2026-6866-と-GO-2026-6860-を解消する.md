@@ -3,10 +3,10 @@ id: TASK-111
 title: >-
   依存: golang.org/x/net を v0.62.0 に上げ、govulncheck が検出した GO-2026-6866 と
   GO-2026-6860 を解消する
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-01 10:04'
-updated_date: '2026-11-01 11:00'
+updated_date: '2026-11-01 11:05'
 labels: []
 milestone: m-4
 dependencies: []
