@@ -150,6 +150,8 @@ function embeddingStatusLabel(t: Translate, status: EmbeddingStatus | null): str
 function ProcessingLanguageField({ t }: { t: Translate }) {
   const [language, setLanguage] = useState<ProcessingLanguage | null>(null);
   const [failed, setFailed] = useState(false);
+  const saved = useRef<ProcessingLanguage | null>(null);
+  const latestChange = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -157,6 +159,7 @@ function ProcessingLanguageField({ t }: { t: Translate }) {
       .getProcessingLanguage()
       .then((response) => {
         if (active) {
+          saved.current = response.value;
           setLanguage(response.value);
         }
       })
@@ -171,15 +174,20 @@ function ProcessingLanguageField({ t }: { t: Translate }) {
   }, []);
 
   async function change(next: ProcessingLanguage) {
-    const previous = language;
+    // Only the latest choice may touch the select: an earlier one failing late
+    // would otherwise replace what is on screen.
+    const change = ++latestChange.current;
     setLanguage(next);
     setFailed(false);
     try {
       await api.setProcessingLanguage(next);
+      saved.current = next;
       reloadBundledPresets();
     } catch {
-      setLanguage(previous);
-      setFailed(true);
+      if (change === latestChange.current) {
+        setLanguage(saved.current);
+        setFailed(true);
+      }
     }
   }
 
