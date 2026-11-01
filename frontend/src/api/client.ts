@@ -370,6 +370,10 @@ async function requestText(input: string, init?: RequestInit): Promise<string> {
   return await response.text();
 }
 
+// ProcessingLanguage is the language of the bundled presets and of the instructions
+// the app sends to the LLM. Unlike the display language it lives on the server.
+export type ProcessingLanguage = "ja" | "en";
+
 // ReasoningChoice is a model's reasoning setting at an LM Studio endpoint, in LM
 // Studio's vocabulary (off / on / low / ...). selected is "" while the model runs
 // at its own default.
@@ -406,6 +410,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
     }).then((response) => ({ models: response.models ?? [], reasoning: response.reasoning ?? {} })),
+  getProcessingLanguage: () => request<{ value: ProcessingLanguage }>("/api/configuration/processing-language"),
+  setProcessingLanguage: (value: ProcessingLanguage) =>
+    request<{ value: ProcessingLanguage }>("/api/configuration/processing-language", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value })
+    }),
   // An empty value goes back to the model's default.
   setReasoning: (input: { baseUrl: string; model: string; value: string }) =>
     request<{ value: string }>("/api/configuration/reasoning", {
