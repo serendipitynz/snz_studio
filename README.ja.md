@@ -4,6 +4,8 @@
 
 > English: [README.md](README.md)
 
+**S**olo, **N**ative, **Z**ero-cloud.
+
 個人用途向けの、ローカルで完結する軽量な LLM プロジェクトワークスペースです。  
 ChatGPT / Claude の Project に近い体験を、**Wails v2（Go コア + OS ネイティブ WebView）+ React/Vite フロントエンド + SQLite + ローカル filesystem** だけで構成した、インストールして起動するだけのスタンドアロン・デスクトップアプリです。
 
