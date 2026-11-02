@@ -180,7 +180,7 @@ export function MultiAgentChatPage() {
   // The engine's pick for the next turn and the number of past messages a turn
   // reads, both from the server so the view keeps no copy of the rule.
   const [nextSpeaker, setNextSpeaker] = useState<Participant | null>(null);
-  const [historyLimit, setHistoryLimit] = useState<number | null>(null);
+  const [recentRounds, setRecentRounds] = useState<number | null>(null);
   const nextRequestRef = useRef(0);
   // The running turn's announced pick, kept in a ref because the intervention
   // that voids it happens outside the turn's own closure.
@@ -300,7 +300,7 @@ export function MultiAgentChatPage() {
       .then((response) => {
         if (request === nextRequestRef.current) {
           setNextSpeaker(response.participant);
-          setHistoryLimit(response.historyLimit);
+          setRecentRounds(response.recentRounds);
         }
       })
       .catch(() => {
@@ -982,7 +982,7 @@ export function MultiAgentChatPage() {
               </ActionButton>
               <Hint
                 name={t("multiAgent.progressHintName")}
-                body={t("multiAgent.progressHint", { limit: historyLimit ?? "…" })}
+                body={t("multiAgent.progressHint", { rounds: recentRounds ?? "…" })}
               />
               {/* The auto margin takes the free space, so the badge and the send stay
                   together at the end of whichever line they land on. The pair is small
