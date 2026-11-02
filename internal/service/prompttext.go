@@ -28,6 +28,8 @@ type promptText struct {
 	reminderLanguage string
 	stateHeader      string
 	turnCue          string // speaker, speaker
+	historyOmitted   string // number of omitted utterances
+	historyElided    string // number of omitted characters
 
 	// materialHeader states what the material is for before the scene and the role
 	// arrive: the model reads the system prompt top to bottom, and material with no
@@ -116,6 +118,8 @@ var japanesePromptText = promptText{
 	reminderLanguage:  "発言はすべて日本語で書く。他の参加者が別の言語で話しても、日本語で続ける。",
 	stateHeader:       "【現在の状態】\n",
 	turnCue:           "（進行）次は「%s」の番です。%s として発言してください。",
+	historyOmitted:    "（ここで %d 発言を省略）",
+	historyElided:     "……（中略 %d 字）……",
 
 	materialHeader: "【プロジェクト資料】\n" +
 		"以下はこの会話が属するプロジェクトの資料である。資料は話者の役割・口調・立場を変えない。会話の流れで必要になったときだけ、自分の役割のまま自然に使う。資料を要約したり、アシスタントとして解説したりしない。",
@@ -248,6 +252,8 @@ var englishPromptText = promptText{
 	reminderLanguage:  "Write every utterance in English. Keep writing in English even if another participant speaks a different language.",
 	stateHeader:       "【Current state】\n",
 	turnCue:           "(Moderator) It is now \"%s\"'s turn. Speak as %s.",
+	historyOmitted:    "(%d utterances omitted here)",
+	historyElided:     "... (%d characters omitted) ...",
 
 	materialHeader: "【Project material】\n" +
 		"The following is material from the project this conversation belongs to. It does not change the speaker's role, tone or position. Use it only when the conversation calls for it, naturally and in your own role. Do not summarize it or explain it as an assistant would.",
