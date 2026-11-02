@@ -142,8 +142,8 @@ func (s *Server) handleRemoveParticipant(w http.ResponseWriter, r *http.Request)
 }
 
 // handleNextSpeaker says who the next turn would pick (null under manual), and
-// how many past messages a turn reads, so the view can tell when older ones have
-// dropped out of what the speakers see (design §4.3, §6).
+// how many rounds a turn always reads, so the view can state it without a copy of
+// the number (design §4.9.5, §6).
 func (s *Server) handleNextSpeaker(w http.ResponseWriter, r *http.Request) {
 	participant, err := s.turnEngine.NextSpeaker(r.PathValue("chatId"))
 	if err != nil {
@@ -151,7 +151,7 @@ func (s *Server) handleNextSpeaker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, message)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"participant": participant, "historyLimit": service.TurnHistoryLimit})
+	writeJSON(w, http.StatusOK, map[string]any{"participant": participant, "recentRounds": service.TurnRecentRounds})
 }
 
 // handleRunTurnStream runs one turn and streams it (design §4.1, §5, §4.6.6).
@@ -233,7 +233,8 @@ func turnErrorResponse(err error) (int, string) {
 		errors.Is(err, service.ErrRosterEmpty),
 		errors.Is(err, service.ErrManualParticipantRequired),
 		errors.Is(err, service.ErrParticipantNotNameable),
-		errors.Is(err, service.ErrParticipantRemoved):
+		errors.Is(err, service.ErrParticipantRemoved),
+		errors.Is(err, service.ErrTurnSettingsTooLong):
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, service.ErrEndpointUnavailable):
 		// The participant's own endpoint refused the model, so the failure is

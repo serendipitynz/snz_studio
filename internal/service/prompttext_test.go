@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -187,10 +188,12 @@ func promptFixtures(t *testing.T, language lang.Language) map[string]string {
 	mapped := mapHistoryForSpeaker(transcript, &participants[0], participants, language)
 	lines := make([]string, len(mapped))
 	for i, m := range mapped {
-		lines[i] = "[" + m.Role + "] " + m.Content
+		lines[i] = "[" + m.mapped.Role + "] " + m.mapped.Content
 	}
 	out["turn-history"] = strings.Join(lines, "\n")
 	_, out["turn-cue"] = buildTurnPrompt(nil, &participants[0], language)
+	out["turn-history-omitted"] = fmt.Sprintf(text.historyOmitted, 12)
+	out["turn-history-elided"] = fmt.Sprintf(text.historyElided, 340)
 
 	material := buildTurnMaterial(
 		&model.Project{ID: "proj", Title: "Saga", Description: "Description"},

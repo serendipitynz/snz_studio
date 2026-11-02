@@ -2,12 +2,15 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+
+	"snzstudio/internal/service"
 )
 
 // sseEventOrder lists the event names of a stream in the order they were sent;
@@ -222,19 +225,19 @@ func TestMultiAgentNextSpeaker(t *testing.T) {
 			Participant *struct {
 				ID string `json:"id"`
 			} `json:"participant"`
-			HistoryLimit float64 `json:"historyLimit"`
+			RecentRounds float64 `json:"recentRounds"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 			t.Fatalf("decode next: %v (%s)", err, rec.Body.String())
 		}
 		if body.Participant == nil {
-			return "", body.HistoryLimit
+			return "", body.RecentRounds
 		}
-		return body.Participant.ID, body.HistoryLimit
+		return body.Participant.ID, body.RecentRounds
 	}
 
-	if id, limit := next(chatID); id != alice || limit != 30 {
-		t.Fatalf("next = (%s, %v), want (Alice, 30) before anyone spoke", id, limit)
+	if id, rounds := next(chatID); id != alice || rounds != 2 {
+		t.Fatalf("next = (%s, %v), want (Alice, 2) before anyone spoke", id, rounds)
 	}
 	wantStatus(t, doJSON(t, h, "POST", "/api/chats/"+chatID+"/turns/stream", map[string]any{}), http.StatusOK)
 	if id, _ := next(chatID); id != bob {
@@ -334,5 +337,14 @@ func TestMultiAgentTurnStreamWithdrawsTagFragment(t *testing.T) {
 	}
 	if spoken.Content != "発言します。" || shown != spoken.Content {
 		t.Fatalf("shown = %q, stored = %q; want both %q", shown, spoken.Content, "発言します。")
+	}
+}
+
+// A system prompt too long for the window is the human's to fix in the composition
+// panel, so it is a refused request rather than a server fault (design §4.9.2).
+func TestTurnErrorResponseSettingsTooLong(t *testing.T) {
+	status, message := turnErrorResponse(fmt.Errorf("%w: Alice: the scene", service.ErrTurnSettingsTooLong))
+	if status != http.StatusBadRequest || !strings.Contains(message, "Alice") {
+		t.Fatalf("response = (%d, %q), want 400 naming the participant", status, message)
 	}
 }

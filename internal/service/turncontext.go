@@ -9,17 +9,16 @@ import (
 	"snzstudio/internal/util"
 )
 
-// Budget for the project material one multi-agent turn carries (design §4.4).
-// The history of a turn is the last 30 utterances passed uncompressed
-// (TurnHistoryLimit), about 6,000 characters at ~200 a turn, and the window of a
-// local small model is a few thousand tokens; the material stays under a third of
-// the history so the conversation, not the project, fills the window. The counts
-// are the single-assistant defaults halved (4 × 3 chunks, 4 memories there):
-// a participant speaks in role and needs a fact or two, not a briefing. The total
-// cap is a third of the history; the per-item sizes add up to about 2,300 when
-// every item is at its limit, so the cap then drops the last memory or two. The
-// total is what the window pays for, so it wins over the counts; it is measured
-// on the section as written into the prompt, framing and separators included.
+// Budget for the project material one multi-agent turn carries (design §4.4). The
+// total is fixed while the history budget grows with the roster (§4.9.2, 2,000
+// characters a participant), so the material stays at a third of what a three-speaker history may take, and
+// the conversation, not the project, fills the window.
+// The counts are the single-assistant defaults halved (4 × 3 chunks, 4 memories
+// there): a participant speaks in role and needs a fact or two, not a briefing.
+// The per-item sizes add up to about 2,300 when every item is at its limit, so the
+// total then drops the last memory or two. The total is what the window pays for,
+// so it wins over the counts; it is measured on the section as written into the
+// prompt, framing and separators included.
 const (
 	turnMaterialDocumentLimit     = 2
 	turnMaterialChunksPerDocument = 2

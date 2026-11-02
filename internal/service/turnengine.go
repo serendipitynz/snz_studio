@@ -27,6 +27,9 @@ var (
 	ErrParticipantNotInChat      = errors.New("service: participant does not belong to this chat")
 	ErrParticipantRemoved        = errors.New("service: participant was removed from the roster")
 	ErrEndpointUnavailable       = errors.New("service: participant endpoint did not accept the model")
+	// ErrTurnSettingsTooLong is a system prompt that fills the speaker's window by
+	// itself, so no turn can start until the human shortens a setting (§4.9.2).
+	ErrTurnSettingsTooLong = errors.New("service: the settings are too long for the speaker's model")
 	// ErrUtteranceOnlyDirective is an utterance left with no body and no roll once
 	// its directive is removed. A turn finds it after generation, so it reaches
 	// the caller inside an open stream; an intervention is refused with 400.
@@ -37,15 +40,6 @@ var (
 	// empty.
 	ErrUtteranceOnlyDiceLine = errors.New("service: the utterance held nothing but 【ダイス】 lines, which only the app writes")
 )
-
-// TurnHistoryLimit caps how many past messages are mapped into a turn's prompt
-// (design §4.3). It is exported so the spectator view can say when the
-// transcript has outgrown it instead of keeping a copy of the number. Older history is dropped rather than summarised (§8): a summary
-// call per turn would double the latency of a turn on a local model, and the
-// drift seen on small models is role drift, which the per-turn reminder
-// addresses, rather than forgotten facts. 30 keeps a whole 20-question game and
-// several rounds of a four-speaker roster in view at ~200 characters a turn.
-const TurnHistoryLimit = 30
 
 // TurnEngine runs one turn of a multi-agent chat: it picks the speaker, builds
 // that speaker's view of the conversation, streams the completion from the
@@ -242,22 +236,30 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	if !e.endpointAccepts(effectiveBaseURL, effectiveModel) {
 		return nil, fmt.Errorf("%w: %s (%s at %s)", ErrEndpointUnavailable, speaker.DisplayName, effectiveModel, effectiveBaseURL)
 	}
-	if onSpeaker != nil {
-		onSpeaker(SpeakerChoice{Participant: speaker, ModelName: effectiveModel, Weights: weights, Next: e.speakerAfter(chat, speaker, messages)})
-	}
 
 	knownSpeakers, err := e.participants.ListAll(chatID)
 	if err != nil {
 		return nil, err
 	}
 
+	// The prompt is built ahead of the announcement because it can refuse the turn,
+	// and every refusal has to reach the caller as a status (see onSpeaker above).
+	language := e.cfg.Get().ProcessingLanguage
 	material := e.assembleMaterial(chat, speaker, messages)
+	systemPrompt := buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers, language)
+	mapped, err := e.buildTurnHistory(chat, speaker, knownSpeakers, messages, systemPrompt, target, language)
+	if err != nil {
+		return nil, err
+	}
+
+	if onSpeaker != nil {
+		onSpeaker(SpeakerChoice{Participant: speaker, ModelName: effectiveModel, Weights: weights, Next: e.speakerAfter(chat, speaker, messages)})
+	}
 
 	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(material.References))
-	language := e.cfg.Get().ProcessingLanguage
-	history, finalUserMessage := buildTurnPrompt(mapHistoryForSpeaker(messages, speaker, knownSpeakers, language), speaker, language)
+	history, finalUserMessage := buildTurnPrompt(mapped, speaker, language)
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
-		SystemPrompt: buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers, language),
+		SystemPrompt: systemPrompt,
 		Messages:     history,
 		UserInput:    finalUserMessage,
 		Temperature:  float64Ptr(0.7),
@@ -388,6 +390,27 @@ func (e *TurnEngine) throwDice(utterance storedUtterance, chat *model.Chat) []mo
 		return nil
 	}
 	return []model.DiceRoll{utterance.roll.Throw(e.rollDie, chat.Commands.Roll.Target)}
+}
+
+// buildTurnHistory finds the speaker's window and fills it (design §4.9.2). An
+// endpoint that cannot report its context length gets the default rather than a
+// failed turn: only LM Studio has the listing to ask.
+func (e *TurnEngine) buildTurnHistory(chat *model.Chat, speaker *model.Participant, participants []model.Participant, messages []model.Message, systemPrompt string, target *CompletionTarget, language lang.Language) ([]model.Message, error) {
+	contextTokens, ok := e.llm.LoadedContextLength(target.Model, target.BaseURL)
+	if !ok {
+		contextTokens = turnDefaultContextTokens
+	}
+	windowChars := turnWindowChars(contextTokens, systemPrompt, buildTurnCue(speaker, language))
+	if windowChars <= 0 {
+		return nil, turnSettingsTooLong(chat, speaker, participants, systemPrompt, contextTokens, language)
+	}
+	return assembleTurnHistory(messages, turnHistoryRequest{
+		speaker:      speaker,
+		participants: participants,
+		scene:        chat.ScenePrompt,
+		windowChars:  windowChars,
+		language:     language,
+	})
 }
 
 // assembleMaterial never fails the turn: a broken document or memory search
@@ -640,27 +663,6 @@ func speakerLabels(participants []model.Participant) map[string]string {
 		labels[p.ID] = p.DisplayName
 	}
 	return labels
-}
-
-// mapHistoryForSpeaker rewrites the transcript into the speaker's own point of
-// view, which is what an OpenAI-compatible API can express: its own past turns
-// become assistant messages, and everyone else's (participants and the human
-// alike) become user messages prefixed with the speaker's name (§4.3).
-func mapHistoryForSpeaker(messages []model.Message, speaker *model.Participant, participants []model.Participant, language lang.Language) []model.Message {
-	labels := speakerLabels(participants)
-	mapped := make([]model.Message, 0, len(messages))
-	for _, m := range messages {
-		content := contentWithRecords(m, language)
-		if content == "" {
-			continue
-		}
-		if m.ParticipantID != nil && *m.ParticipantID == speaker.ID {
-			mapped = append(mapped, model.Message{Role: "assistant", Content: content})
-			continue
-		}
-		mapped = append(mapped, model.Message{Role: "user", Content: speakerLabel(m, labels, language) + ": " + content})
-	}
-	return lastN(mapped, TurnHistoryLimit)
 }
 
 // contentWithRecords is the message as a speaker reads it: the body, then one
