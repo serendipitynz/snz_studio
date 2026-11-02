@@ -488,8 +488,9 @@ Center:
     and showing the server's pick as "Next: <name>", or, while a turn runs and the next one is not
     known yet (weighted, manual), "Speaking: <name>" with the busy figure
   - "Advance" (one turn) and "Auto" (auto-advance; "Stop" while it runs) with a `(?)` hint saying that stopping takes
-    effect at the turn boundary and that each speaker reads the latest 2 rounds of messages, the user's
-    included, and messages picked from earlier. Between a stop and the end of the turn in flight the button keeps "Stop" and shows
+    effect at the turn boundary and that each speaker reads the latest messages (up to roster size × 2, the
+    user's included but not counted) and messages picked from earlier, with more going unread in a
+    conversation with long messages. Between a stop and the end of the turn in flight the button keeps "Stop" and shows
     it is busy
   - at the far end, a "Turn n" badge (the participants' utterances) and "Intervene". That some messages
     go unread is the `(?)` hint's to say; the badge does not repeat it
