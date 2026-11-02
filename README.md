@@ -4,6 +4,8 @@
 
 > 日本語: [README.ja.md](README.ja.md)
 
+**S**olo, **N**ative, **Z**ero-cloud.
+
 A lightweight, local-only LLM project workspace for personal use.
 It offers an experience close to ChatGPT / Claude Projects, built out of nothing more than
 **Wails v2 (Go core + OS-native WebView) + a React/Vite frontend + SQLite + the local
