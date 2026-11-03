@@ -18,6 +18,8 @@ import {
   MemoryStickIcon,
   PanelRightCloseIcon,
   PanelRightOpenIcon,
+  PinIcon,
+  PinOffIcon,
   PlayIcon,
   RotateCwFadingClockIcon,
   RotateCwIcon,
@@ -146,6 +148,18 @@ const SPEAKER_SPINNER_STYLE = {
 // The 24px bare icon buttons of a message's action row, shared with the copy button.
 const MESSAGE_ACTION_STYLE = { width: 24, height: 24, border: "none", background: "transparent", padding: 0 } as const;
 
+// A pin can change while a turn runs (design §4.9.4), so the transcript a turn or
+// an intervention read may predate a pin stored since. Within this window a pin
+// changes only through the toggle, whose response updates the shown message, so
+// the shown pin is the newer one for every message already in view.
+function keepShownPins(incoming: MessageRecord[], shown: MessageRecord[]): MessageRecord[] {
+  const pins = new Map(shown.map((message) => [message.id, message.pinned]));
+  return incoming.map((message) => {
+    const pinned = pins.get(message.id);
+    return pinned === undefined || pinned === message.pinned ? message : { ...message, pinned };
+  });
+}
+
 // MultiAgentChatPage is the spectator view and progression control of
 // docs/multi-agent-chat-design.md §6. Auto-advance is this loop calling the
 // one-turn route repeatedly (§4.1): there is no server-side progression job, so
@@ -201,6 +215,9 @@ export function MultiAgentChatPage() {
   const [memorySaving, setMemorySaving] = useState(false);
   const [memoryError, setMemoryError] = useState("");
   const [memorySavedTitle, setMemorySavedTitle] = useState("");
+  // The messages whose pin is being changed. Each toggle is its own request and
+  // takes no turn slot, so several can run beside a turn.
+  const [pinningIds, setPinningIds] = useState<Record<string, boolean>>({});
   // Where the conclusion draft was asked from: the header, or one message's
   // "from here". Only that button shows the busy figure.
   const [concludingFrom, setConcludingFrom] = useState<string | null>(null);
@@ -390,7 +407,11 @@ export function MultiAgentChatPage() {
             };
             setState((current) =>
               current
-                ? { ...current, chat: done.chat ?? current.chat, messages: done.messages ?? current.messages }
+                ? {
+                    ...current,
+                    chat: done.chat ?? current.chat,
+                    messages: done.messages ? keepShownPins(done.messages, current.messages) : current.messages
+                  }
                 : current
             );
             if (done.participants) {
@@ -464,7 +485,11 @@ export function MultiAgentChatPage() {
     setInterveneError("");
     try {
       const response = await api.sendMessage(chatId, content);
-      setState((current) => (current ? { ...current, chat: response.chat, messages: response.messages } : current));
+      setState((current) =>
+        current
+          ? { ...current, chat: response.chat, messages: keepShownPins(response.messages, current.messages) }
+          : current
+      );
       // An effect command can have changed a participant's state sheet.
       if (response.participants) {
         setParticipants(response.participants);
@@ -496,6 +521,33 @@ export function MultiAgentChatPage() {
       node.focus();
       node.setSelectionRange(lineStart + candidate.select.start, lineStart + candidate.select.end);
     });
+  }
+
+  async function handleTogglePin(message: MessageRecord) {
+    setPinningIds((current) => ({ ...current, [message.id]: true }));
+    setMessageErrors((current) => ({ ...current, [message.id]: "" }));
+    try {
+      const response = await api.setMessagePinned(message.id, !message.pinned);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              messages: current.messages.map((shown) =>
+                shown.id === message.id ? { ...shown, pinned: response.message.pinned } : shown
+              )
+            }
+          : current
+      );
+    } catch (nextError) {
+      const text = nextError instanceof Error ? nextError.message : t("multiAgent.pinError");
+      setMessageErrors((current) => ({ ...current, [message.id]: text }));
+    } finally {
+      setPinningIds((current) => {
+        const next = { ...current };
+        delete next[message.id];
+        return next;
+      });
+    }
   }
 
   // The dialog opens on the server's draft rather than on the message alone
@@ -779,7 +831,10 @@ export function MultiAgentChatPage() {
                 <MessageBubble key={message.id} $role={message.role}>
                   <Stack>
                     <Row style={{ justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                      <strong style={{ overflowWrap: "anywhere" }}>{speakerLabel(message)}</strong>
+                      <Row style={{ alignItems: "baseline", gap: 8 }}>
+                        <strong style={{ overflowWrap: "anywhere" }}>{speakerLabel(message)}</strong>
+                        {message.pinned ? <Badge tone="warm">{t("multiAgent.pinned")}</Badge> : null}
+                      </Row>
                       <MetaText style={{ whiteSpace: "nowrap" }}>{message.modelName ?? ""}</MetaText>
                     </Row>
                     <ReasoningFold reasoning={message.reasoning ?? ""} thinking={false} />
@@ -793,6 +848,20 @@ export function MultiAgentChatPage() {
                     <StateEffectChips effects={message.stateEffects ?? []} />
                     <MessageReferences references={message.references} />
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
+                      {/* Open while a turn runs: the turn reads pins only when it assembles
+                          its prompt (design §4.9.4). Like the memory lock, the button names
+                          what it does and the badge by the speaker says what is. */}
+                      <ActionButton
+                        type="button"
+                        iconOnly
+                        aria-label={message.pinned ? t("multiAgent.unpin") : t("multiAgent.pin")}
+                        title={message.pinned ? t("multiAgent.unpin") : t("multiAgent.pinTitle")}
+                        busy={Boolean(pinningIds[message.id])}
+                        onClick={() => void handleTogglePin(message)}
+                        style={MESSAGE_ACTION_STYLE}
+                      >
+                        {message.pinned ? <PinOffIcon /> : <PinIcon />}
+                      </ActionButton>
                       <CopyMessageButton
                         content={messageCopyText(message, t)}
                         onError={(next) => setMessageErrors((current) => ({ ...current, [message.id]: next }))}
