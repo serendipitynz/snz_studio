@@ -154,6 +154,45 @@ func (s *Server) handleNextSpeaker(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"participant": participant, "recentRounds": service.TurnRecentRounds})
 }
 
+// handleSetMessagePinned puts the human's pin on an utterance or takes it off
+// (design §4.9.4). It does not take the chat's turn right, so a pin can change
+// while a turn runs: the turn reads pins only when it assembles its prompt, and
+// storing its utterance never writes one. A temporary chat may pin too — unlike a
+// memory save, a pin writes nothing outside the chat.
+func (s *Server) handleSetMessagePinned(w http.ResponseWriter, r *http.Request) {
+	m, ok := decodeBody(w, r)
+	if !ok {
+		return
+	}
+	pinned, isBool := bodyBool(m, "pinned")
+	if !isBool {
+		writeError(w, http.StatusBadRequest, "pinned must be a boolean")
+		return
+	}
+	message, err := s.chats.GetMessage(r.PathValue("messageId"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if message == nil {
+		writeError(w, http.StatusNotFound, "message not found")
+		return
+	}
+	if _, ok := s.requireMultiAgentChat(w, message.ChatID); !ok {
+		return
+	}
+	message, err = s.chats.SetMessagePinned(message.ID, pinned)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if message == nil {
+		writeError(w, http.StatusNotFound, "message not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": message})
+}
+
 // handleRunTurnStream runs one turn and streams it (design §4.1, §5, §4.6.6).
 // The SSE writer is created when the engine announces the speaker instead of up
 // front: every way a turn can be refused — a turn already running (409), an
