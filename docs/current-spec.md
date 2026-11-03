@@ -219,7 +219,7 @@ Current limits, accepted as behavior:
 
 - history is assembled within a budget of 2,000 characters per participant, capped by the speaker's
   model context: the recent messages (roster size × 2) plus messages picked by score from before
-  them. An omission line marks each gap, and a last message too long for the context keeps its head
+  them, pinned messages first. An omission line marks each gap, and a last message too long for the context keeps its head
   and tail. There is no summary-based compression
 - a system prompt that fills the context by itself refuses the turn and names the setting that is
   too long
@@ -489,7 +489,7 @@ Center:
     known yet (weighted, manual), "Speaking: <name>" with the busy figure
   - "Advance" (one turn) and "Auto" (auto-advance; "Stop" while it runs) with a `(?)` hint saying that stopping takes
     effect at the turn boundary and that each speaker reads the latest messages (up to roster size × 2, the
-    user's included but not counted) and messages picked from earlier, with more going unread in a
+    user's included but not counted) and messages picked from earlier, pinned ones first, with more going unread in a
     conversation with long messages. Between a stop and the end of the turn in flight the button keeps "Stop" and shows
     it is busy
   - at the far end, a "Turn n" badge (the participants' utterances) and "Intervene". That some messages
@@ -505,6 +505,9 @@ Center:
 - typing `/` on the composer's last line offers the forms of the commands the conversation enables,
   and the format stays shown while the arguments are typed. There is no dice or state button
 - save to memory on each utterance; disabled in a temporary chat, with the reason on the button
+- pin on each utterance (taken off by the same button), open while a turn runs; a pinned utterance
+  shows a "pinned" badge by its speaker's name. A pin is a large bonus to the utterance's score, so
+  pinned ones are picked first from before the recent messages, still within the budget
 
 Right pane:
 
