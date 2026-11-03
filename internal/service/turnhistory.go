@@ -29,8 +29,11 @@ const (
 )
 
 // The utterance score of design §4.9.3. Length earns nothing: it is what the
-// budget charges for, not a sign of value.
+// budget charges for, not a sign of value. The pin outweighs the most every other
+// bonus can add up to (3 + 5 + 3 + 2 + 2), so pinned utterances are picked first
+// and, when they outgrow the budget, among themselves by the rest of the score.
 const (
+	turnScorePinned          = 100
 	turnScoreHuman           = 3
 	turnScoreEchoPerTerm     = 3
 	turnScoreEchoTotal       = 5
@@ -75,8 +78,8 @@ type turnHistoryRequest struct {
 // §4.9.2). It runs per speaker because models and windows differ by participant
 // and the score has a per-speaker part. The caller refuses a window of 0 or less.
 //
-// Extension point: TASK-105 adds the pin to scoreTurnHistory, and TASK-106 stores
-// the selected and shortened utterances as references.
+// Extension point: TASK-106 stores the selected and shortened utterances as
+// references.
 func assembleTurnHistory(messages []model.Message, req turnHistoryRequest) ([]model.Message, error) {
 	entries := mapHistoryForSpeaker(messages, req.speaker, req.participants, req.language)
 	if len(entries) == 0 {
@@ -295,6 +298,9 @@ func scoreTurnHistory(entries []turnHistoryEntry, req turnHistoryRequest) []int 
 	seen := map[string]bool{}
 	for i, entry := range entries {
 		score := 0
+		if entry.source.Pinned {
+			score += turnScorePinned
+		}
 		if isTurnHuman(entry.source) {
 			score += turnScoreHuman
 		}
