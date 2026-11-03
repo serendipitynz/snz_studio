@@ -1,10 +1,10 @@
 ---
 id: TASK-105
 title: '多人数会話: 観戦ビューで発言をピン留めでき、ピン留めした発言が履歴に優先して残るようにする'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 19:25'
-updated_date: '2026-11-03 07:10'
+updated_date: '2026-11-03 08:48'
 labels: []
 dependencies:
   - TASK-104
@@ -65,4 +65,6 @@ ordinal: 109000
 - AC #3: `TestAssembleTurnHistoryPrefersPinned`（予算が直近区間 + 1 組しか入らない会話で、ピン留めなしなら人間の介入発言が選ばれ、直近区間より前の発言をピン留めするとそちらが選ばれる）、`TestAssembleTurnHistoryPinsOverBudget`（ピン留めが予算を超えるとピン留めどうしで他の加点の順になる）、`TestScoreTurnHistory/pinned`。
 - `go test ./...`・`go vet ./...`・`gofmt -l`・`pnpm run check:client`・`pnpm run test:client` が通った。
 - 見ていないもの: ダークテーマと Solarized でのバッジの見え方（既存の `Badge tone="warm"` をそのまま使ったので新しい配色の組み合わせはない）。snz-design doc-17 の適用記録は更新していない。
+
+レビュー後の修正（PR #113、cb04277）: 上の「表示中の発言のピン留めを手元の値で保つ」やり方は、再読み込みと重なると成り立たなかった（Codex の [P3]。再読み込みの応答がピン留め前の値を表示に入れると、以降のターンの応答でもその古い値が保たれる）。確定したピン留めに通し番号を振る `frontend/src/components/pinLedger.ts` に置き換え、再読み込み・ターンの `done`・介入の応答は、要求を送った後に確定した付け外しだけを上書きして取り込むようにした。`frontend/test/pinLedger.test.ts`（4 件）で確認。実アプリでの再現確認はしていない（手で再現しにくい競合のため）。再レビューは指摘なしで APPROVE。PR #113 でマージ。
 <!-- SECTION:NOTES:END -->
