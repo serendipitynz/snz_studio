@@ -31,6 +31,7 @@ import {
   UserGroupIcon
 } from "../components/icons";
 import { MarkdownPreview } from "../components/MarkdownPreview";
+import { createPinLedger } from "../components/pinLedger";
 import { ReasoningFold } from "../components/ReasoningFold";
 import { MessageReferences } from "../components/MessageReferences";
 import { ParticipantPanel } from "../components/ParticipantPanel";
@@ -148,18 +149,6 @@ const SPEAKER_SPINNER_STYLE = {
 // The 24px bare icon buttons of a message's action row, shared with the copy button.
 const MESSAGE_ACTION_STYLE = { width: 24, height: 24, border: "none", background: "transparent", padding: 0 } as const;
 
-// A pin can change while a turn runs (design §4.9.4), so the transcript a turn or
-// an intervention read may predate a pin stored since. Within this window a pin
-// changes only through the toggle, whose response updates the shown message, so
-// the shown pin is the newer one for every message already in view.
-function keepShownPins(incoming: MessageRecord[], shown: MessageRecord[]): MessageRecord[] {
-  const pins = new Map(shown.map((message) => [message.id, message.pinned]));
-  return incoming.map((message) => {
-    const pinned = pins.get(message.id);
-    return pinned === undefined || pinned === message.pinned ? message : { ...message, pinned };
-  });
-}
-
 // MultiAgentChatPage is the spectator view and progression control of
 // docs/multi-agent-chat-design.md §6. Auto-advance is this loop calling the
 // one-turn route repeatedly (§4.1): there is no server-side progression job, so
@@ -218,6 +207,7 @@ export function MultiAgentChatPage() {
   // The messages whose pin is being changed. Each toggle is its own request and
   // takes no turn slot, so several can run beside a turn.
   const [pinningIds, setPinningIds] = useState<Record<string, boolean>>({});
+  const [pinLedger] = useState(createPinLedger);
   // Where the conclusion draft was asked from: the header, or one message's
   // "from here". Only that button shows the busy figure.
   const [concludingFrom, setConcludingFrom] = useState<string | null>(null);
@@ -235,6 +225,7 @@ export function MultiAgentChatPage() {
 
   const load = useCallback(async () => {
     setError("");
+    const pinMark = pinLedger.mark();
     try {
       const chatResponse = await api.getChatDetail(chatId);
       const [participantsResponse, projectResponse, projectsResponse] = await Promise.all([
@@ -243,14 +234,14 @@ export function MultiAgentChatPage() {
         api.getProjects()
       ]);
 
-      setState(chatResponse);
+      setState({ ...chatResponse, messages: pinLedger.applySince(pinMark, chatResponse.messages) });
       setParticipants(participantsResponse.participants);
       setProjectChats(projectResponse.chats);
       setProjects(projectsResponse.projects);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : t("multiAgent.loadError"));
     }
-  }, [chatId, t]);
+  }, [chatId, pinLedger, t]);
 
   useEffect(() => {
     setLoading(true);
@@ -368,6 +359,7 @@ export function MultiAgentChatPage() {
     setTurnRunning(true);
 
     let next: TurnInput | null = null;
+    const pinMark = pinLedger.mark();
     try {
       await streamSSE(
         `/api/chats/${chatId}/turns/stream`,
@@ -410,7 +402,7 @@ export function MultiAgentChatPage() {
                 ? {
                     ...current,
                     chat: done.chat ?? current.chat,
-                    messages: done.messages ? keepShownPins(done.messages, current.messages) : current.messages
+                    messages: done.messages ? pinLedger.applySince(pinMark, done.messages) : current.messages
                   }
                 : current
             );
@@ -483,11 +475,12 @@ export function MultiAgentChatPage() {
 
     setPosting(true);
     setInterveneError("");
+    const pinMark = pinLedger.mark();
     try {
       const response = await api.sendMessage(chatId, content);
       setState((current) =>
         current
-          ? { ...current, chat: response.chat, messages: keepShownPins(response.messages, current.messages) }
+          ? { ...current, chat: response.chat, messages: pinLedger.applySince(pinMark, response.messages) }
           : current
       );
       // An effect command can have changed a participant's state sheet.
@@ -528,6 +521,7 @@ export function MultiAgentChatPage() {
     setMessageErrors((current) => ({ ...current, [message.id]: "" }));
     try {
       const response = await api.setMessagePinned(message.id, !message.pinned);
+      pinLedger.confirm(message.id, response.message.pinned);
       setState((current) =>
         current
           ? {
