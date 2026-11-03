@@ -217,7 +217,12 @@ A turn:
 
 Current limits, accepted as behavior:
 
-- history is truncated to the most recent 30 messages; there is no summary-based compression
+- history is assembled within a budget of 2,000 characters per participant, capped by the speaker's
+  model context: the recent messages (roster size × 2) plus messages picked by score from before
+  them. An omission line marks each gap, and a last message too long for the context keeps its head
+  and tail. There is no summary-based compression
+- a system prompt that fills the context by itself refuses the turn and names the setting that is
+  too long
 - a turn in progress is never interrupted — it finishes generating and is stored even if the client
   disconnects, so stopping auto-advance only takes effect at the turn boundary
 - recovery after a disconnect is re-reading the stored messages; missed deltas are not replayed
@@ -483,11 +488,12 @@ Center:
     and showing the server's pick as "Next: <name>", or, while a turn runs and the next one is not
     known yet (weighted, manual), "Speaking: <name>" with the busy figure
   - "Advance" (one turn) and "Auto" (auto-advance; "Stop" while it runs) with a `(?)` hint saying that stopping takes
-    effect at the turn boundary and that each speaker reads only the latest 30 messages, the user's
-    included. Between a stop and the end of the turn in flight the button keeps "Stop" and shows
+    effect at the turn boundary and that each speaker reads the latest messages (up to roster size × 2, the
+    user's included but not counted) and messages picked from earlier, with more going unread in a
+    conversation with long messages. Between a stop and the end of the turn in flight the button keeps "Stop" and shows
     it is busy
-  - at the far end, a "Turn n" badge (the participants' utterances) and "Intervene". That messages
-    before the latest 30 go unread is the `(?)` hint's to say; the badge does not repeat it
+  - at the far end, a "Turn n" badge (the participants' utterances) and "Intervene". That some messages
+    go unread is the `(?)` hint's to say; the badge does not repeat it
   - the row holds one line down to about the width the chat screen's does (the speaker select
     shrinks first)
   - above the field, lines shown only when there is something to say: a failed turn, conclusion or

@@ -861,6 +861,60 @@ func (c *LLMClient) EnsureModelLoaded(modelKey, baseURL string) bool {
 	return respOK(loadResp)
 }
 
+// LoadedContextLength reads the context length the model was loaded with from
+// LM Studio's listing, the smallest when several instances are loaded. LM Link
+// lists a model on another machine under the same key, so every matching entry is
+// read rather than the first (design §4.9.7). ok is false when the endpoint has no
+// such listing or the model has no loaded instance.
+func (c *LLMClient) LoadedContextLength(modelKey, baseURL string) (contextLength int, ok bool) {
+	s := c.cfg.Get()
+	if baseURL == "" {
+		baseURL = s.LLMBaseURL
+	}
+	timeout := time.Duration(minInt(s.LLMTimeoutMs, 20000)) * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getLmStudioAPIRoot(baseURL)+"/api/v1/models", nil)
+	if err != nil {
+		return 0, false
+	}
+	c.authHeader(req, s)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, false
+	}
+	defer resp.Body.Close()
+	if !respOK(resp) {
+		return 0, false
+	}
+	var data struct {
+		Models []struct {
+			Type            string `json:"type"`
+			Key             string `json:"key"`
+			LoadedInstances []struct {
+				Config struct {
+					ContextLength int `json:"context_length"`
+				} `json:"config"`
+			} `json:"loaded_instances"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, false
+	}
+	for _, item := range data.Models {
+		if item.Type != "llm" || item.Key != modelKey {
+			continue
+		}
+		for _, instance := range item.LoadedInstances {
+			if length := instance.Config.ContextLength; length > 0 && (!ok || length < contextLength) {
+				contextLength, ok = length, true
+			}
+		}
+	}
+	return contextLength, ok
+}
+
 // CheckConnection mirrors checkConnection: true when the endpoint reports no models
 // or includes the requested model.
 func (c *LLMClient) CheckConnection(baseURL, modelName string) bool {
