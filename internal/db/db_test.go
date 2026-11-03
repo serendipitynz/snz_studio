@@ -395,3 +395,38 @@ func TestChatCommandsBackfill(t *testing.T) {
 		t.Error("dice_target is still a column after migration 18")
 	}
 }
+
+// TestMessagePinnedMigration covers TASK-105 AC #1: migration 022 adds the pin
+// to a database that already holds messages, and every one of them starts
+// unpinned.
+func TestMessagePinnedMigration(t *testing.T) {
+	d := openUnmigratedTemp(t)
+	applyThrough(t, d, "021_fts_vocab")
+
+	mustExec(t, d, `INSERT INTO projects (id, title, created_at, updated_at)
+		VALUES ('p1', 'proj', '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO chats (id, project_id, title, is_temporary, kind, created_at, updated_at)
+		VALUES ('c1', 'p1', 'debate', 0, 'multi_agent', '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO messages (id, chat_id, role, content, created_at)
+		VALUES ('m1', 'c1', 'user', 'hello', '2026-01-01'), ('m2', 'c1', 'assistant', 'hi', '2026-01-02')`)
+
+	if err := ApplyMigrations(d); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+
+	var pinned int
+	if err := d.QueryRow("SELECT COUNT(*) FROM messages WHERE pinned <> 0").Scan(&pinned); err != nil {
+		t.Fatalf("read pinned: %v", err)
+	}
+	if pinned != 0 {
+		t.Errorf("%d existing messages pinned after the migration, want 0", pinned)
+	}
+	mustExec(t, d, `INSERT INTO messages (id, chat_id, role, content, created_at)
+		VALUES ('m3', 'c1', 'user', 'later', '2026-01-03')`)
+	if err := d.QueryRow("SELECT pinned FROM messages WHERE id = 'm3'").Scan(&pinned); err != nil {
+		t.Fatalf("read pinned: %v", err)
+	}
+	if pinned != 0 {
+		t.Errorf("a new message's pinned = %d, want 0", pinned)
+	}
+}

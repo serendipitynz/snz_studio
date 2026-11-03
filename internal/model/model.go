@@ -232,6 +232,7 @@ type Message struct {
 	TokensPerSecond *float64 `json:"tokensPerSecond"`
 	ModelName       *string  `json:"modelName"`
 	ParticipantID   *string  `json:"participantId"`
+	Pinned          bool     `json:"pinned"`
 
 	AddressedParticipantIDs []string      `json:"addressedParticipantIds"`
 	DiceRolls               []DiceRoll    `json:"diceRolls"`

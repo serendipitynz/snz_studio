@@ -450,6 +450,14 @@ var migrations = []migration{
 			CREATE VIRTUAL TABLE memories_fts_vocab USING fts5vocab(memories_fts, 'row');
 		`,
 	},
+	{
+		// pinned is the human's mark on an utterance, which the history selection
+		// scores far above every other bonus (design §4.9.4, TASK-105).
+		id: "022_message_pinned",
+		sql: `
+			ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in

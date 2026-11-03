@@ -23,7 +23,7 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 
 const (
 	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, commands, created_at, updated_at`
-	messageColumns = `id, chat_id, role, content, reasoning, created_at, response_ms, output_tokens, reasoning_tokens, tokens_per_second, model_name, participant_id, addressed_participant_ids, dice_rolls, state_effects`
+	messageColumns = `id, chat_id, role, content, reasoning, created_at, response_ms, output_tokens, reasoning_tokens, tokens_per_second, model_name, participant_id, pinned, addressed_participant_ids, dice_rolls, state_effects`
 	summaryColumns = `chat_id, summary, updated_at`
 	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
 )
@@ -53,11 +53,12 @@ func scanMessage(s scanner) (model.Message, error) {
 		tps           sql.NullFloat64
 		modelName     sql.NullString
 		participantID sql.NullString
+		pinned        int64
 		addressees    string
 		diceRolls     string
 		stateEffects  string
 	)
-	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.Reasoning, &m.CreatedAt, &respMs, &outTok, &reasoningTok, &tps, &modelName, &participantID, &addressees, &diceRolls, &stateEffects); err != nil {
+	if err := s.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.Reasoning, &m.CreatedAt, &respMs, &outTok, &reasoningTok, &tps, &modelName, &participantID, &pinned, &addressees, &diceRolls, &stateEffects); err != nil {
 		return m, err
 	}
 	if err := json.Unmarshal([]byte(addressees), &m.AddressedParticipantIDs); err != nil {
@@ -75,6 +76,7 @@ func scanMessage(s scanner) (model.Message, error) {
 	m.TokensPerSecond = float64Ptr(tps)
 	m.ModelName = strPtr(modelName)
 	m.ParticipantID = strPtr(participantID)
+	m.Pinned = pinned != 0
 	return m, nil
 }
 
@@ -477,6 +479,24 @@ func (r *ChatRepository) DeleteUnfinishedAssistantMessages() (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// SetMessagePinned puts the human's pin on a message or takes it off,
+// returning (nil, nil) if the message does not exist. The chat's updated_at is
+// left alone: a pin changes what later turns read, not the conversation.
+func (r *ChatRepository) SetMessagePinned(messageID string, pinned bool) (*model.Message, error) {
+	res, err := r.db.Exec("UPDATE messages SET pinned = ? WHERE id = ?", boolToInt(pinned), messageID)
+	if err != nil {
+		return nil, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	return r.GetMessage(messageID)
 }
 
 // FinalizeMessageInput carries the fields for FinalizeMessage.
