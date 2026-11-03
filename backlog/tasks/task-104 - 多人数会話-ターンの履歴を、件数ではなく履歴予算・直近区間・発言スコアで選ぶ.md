@@ -1,10 +1,10 @@
 ---
 id: TASK-104
 title: '多人数会話: ターンの履歴を、件数ではなく履歴予算・直近区間・発言スコアで選ぶ'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 19:24'
-updated_date: '2026-11-02 22:44'
+updated_date: '2026-11-03 00:53'
 labels: []
 dependencies:
   - TASK-103
