@@ -260,6 +260,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/chats/{chatId}/export/preset", s.handleExportMultiAgentPreset)
 	mux.HandleFunc("GET /api/messages/{messageId}/memory-draft", s.handleGetMessageMemoryDraft)
 	mux.HandleFunc("POST /api/messages/{messageId}/memory", s.handleSaveMessageMemory)
+	mux.HandleFunc("PATCH /api/messages/{messageId}/pinned", s.handleSetMessagePinned)
 	mux.HandleFunc("POST /api/chats/{chatId}/conclusion-draft", s.handleDraftConclusion)
 
 	// Messages / review

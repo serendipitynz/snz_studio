@@ -392,6 +392,17 @@ func TestScoreTurnHistory(t *testing.T) {
 			t.Fatalf("score = %d, want %d", got, turnScoreRelevance+4)
 		}
 	})
+	t.Run("pinned", func(t *testing.T) {
+		pinned := spoken("bob", "foo")
+		pinned.Pinned = true
+		if got := score(append(padding(), pinned), 2, nil); got != turnScorePinned {
+			t.Fatalf("score = %d, want %d", got, turnScorePinned)
+		}
+		most := turnScoreHuman + turnScoreEchoTotal + turnScoreRelevance + turnScoreSpeakerInvolved + turnScoreOpening
+		if turnScorePinned <= most {
+			t.Fatalf("pin = %d, want more than every other bonus together (%d)", turnScorePinned, most)
+		}
+	})
 	t.Run("length earns nothing", func(t *testing.T) {
 		long := strings.Repeat("foo ", 500)
 		if got := score(append(padding(), spoken("bob", long)), 2, nil); got != 0 {
@@ -422,6 +433,56 @@ func TestSelectTurnEntriesPrefersScoreThenNewer(t *testing.T) {
 		if historyContains(history, fmt.Sprintf("word%d ", dropped)) {
 			t.Fatalf("utterance %d should have lost to the rest", dropped)
 		}
+	}
+}
+
+// pinTranscript is twenty equally long utterances by Bob, read by Alice, with a
+// human intervention at 8: the window leaves room for the recent section and one
+// selected pair, so whichever utterance scores highest is the only one picked.
+func pinTranscript() ([]model.Message, turnHistoryRequest) {
+	roster := historyRoster("Alice", "Bob")
+	messages := make([]model.Message, 20)
+	for i := range messages {
+		messages[i] = spoken("bob", strings.Repeat(fmt.Sprintf("w%02d ", i), 60))
+	}
+	messages[8] = model.Message{Role: "user", Content: messages[8].Content}
+	return messages, historyRequest(roster, 1560)
+}
+
+// TestAssembleTurnHistoryPrefersPinned covers TASK-105 AC #3: a pinned utterance
+// from before the recent section takes the one free slot from the human
+// intervention that would otherwise win it.
+func TestAssembleTurnHistoryPrefersPinned(t *testing.T) {
+	messages, req := pinTranscript()
+	unpinned := assembled(t, messages, req)
+	if !historyContains(unpinned, "w08 ") || historyContains(unpinned, "w12 ") {
+		t.Fatalf("without a pin the human intervention should take the slot: %+v", unpinned)
+	}
+
+	messages[12].Pinned = true
+	history := assembled(t, messages, req)
+	for _, kept := range []int{11, 12, 16, 17, 18, 19} {
+		if !historyContains(history, fmt.Sprintf("w%02d ", kept)) {
+			t.Fatalf("utterance %d is missing: %+v", kept, history)
+		}
+	}
+	if historyContains(history, "w08 ") {
+		t.Fatalf("the human intervention should have lost its slot to the pin: %+v", history)
+	}
+	if got := historyChars(history); got > req.windowChars {
+		t.Fatalf("history = %d characters, over the window of %d", got, req.windowChars)
+	}
+}
+
+// TestAssembleTurnHistoryPinsOverBudget: the pin is a bonus, not a guarantee, so
+// pins that outgrow the budget compete by the rest of the score.
+func TestAssembleTurnHistoryPinsOverBudget(t *testing.T) {
+	messages, req := pinTranscript()
+	messages[8].Pinned = true
+	messages[12].Pinned = true
+	history := assembled(t, messages, req)
+	if !historyContains(history, "w08 ") || historyContains(history, "w12 ") {
+		t.Fatalf("the pinned human intervention should outrank the other pin: %+v", history)
 	}
 }
 

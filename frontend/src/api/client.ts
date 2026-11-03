@@ -220,6 +220,9 @@ export interface MessageRecord {
   tokensPerSecond: number | null;
   modelName: string | null;
   participantId: string | null;
+  // The human's pin, which puts the utterance first when a turn picks what to
+  // read from before its recent section (design §4.9.4).
+  pinned: boolean;
   // The participants this message called on, fixed when it was stored. Only the
   // weighted turn rule reads it (design §4.6.5).
   addressedParticipantIds: string[];
@@ -512,6 +515,12 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input)
+    }),
+  setMessagePinned: (messageId: string, pinned: boolean) =>
+    request<{ message: MessageRecord }>(`/api/messages/${messageId}/pinned`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned })
     }),
   updateMemoryLock: (memoryId: string, locked: boolean) =>
     request<{ memory: MemoryRecord }>(`/api/memories/${memoryId}/lock`, {
