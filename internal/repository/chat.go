@@ -25,7 +25,7 @@ const (
 	chatColumns    = `id, project_id, title, is_temporary, kind, turn_rule, scene_prompt, facilitator_participant_id, state_sheet, commands, created_at, updated_at`
 	messageColumns = `id, chat_id, role, content, reasoning, created_at, response_ms, output_tokens, reasoning_tokens, tokens_per_second, model_name, participant_id, pinned, addressed_participant_ids, dice_rolls, state_effects`
 	summaryColumns = `chat_id, summary, updated_at`
-	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at`
+	referenceCols  = `id, assistant_message_id, source_type, source_id, label, excerpt, score, read_chars, created_at`
 )
 
 func scanChat(s scanner) (model.Chat, error) {
@@ -88,7 +88,7 @@ func scanSummary(s scanner) (model.ChatSummary, error) {
 
 func scanReference(s scanner) (model.AssistantMessageReference, error) {
 	var ref model.AssistantMessageReference
-	err := s.Scan(&ref.ID, &ref.AssistantMessageID, &ref.SourceType, &ref.SourceID, &ref.Label, &ref.Excerpt, &ref.Score, &ref.CreatedAt)
+	err := s.Scan(&ref.ID, &ref.AssistantMessageID, &ref.SourceType, &ref.SourceID, &ref.Label, &ref.Excerpt, &ref.Score, &ref.ReadChars, &ref.CreatedAt)
 	return ref, err
 }
 
@@ -648,6 +648,7 @@ type ReferenceInput struct {
 	Label      string
 	Excerpt    string
 	Score      float64
+	ReadChars  *int
 }
 
 // ReplaceAssistantReferences swaps all references for an assistant message.
@@ -670,9 +671,9 @@ func (r *ChatRepository) ReplaceAssistantReferences(assistantMessageID string, r
 func insertReferences(tx *sql.Tx, assistantMessageID string, references []ReferenceInput) error {
 	for _, ref := range references {
 		if _, err := tx.Exec(`
-			INSERT INTO assistant_message_references (id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			util.NewID("ref"), assistantMessageID, ref.SourceType, ref.SourceID, ref.Label, ref.Excerpt, ref.Score, util.NowISO()); err != nil {
+			INSERT INTO assistant_message_references (id, assistant_message_id, source_type, source_id, label, excerpt, score, read_chars, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			util.NewID("ref"), assistantMessageID, ref.SourceType, ref.SourceID, ref.Label, ref.Excerpt, ref.Score, ref.ReadChars, util.NowISO()); err != nil {
 			return err
 		}
 	}

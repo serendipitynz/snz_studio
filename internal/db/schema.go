@@ -458,6 +458,38 @@ var migrations = []migration{
 			ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
 		`,
 	},
+	{
+		// A turn's references name the earlier utterances its speaker read: the
+		// selected ones, and the last one when it was shortened to fit the window
+		// (design §4.9.5, TASK-106). read_chars is how much of a shortened one the
+		// model read, NULL for every other source. Widening the CHECK constraint
+		// needs the table rebuilt, as 007 did.
+		id: "023_utterance_references",
+		sql: `
+			CREATE TABLE assistant_message_references_new (
+				id TEXT PRIMARY KEY,
+				assistant_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+				source_type TEXT NOT NULL CHECK(source_type IN ('project', 'summary', 'document', 'memory', 'chat', 'utterance', 'shortened_utterance')),
+				source_id TEXT NOT NULL,
+				label TEXT NOT NULL,
+				excerpt TEXT NOT NULL DEFAULT '',
+				score REAL NOT NULL DEFAULT 0,
+				read_chars INTEGER,
+				created_at TEXT NOT NULL
+			);
+
+			INSERT INTO assistant_message_references_new (
+				id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at
+			)
+			SELECT
+				id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at
+			FROM assistant_message_references;
+
+			DROP TABLE assistant_message_references;
+			ALTER TABLE assistant_message_references_new RENAME TO assistant_message_references;
+			CREATE INDEX idx_assistant_refs_message ON assistant_message_references(assistant_message_id);
+		`,
+	},
 }
 
 // ApplyMigrations applies all pending migrations in order, recording each in

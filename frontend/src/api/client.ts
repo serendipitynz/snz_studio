@@ -187,11 +187,15 @@ export type MultiAgentPresetSelection = { presetId: string; preset?: undefined }
 export interface AssistantReference {
   id: string;
   assistantMessageId: string;
-  sourceType: "project" | "summary" | "document" | "memory" | "chat";
+  // The utterance types are a multi-agent turn's: an earlier utterance it read,
+  // and the last one when it was shortened to fit the window (design §4.9.5).
+  sourceType: "project" | "summary" | "document" | "memory" | "chat" | "utterance" | "shortened_utterance";
   sourceId: string;
   label: string;
   excerpt: string;
   score: number;
+  // How much of a shortened_utterance the model read; null for every other type.
+  readChars: number | null;
   createdAt: string;
 }
 

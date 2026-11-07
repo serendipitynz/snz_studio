@@ -247,7 +247,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	language := e.cfg.Get().ProcessingLanguage
 	material := e.assembleMaterial(chat, speaker, messages)
 	systemPrompt := buildTurnSystemPrompt(material.Prompt, chat, speaker, knownSpeakers, language)
-	mapped, err := e.buildTurnHistory(chat, speaker, knownSpeakers, messages, systemPrompt, target, language)
+	read, err := e.buildTurnHistory(chat, speaker, knownSpeakers, messages, systemPrompt, target, language)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +257,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 	}
 
 	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(material.References))
-	history, finalUserMessage := buildTurnPrompt(mapped, speaker, language)
+	history, finalUserMessage := buildTurnPrompt(read.messages, speaker, language)
 	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
 		SystemPrompt: systemPrompt,
 		Messages:     history,
@@ -318,7 +318,7 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 		AddressedParticipantIDs: utterance.addressees,
 		DiceRolls:               diceRolls,
 		StateEffect:             utterance.stateEffect(e.rollDie),
-	}, referenceInputs(material.References))
+	}, append(referenceInputs(material.References), read.references...))
 	if err != nil {
 		return nil, err
 	}
@@ -395,14 +395,14 @@ func (e *TurnEngine) throwDice(utterance storedUtterance, chat *model.Chat) []mo
 // buildTurnHistory finds the speaker's window and fills it (design §4.9.2). An
 // endpoint that cannot report its context length gets the default rather than a
 // failed turn: only LM Studio has the listing to ask.
-func (e *TurnEngine) buildTurnHistory(chat *model.Chat, speaker *model.Participant, participants []model.Participant, messages []model.Message, systemPrompt string, target *CompletionTarget, language lang.Language) ([]model.Message, error) {
+func (e *TurnEngine) buildTurnHistory(chat *model.Chat, speaker *model.Participant, participants []model.Participant, messages []model.Message, systemPrompt string, target *CompletionTarget, language lang.Language) (turnHistory, error) {
 	contextTokens, ok := e.llm.LoadedContextLength(target.Model, target.BaseURL)
 	if !ok {
 		contextTokens = turnDefaultContextTokens
 	}
 	windowChars := turnWindowChars(contextTokens, systemPrompt, buildTurnCue(speaker, language))
 	if windowChars <= 0 {
-		return nil, turnSettingsTooLong(chat, speaker, participants, systemPrompt, contextTokens, language)
+		return turnHistory{}, turnSettingsTooLong(chat, speaker, participants, systemPrompt, contextTokens, language)
 	}
 	return assembleTurnHistory(messages, turnHistoryRequest{
 		speaker:      speaker,

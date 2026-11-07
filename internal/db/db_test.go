@@ -430,3 +430,53 @@ func TestMessagePinnedMigration(t *testing.T) {
 		t.Errorf("a new message's pinned = %d, want 0", pinned)
 	}
 }
+
+// TestUtteranceReferencesMigration covers TASK-106 AC #3's storage half: migration
+// 023 keeps the references already stored, and the rebuilt table takes the two
+// utterance source types while still refusing an unknown one.
+func TestUtteranceReferencesMigration(t *testing.T) {
+	d := openUnmigratedTemp(t)
+	applyThrough(t, d, "022_message_pinned")
+
+	mustExec(t, d, `INSERT INTO projects (id, title, created_at, updated_at)
+		VALUES ('p1', 'proj', '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO chats (id, project_id, title, is_temporary, created_at, updated_at)
+		VALUES ('c1', 'p1', 'chat', 0, '2026-01-01', '2026-01-01')`)
+	mustExec(t, d, `INSERT INTO messages (id, chat_id, role, content, created_at)
+		VALUES ('m1', 'c1', 'user', 'hello', '2026-01-01'), ('m2', 'c1', 'assistant', 'hi', '2026-01-02')`)
+	mustExec(t, d, `INSERT INTO assistant_message_references (id, assistant_message_id, source_type, source_id, label, excerpt, score, created_at)
+		VALUES ('r1', 'm2', 'document', 'd1', 'Doc', 'excerpt', 0.5, '2026-01-02')`)
+
+	if err := ApplyMigrations(d); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+
+	var (
+		sourceType, label, excerpt string
+		score                      float64
+		readChars                  sql.NullInt64
+	)
+	if err := d.QueryRow("SELECT source_type, label, excerpt, score, read_chars FROM assistant_message_references WHERE id = 'r1'").
+		Scan(&sourceType, &label, &excerpt, &score, &readChars); err != nil {
+		t.Fatalf("read the existing reference: %v", err)
+	}
+	if sourceType != "document" || label != "Doc" || excerpt != "excerpt" || score != 0.5 || readChars.Valid {
+		t.Errorf("existing reference = %s %s %s %v %v, want it unchanged with no read_chars", sourceType, label, excerpt, score, readChars)
+	}
+	mustExec(t, d, `INSERT INTO assistant_message_references (id, assistant_message_id, source_type, source_id, label, created_at)
+		VALUES ('r2', 'm2', 'utterance', 'm1', 'Human', '2026-01-02')`)
+	mustExec(t, d, `INSERT INTO assistant_message_references (id, assistant_message_id, source_type, source_id, label, read_chars, created_at)
+		VALUES ('r3', 'm2', 'shortened_utterance', 'm1', 'Human', 900, '2026-01-02')`)
+	if _, err := d.Exec(`INSERT INTO assistant_message_references (id, assistant_message_id, source_type, source_id, label, created_at)
+		VALUES ('r4', 'm2', 'message', 'm1', 'Human', '2026-01-02')`); err == nil {
+		t.Error("an unknown source type was accepted")
+	}
+	mustExec(t, d, "DELETE FROM messages WHERE id = 'm2'")
+	var left int
+	if err := d.QueryRow("SELECT COUNT(*) FROM assistant_message_references").Scan(&left); err != nil {
+		t.Fatalf("count references: %v", err)
+	}
+	if left != 0 {
+		t.Errorf("%d references outlived their message, want the cascade kept", left)
+	}
+}
