@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -355,10 +356,49 @@ func (c *LLMClient) CreateChatCompletion(input ChatCompletionInput) (*ChatComple
 // text, shown instead of everything streamed before it. Otherwise Text is
 // appended. A whole-text replacement rather than "keep N characters, then append"
 // because Go counts runes and the frontend counts UTF-16 code units.
+//
+// Restart is not a change to either text but the end of both: the generation
+// that produced them is void and another starts from nothing. Only TurnEngine
+// sends it, when it retries an empty completion; Text is then empty.
 type StreamDelta struct {
 	Text      string
 	Replace   bool
 	Reasoning bool
+	Restart   bool
+}
+
+// ErrEmptyCompletion is a stream that ended with no answer once its reasoning
+// and markup were taken out. It is returned as an *EmptyCompletionError.
+var ErrEmptyCompletion = errors.New("LLM stream did not contain message content")
+
+// EmptyCompletionError carries what the stream did send, for the log, which is
+// the only record an empty answer leaves. Completion tokens beyond the reasoning
+// tokens, with no content, mean the model did write an answer that the server
+// did not return as content: gpt-oss-20b on LM Studio does this when it writes
+// the answer to the commentary channel instead of the final one (TASK-112).
+type EmptyCompletionError struct {
+	FinishReason     string
+	ContentChars     int
+	ReasoningChars   int
+	CompletionTokens *int64
+	ReasoningTokens  *int64
+}
+
+func (e *EmptyCompletionError) Error() string { return ErrEmptyCompletion.Error() }
+
+func (e *EmptyCompletionError) Unwrap() error { return ErrEmptyCompletion }
+
+// Detail is the error's fields as one log line.
+func (e *EmptyCompletionError) Detail() string {
+	return fmt.Sprintf("finish_reason=%q raw_content_chars=%d reasoning_chars=%d completion_tokens=%s reasoning_tokens=%s",
+		e.FinishReason, e.ContentChars, e.ReasoningChars, tokenCount(e.CompletionTokens), tokenCount(e.ReasoningTokens))
+}
+
+func tokenCount(n *int64) string {
+	if n == nil {
+		return "unknown"
+	}
+	return strconv.FormatInt(*n, 10)
 }
 
 // maxStreamEventBytes bounds the bytes held while waiting for an SSE event's
@@ -423,6 +463,7 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 		visibleContent   string
 		visibleReasoning string
 		usage            *completionUsage
+		finishReason     string
 	)
 
 	show := func(shown *string, next string, reasoning bool) {
@@ -463,6 +504,7 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 					ReasoningContent string `json:"reasoning_content"`
 					Reasoning        string `json:"reasoning"`
 				} `json:"delta"`
+				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
 			Usage *completionUsage `json:"usage"`
 		}
@@ -474,6 +516,9 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 		}
 		if len(payload.Choices) == 0 {
 			return nil
+		}
+		if reason := payload.Choices[0].FinishReason; reason != nil && *reason != "" {
+			finishReason = *reason
 		}
 		delta := payload.Choices[0].Delta
 		if delta.Content == "" && delta.ReasoningContent == "" && delta.Reasoning == "" {
@@ -530,12 +575,18 @@ func (c *LLMClient) CreateChatCompletionStream(input ChatCompletionInput, onDelt
 	}
 
 	reasoning, content := splitResponse(rawContent.String(), rawReasoning.String(), s.LLMResponseFormat)
-	if strings.TrimSpace(content) == "" {
-		return nil, errors.New("LLM stream did not contain message content")
-	}
 	var completionTokens *int64
 	if usage != nil {
 		completionTokens = usage.CompletionTokens
+	}
+	if strings.TrimSpace(content) == "" {
+		return nil, &EmptyCompletionError{
+			FinishReason:     finishReason,
+			ContentChars:     utf8.RuneCountInString(rawContent.String()),
+			ReasoningChars:   utf8.RuneCountInString(rawReasoning.String()),
+			CompletionTokens: completionTokens,
+			ReasoningTokens:  usage.reasoningTokens(),
+		}
 	}
 	elapsed := float64(time.Since(start).Microseconds()) / 1000.0
 	respMs, tokens, tps := buildGenerationMetrics(generatedText(content, reasoning), elapsed, completionTokens)
