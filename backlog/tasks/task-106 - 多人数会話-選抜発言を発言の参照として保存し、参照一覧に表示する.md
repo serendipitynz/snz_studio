@@ -1,10 +1,10 @@
 ---
 id: TASK-106
 title: '多人数会話: 選抜発言と末尾の発言の切り詰めを発言の参照として保存し、参照一覧に表示する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 19:25'
-updated_date: '2026-11-07 02:24'
+updated_date: '2026-11-07 05:05'
 labels: []
 dependencies:
   - TASK-104
