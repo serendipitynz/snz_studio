@@ -108,13 +108,15 @@ func TestSSEIncrementalDelivery(t *testing.T) {
 }
 
 // TestSSEStreamDeltaFrames pins the frame names the frontend reads: the answer's
-// changes as delta / replace, the reasoning's as reasoning / reasoning-replace.
+// changes as delta / replace, the reasoning's as reasoning / reasoning-replace,
+// and a retried turn's restart as retry.
 func TestSSEStreamDeltaFrames(t *testing.T) {
 	deltas := []service.StreamDelta{
 		{Text: "a"},
 		{Text: "b", Replace: true},
 		{Text: "c", Reasoning: true},
 		{Text: "d", Replace: true, Reasoning: true},
+		{Restart: true},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sse, err := NewSSEWriter(w)
@@ -139,6 +141,7 @@ func TestSSEStreamDeltaFrames(t *testing.T) {
 		{"replace", `{"content":"b"}`},
 		{"reasoning", `{"content":"c"}`},
 		{"reasoning-replace", `{"content":"d"}`},
+		{"retry", `{}`},
 	} {
 		event, data, err := readSSEEvent(reader)
 		if err != nil {
