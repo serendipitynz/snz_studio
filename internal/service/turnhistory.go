@@ -9,7 +9,9 @@ import (
 
 	"snzstudio/internal/lang"
 	"snzstudio/internal/model"
+	"snzstudio/internal/repository"
 	"snzstudio/internal/search"
+	"snzstudio/internal/util"
 )
 
 // TurnRecentRounds is R of design §4.9.1: the recent section holds roster size × R
@@ -74,20 +76,27 @@ type turnHistoryRequest struct {
 	language     lang.Language
 }
 
+// turnHistory is what the speaker reads, with the part of it the spectator view
+// lists as the turn's references (design §4.9.5): the selected utterances, and the
+// last one when it had to be shortened. The recent section is not among them:
+// every turn reads it, so naming it says nothing about this one.
+type turnHistory struct {
+	messages   []model.Message
+	references []repository.ReferenceInput
+}
+
 // assembleTurnHistory picks what the speaker reads, in transcript order (design
 // §4.9.2). It runs per speaker because models and windows differ by participant
 // and the score has a per-speaker part. The caller refuses a window of 0 or less.
-//
-// Extension point: TASK-106 stores the selected and shortened utterances as
-// references.
-func assembleTurnHistory(messages []model.Message, req turnHistoryRequest) ([]model.Message, error) {
+func assembleTurnHistory(messages []model.Message, req turnHistoryRequest) (turnHistory, error) {
 	entries := mapHistoryForSpeaker(messages, req.speaker, req.participants, req.language)
 	if len(entries) == 0 {
-		return nil, nil
+		return turnHistory{}, nil
 	}
 	text := promptTextFor(req.language)
 	rosterSize := len(onRoster(req.participants))
 	budget := min(turnBudgetPerParticipantChars*rosterSize, req.windowChars)
+	refs := turnReferences{labels: speakerLabels(req.participants), language: req.language}
 
 	last := len(entries) - 1
 	// The line is charged at its longest count: its real count is only known once
@@ -99,10 +108,10 @@ func assembleTurnHistory(messages []model.Message, req turnHistoryRequest) ([]mo
 	if req.windowChars <= omissionChars {
 		// Nothing but a shortened last utterance can fit, and no line is left to
 		// say what was dropped.
-		entries[last] = shortenTurnEntry(entries[last], req.windowChars, text)
-		return checkTurnHistoryFits(arrangeTurnHistory(entries[last:], []bool{true}, text), req.windowChars)
+		entries[last] = refs.shorten(entries[last], req.windowChars, text)
+		return refs.finish(arrangeTurnHistory(entries[last:], []bool{true}, text), req.windowChars)
 	}
-	entries[last] = shortenTurnEntry(entries[last], req.windowChars-omissionChars, text)
+	entries[last] = refs.shorten(entries[last], req.windowChars-omissionChars, text)
 
 	included := make([]bool, len(entries))
 	included[last] = true
@@ -122,9 +131,61 @@ func assembleTurnHistory(messages []model.Message, req turnHistoryRequest) ([]mo
 		included[i] = true
 	}
 	if recentFits && recentStart > 0 {
-		selectTurnEntries(entries, included, recentStart, budget, req, text)
+		scores := scoreTurnHistory(entries, req)
+		selectTurnEntries(entries, included, recentStart, budget, scores, text)
+		for i := range recentStart {
+			if included[i] {
+				refs.selected(entries[i], scores[i])
+			}
+		}
 	}
-	return checkTurnHistoryFits(arrangeTurnHistory(entries, included, text), req.windowChars)
+	return refs.finish(arrangeTurnHistory(entries, included, text), req.windowChars)
+}
+
+// turnReferenceExcerptChars keeps an utterance's excerpt short: the excerpt only
+// has to tell the utterance apart, and every turn stores several of them.
+const turnReferenceExcerptChars = 80
+
+// turnReferences collects the references while the history is assembled. The
+// label is the speaker's name as the turn saw it, kept for a reader without the
+// roster; the spectator view names the speaker from the roster it shows.
+type turnReferences struct {
+	labels   map[string]string
+	language lang.Language
+	inputs   []repository.ReferenceInput
+}
+
+func (r *turnReferences) shorten(entry turnHistoryEntry, limit int, text *promptText) turnHistoryEntry {
+	shortened := shortenTurnEntry(entry, limit, text)
+	if shortened.chars < entry.chars {
+		readChars := shortened.chars
+		input := r.input("shortened_utterance", entry.source, 0)
+		input.ReadChars = &readChars
+		r.inputs = append(r.inputs, input)
+	}
+	return shortened
+}
+
+func (r *turnReferences) selected(entry turnHistoryEntry, score int) {
+	r.inputs = append(r.inputs, r.input("utterance", entry.source, float64(score)))
+}
+
+func (r *turnReferences) input(sourceType string, m model.Message, score float64) repository.ReferenceInput {
+	return repository.ReferenceInput{
+		SourceType: sourceType,
+		SourceID:   m.ID,
+		Label:      speakerLabel(m, r.labels, r.language),
+		Excerpt:    util.Truncate(contentWithRecords(m, r.language), turnReferenceExcerptChars),
+		Score:      score,
+	}
+}
+
+func (r *turnReferences) finish(history []model.Message, windowChars int) (turnHistory, error) {
+	history, err := checkTurnHistoryFits(history, windowChars)
+	if err != nil {
+		return turnHistory{}, err
+	}
+	return turnHistory{messages: history, references: r.inputs}, nil
 }
 
 // mapHistoryForSpeaker rewrites the transcript into the speaker's own point of
@@ -189,8 +250,7 @@ func turnRecentSectionStart(entries []turnHistoryEntry, count int) int {
 // with the one it answers: an answer read without its question misleads more than
 // it informs. A pair that does not fit is skipped, not a reason to stop, because a
 // shorter one further down the order may still fit.
-func selectTurnEntries(entries []turnHistoryEntry, included []bool, recentStart, budget int, req turnHistoryRequest, text *promptText) {
-	scores := scoreTurnHistory(entries, req)
+func selectTurnEntries(entries []turnHistoryEntry, included []bool, recentStart, budget int, scores []int, text *promptText) {
 	candidates := make([]int, recentStart)
 	for i := range candidates {
 		candidates[i] = recentStart - 1 - i

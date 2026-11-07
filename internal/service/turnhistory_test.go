@@ -37,7 +37,7 @@ func assembled(t *testing.T, messages []model.Message, req turnHistoryRequest) [
 	if err != nil {
 		t.Fatalf("assembleTurnHistory: %v", err)
 	}
-	return history
+	return history.messages
 }
 
 func historyChars(history []model.Message) int {
@@ -611,5 +611,162 @@ func TestTurnEngineDefaultContextForOtherEndpoints(t *testing.T) {
 	messages := srv.captured()[0].Messages
 	if got := runeLen(messages[len(messages)-1].Content); got > turnDefaultContextTokens-turnGenerationReserveTokens {
 		t.Fatalf("final message is %d characters, over the default window", got)
+	}
+}
+
+func withIDs(messages []model.Message) []model.Message {
+	for i := range messages {
+		messages[i].ID = fmt.Sprintf("m%02d", i)
+	}
+	return messages
+}
+
+func referencesOfType(refs []repository.ReferenceInput, sourceType string) []repository.ReferenceInput {
+	var out []repository.ReferenceInput
+	for _, ref := range refs {
+		if ref.SourceType == sourceType {
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+// TestAssembleTurnHistoryReferencesSelected covers TASK-106 AC #1: every utterance
+// picked from before the recent section, the answered one included, is a
+// reference with its score, and nothing from the recent section is.
+func TestAssembleTurnHistoryReferencesSelected(t *testing.T) {
+	roster := historyRoster("Alice", "Bob")
+	filler := strings.Repeat("あ", 400)
+	messages := []model.Message{spoken("alice", filler+"序"), spoken("bob", filler+"破")}
+	for i := 0; i < 8; i++ {
+		messages = append(messages, spoken("bob", fmt.Sprintf("%s途中%d", filler, i)))
+	}
+	messages = append(messages, model.Message{Role: "user", Content: filler + "問い"})
+	messages = append(messages, spoken("bob", filler+"近1"), spoken("alice", filler+"近2"), spoken("bob", filler+"近3"), spoken("alice", filler+"近4"))
+	messages = withIDs(messages)
+	// The four latest utterances; the human's question just before them is not
+	// between two of them, so it is a candidate like any older one.
+	recentStart := len(messages) - 4
+
+	history, err := assembleTurnHistory(messages, historyRequest(roster, 100000))
+	if err != nil {
+		t.Fatalf("assembleTurnHistory: %v", err)
+	}
+
+	selected := referencesOfType(history.references, "utterance")
+	if len(selected) != len(history.references) {
+		t.Fatalf("references = %+v, want only selected utterances when nothing was shortened", history.references)
+	}
+	read := map[string]bool{}
+	for _, m := range messages[:recentStart] {
+		if historyContains(history.messages, m.Content) {
+			read[m.ID] = true
+		}
+	}
+	if len(selected) != len(read) || len(read) == 0 {
+		t.Fatalf("%d selected references for %d utterances read from before the recent section", len(selected), len(read))
+	}
+	for _, ref := range selected {
+		if !read[ref.SourceID] {
+			t.Errorf("reference %s was not read, or is in the recent section", ref.SourceID)
+		}
+		if runeLen(ref.Excerpt) > turnReferenceExcerptChars || ref.Label == "" || ref.ReadChars != nil {
+			t.Errorf("reference %s = %+v", ref.SourceID, ref)
+		}
+	}
+	if !read["m00"] || !read["m01"] {
+		t.Fatalf("the opening pair is not among the references: %v", read)
+	}
+	for _, ref := range selected {
+		if ref.SourceID == "m00" && (ref.Label != "Alice" || ref.Score <= 0) {
+			t.Errorf("opening reference = %+v, want Alice with the opening bonus", ref)
+		}
+	}
+}
+
+// TestAssembleTurnHistoryReferencesShortened covers TASK-106 AC #4's history half:
+// the shortened last utterance is named with how much of it the model read.
+func TestAssembleTurnHistoryReferencesShortened(t *testing.T) {
+	roster := historyRoster("Alice", "Bob")
+	body := "前提" + strings.Repeat("あ", 5000) + "問い"
+	for _, before := range [][]model.Message{nil, {spoken("alice", "前")}} {
+		messages := withIDs(append(before, spoken("bob", body)))
+		history, err := assembleTurnHistory(messages, historyRequest(roster, 1000))
+		if err != nil {
+			t.Fatalf("assembleTurnHistory: %v", err)
+		}
+		shortened := referencesOfType(history.references, "shortened_utterance")
+		if len(shortened) != 1 {
+			t.Fatalf("references = %+v, want one shortened utterance", history.references)
+		}
+		last := history.messages[len(history.messages)-1]
+		ref := shortened[0]
+		if ref.SourceID != messages[len(messages)-1].ID || ref.Label != "Bob" || ref.ReadChars == nil || *ref.ReadChars != runeLen(last.Content) {
+			t.Fatalf("shortened reference = %+v, want Bob's utterance read at %d characters", ref, runeLen(last.Content))
+		}
+	}
+}
+
+// TestTurnEngineStoresUtteranceReferences covers TASK-106 AC #1 and #4 through a
+// real turn: the references reach the database with the turn's message, beside
+// none from the recent section.
+func TestTurnEngineStoresUtteranceReferences(t *testing.T) {
+	g := newTurnGraph(t)
+	srv := newTurnLLMServer(t, "返答", nil)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleManual, "場面", srv.URL, "Alice", "Bob")
+	for i := 0; i < 12; i++ {
+		g.addMessage(t, chat.ID, "assistant", fmt.Sprintf("発言%02d %s", i, strings.Repeat("あ", 600)), &roster[i%2].ID)
+	}
+	before, err := g.chats.ListMessages(chat.ID)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	recent := map[string]bool{}
+	for _, m := range before[len(before)-4:] {
+		recent[m.ID] = true
+	}
+
+	stored, err := g.engine.RunTurn(chat.ID, roster[0].ID, nil, nil)
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	all, err := g.chats.GetMessagesWithReferences(chat.ID)
+	if err != nil {
+		t.Fatalf("GetMessagesWithReferences: %v", err)
+	}
+	refs := all[len(all)-1].References
+	if all[len(all)-1].ID != stored.ID || len(refs) == 0 {
+		t.Fatalf("the turn's message has %d references", len(refs))
+	}
+	for _, ref := range refs {
+		if ref.SourceType != "utterance" {
+			t.Errorf("reference %+v, want only selected utterances", ref)
+		}
+		if recent[ref.SourceID] {
+			t.Errorf("recent utterance %s stored as a reference", ref.SourceID)
+		}
+	}
+}
+
+// TestTurnEngineStoresShortenedReference covers TASK-106 AC #4 through a real turn.
+func TestTurnEngineStoresShortenedReference(t *testing.T) {
+	g := newTurnGraph(t)
+	srv := contextServer(t, "model-alice", 3000)
+	chat, roster := g.newMultiAgentChat(t, model.TurnRuleManual, "場面", srv.URL, "Alice", "Bob")
+	g.addMessage(t, chat.ID, "assistant", strings.Repeat("あ", 5000)+"問い", &roster[1].ID)
+
+	if _, err := g.engine.RunTurn(chat.ID, roster[0].ID, nil, nil); err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	all, err := g.chats.GetMessagesWithReferences(chat.ID)
+	if err != nil {
+		t.Fatalf("GetMessagesWithReferences: %v", err)
+	}
+	refs := all[len(all)-1].References
+	sent := srv.captured()[0].Messages
+	readChars := runeLen(sent[len(sent)-1].Content)
+	if len(refs) != 1 || refs[0].SourceType != "shortened_utterance" || refs[0].SourceID != all[0].ID ||
+		refs[0].ReadChars == nil || *refs[0].ReadChars >= 5000 {
+		t.Fatalf("references = %+v, want the shortened utterance (sent at %d characters)", refs, readChars)
 	}
 }
