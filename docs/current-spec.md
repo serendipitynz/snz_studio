@@ -213,7 +213,8 @@ A turn:
    `【効果】レン たいまつ -1: 2 → 1` lines (`— 適用されず（reason）` for one not applied); the prompt ends on the message this
    participant has to answer
 5. streams the utterance and stores it as an `assistant` message carrying `participant_id`, together
-   with the references the project material was built from (one transaction)
+   with the references the project material was built from and the earlier utterances the speaker read
+   (one transaction)
 
 Current limits, accepted as behavior:
 
@@ -233,7 +234,11 @@ single-assistant prompt context (project system prompt, unconditional procedural
 referenced chats). Project material is retrieved once per turn with a query made of the latest
 utterance, the two before it and the head of the scene (the scene alone on the opening turn), capped
 at 2 documents × 2 passages, 3 memories and 2,000 characters in total. The references used are stored
-with the participant's message and shown under it as on the single-assistant chat screen. A failed
+with the participant's message and shown under it as on the single-assistant chat screen. After the
+project material, the list names the messages picked from before the recent ones (speaker and excerpt,
+`sourceType` `utterance`) and, when the last message was shortened to fit the context, that message and
+how many characters of it the model read (`shortened_utterance`, `readChars`). The recent messages are
+not listed: every turn reads them. A failed
 search leaves the turn without material rather than failing it. A participant that is not given the
 project material gets only the common project material on its turns — the documents and memories
 marked "share with every participant" — and never the project description; the narrowing happens in
