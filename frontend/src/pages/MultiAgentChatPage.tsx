@@ -286,6 +286,10 @@ export function MultiAgentChatPage() {
     return new Map(participants.map((participant) => [participant.id, participant]));
   }, [participants]);
 
+  const messageById = useMemo(() => {
+    return new Map((state?.messages ?? []).map((message) => [message.id, message]));
+  }, [state?.messages]);
+
   const completedTurns = state?.messages.filter((message) => message.participantId).length ?? 0;
   completedTurnsRef.current = completedTurns;
   const turnNumber = turnRunning ? runningTurnNumber : completedTurns;
@@ -652,6 +656,11 @@ export function MultiAgentChatPage() {
     messageScrollerRef.current?.scrollTo({ top: messageScrollerRef.current.scrollHeight, behavior: "smooth" });
   }
 
+  function utteranceSpeaker(messageId: string): string | undefined {
+    const message = messageById.get(messageId);
+    return message ? speakerLabel(message) : undefined;
+  }
+
   function speakerLabel(message: MessageRecord): string {
     if (message.role === "user") {
       return t("multiAgent.speakerHuman");
@@ -840,7 +849,7 @@ export function MultiAgentChatPage() {
                     )}
                     <DiceRollChips rolls={message.diceRolls ?? []} />
                     <StateEffectChips effects={message.stateEffects ?? []} />
-                    <MessageReferences references={message.references} />
+                    <MessageReferences references={message.references} speakerOf={utteranceSpeaker} />
                     <Row style={{ justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
                       {/* Open while a turn runs: the turn reads pins only when it assembles
                           its prompt (design §4.9.4). Like the memory lock, the button names
