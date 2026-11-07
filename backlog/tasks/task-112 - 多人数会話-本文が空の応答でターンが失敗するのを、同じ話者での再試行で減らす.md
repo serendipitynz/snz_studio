@@ -1,10 +1,10 @@
 ---
 id: TASK-112
 title: '多人数会話: 本文が空の応答でターンが失敗するのを、同じ話者での再試行で減らす'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-01 21:53'
-updated_date: '2026-11-07 09:54'
+updated_date: '2026-11-07 10:06'
 labels: []
 dependencies: []
 references:
