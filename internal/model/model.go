@@ -360,7 +360,10 @@ type AssistantMessageReference struct {
 	Label              string  `json:"label"`
 	Excerpt            string  `json:"excerpt"`
 	Score              float64 `json:"score"`
-	CreatedAt          string  `json:"createdAt"`
+	// ReadChars is how much of a shortened_utterance the model read, nil for
+	// every other source type.
+	ReadChars *int   `json:"readChars"`
+	CreatedAt string `json:"createdAt"`
 }
 
 // MessageWithReferences mirrors the MessageWithReferences interface. The
