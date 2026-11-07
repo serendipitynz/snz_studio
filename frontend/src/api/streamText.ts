@@ -8,6 +8,11 @@ export type StreamTextEvent = "delta" | "replace";
 // same append / replace meaning.
 export type StreamReasoningEvent = "reasoning" | "reasoning-replace";
 
+// A multi-agent turn that came back with no answer is generated once more by the
+// same speaker, and "retry" says so: both texts streamed so far belong to the
+// discarded attempt and start over.
+export const STREAM_RETRY_EVENT = "retry";
+
 export function isStreamTextEvent(event: string): event is StreamTextEvent {
   return event === "delta" || event === "replace";
 }

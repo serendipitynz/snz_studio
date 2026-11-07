@@ -258,17 +258,43 @@ func (e *TurnEngine) RunTurn(chatID, participantID string, onSpeaker func(Speake
 
 	log.Printf("[turn] completion start chatId=%s participantId=%s model=%s references=%d", chatID, speaker.ID, effectiveModel, len(material.References))
 	history, finalUserMessage := buildTurnPrompt(read.messages, speaker, language)
-	result, err := e.llm.CreateChatCompletionStream(ChatCompletionInput{
-		SystemPrompt: systemPrompt,
-		Messages:     history,
-		UserInput:    finalUserMessage,
-		Temperature:  float64Ptr(0.7),
-		Target:       target,
-	}, func(delta StreamDelta) {
+	stream := func() (*ChatCompletionResult, error) {
+		return e.llm.CreateChatCompletionStream(ChatCompletionInput{
+			SystemPrompt: systemPrompt,
+			Messages:     history,
+			UserInput:    finalUserMessage,
+			Temperature:  float64Ptr(0.7),
+			Target:       target,
+		}, func(delta StreamDelta) {
+			if onDelta != nil {
+				onDelta(delta)
+			}
+		})
+	}
+	result, err := stream()
+	// An empty answer is generated once more by the same speaker from the same
+	// prompt. Nothing of the first attempt was stored or can be, so the retry
+	// neither repeats an utterance nor moves the turn order, and it is neither a
+	// switch to another participant nor a fallback text, the two §4.2 step 2
+	// rules out. Only once: retrying until an answer arrives would never end on a
+	// model that cannot answer this prompt, and auto-advance would hang on the
+	// turn instead of stopping with the error. Any other failure (refused
+	// request, timeout, a read error or invalid JSON mid-stream) is the
+	// endpoint's, and the same request would most likely meet it again. A stream
+	// that simply ends before any answer, with no finish reason, is judged by its
+	// content like any other and so counts as empty (TASK-112 measured these
+	// clearing on the retry).
+	var empty *EmptyCompletionError
+	if errors.As(err, &empty) {
+		log.Printf("[turn] empty completion, retrying chatId=%s participantId=%s %s", chatID, speaker.ID, empty.Detail())
 		if onDelta != nil {
-			onDelta(delta)
+			onDelta(StreamDelta{Restart: true})
 		}
-	})
+		result, err = stream()
+		if errors.As(err, &empty) {
+			log.Printf("[turn] empty completion again chatId=%s participantId=%s %s", chatID, speaker.ID, empty.Detail())
+		}
+	}
 	if err != nil {
 		// No fallback to another participant, and no fallback text either (§4.2
 		// step 2): a turn that did not happen must not enter the transcript, or

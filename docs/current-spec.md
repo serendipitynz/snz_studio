@@ -214,7 +214,11 @@ A turn:
    participant has to answer
 5. streams the utterance and stores it as an `assistant` message carrying `participant_id`, together
    with the references the project material was built from and the earlier utterances the speaker read
-   (one transaction)
+   (one transaction). An answer that comes back empty once its reasoning and markup are removed is
+   generated once more by the same speaker from the same prompt, announced by a `retry` event, which
+   clears the streamed text and shows a one-line note in the running bubble; a second empty answer
+   fails the turn and stores nothing. Other failures (a refused request, a timeout, a read error or
+   invalid JSON mid-stream) are not retried
 
 Current limits, accepted as behavior:
 

@@ -61,8 +61,11 @@ func (s *SSEWriter) Event(event string, data any) error {
 // content, a "replace" frame shows its content instead of everything streamed
 // before it (see service.StreamDelta). A change to the reasoning goes out as
 // "reasoning" / "reasoning-replace", so a reader that knows only the answer's
-// frames skips it.
+// frames skips it. A restart goes out as "retry": both texts start over.
 func (s *SSEWriter) StreamDelta(delta service.StreamDelta) error {
+	if delta.Restart {
+		return s.Event("retry", map[string]string{})
+	}
 	event := "delta"
 	if delta.Replace {
 		event = "replace"
