@@ -2,7 +2,7 @@ import { FormEvent, UIEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { useParams } from "react-router-dom";
 import { api, ApiError, ChatRecord, ChatSummary, MemoryKind, MessageRecord, Participant, Project, TurnRule } from "../api/client";
 import { streamSSE } from "../api/sse";
-import { applyStreamText, isStreamReasoningEvent, isStreamTextEvent } from "../api/streamText";
+import { STREAM_RETRY_EVENT, applyStreamText, isStreamReasoningEvent, isStreamTextEvent } from "../api/streamText";
 import { ActionButton } from "../components/ActionButton";
 import { Checkbox } from "../components/Checkbox";
 import { CopyMessageButton } from "../components/CopyMessageButton";
@@ -178,6 +178,8 @@ export function MultiAgentChatPage() {
   const [runningSpeaker, setRunningSpeaker] = useState<TurnSpeaker | null>(null);
   const [streamedContent, setStreamedContent] = useState("");
   const [streamedReasoning, setStreamedReasoning] = useState("");
+  // The running turn is on its second attempt after an empty answer.
+  const [turnRetrying, setTurnRetrying] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
   // The engine's pick for the next turn and the number of past messages a turn
@@ -359,6 +361,7 @@ export function MultiAgentChatPage() {
     setTurnError("");
     setStreamedContent("");
     setStreamedReasoning("");
+    setTurnRetrying(false);
     setRunningSpeaker(null);
     setTurnRunning(true);
 
@@ -392,6 +395,13 @@ export function MultiAgentChatPage() {
 
           if (isStreamReasoningEvent(event)) {
             setStreamedReasoning((current) => applyStreamText(current, event, payload.content));
+            return;
+          }
+
+          if (event === STREAM_RETRY_EVENT) {
+            setStreamedContent("");
+            setStreamedReasoning("");
+            setTurnRetrying(true);
             return;
           }
 
@@ -435,6 +445,7 @@ export function MultiAgentChatPage() {
       setRunningSpeaker(null);
       setStreamedContent("");
       setStreamedReasoning("");
+      setTurnRetrying(false);
     }
   }
 
@@ -937,6 +948,7 @@ export function MultiAgentChatPage() {
                         </Stack>
                       </details>
                     ) : null}
+                    {turnRetrying ? <MetaText>{t("multiAgent.turnRetrying")}</MetaText> : null}
                     <ReasoningFold reasoning={streamedReasoning} thinking={!streamedContent} />
                     {streamedContent ? (
                       <MarkdownPreview source={streamedContent} />

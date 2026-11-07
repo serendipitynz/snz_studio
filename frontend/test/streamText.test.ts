@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyStreamText, isStreamReasoningEvent, isStreamTextEvent } from "../src/api/streamText.ts";
+import { STREAM_RETRY_EVENT, applyStreamText, isStreamReasoningEvent, isStreamTextEvent } from "../src/api/streamText.ts";
 
 function replay(frames: [string, unknown][]): string {
   let shown = "";
@@ -69,4 +69,9 @@ test("a reasoning-replace stands in for the reasoning shown so far", () => {
 
 test("the answer's frames ignore reasoning frames", () => {
   assert.equal(replay([["reasoning", "thought"], ["delta", "Answer"]]), "Answer");
+});
+
+test("a retry is neither the answer's frame nor the reasoning's", () => {
+  assert.equal(isStreamTextEvent(STREAM_RETRY_EVENT), false);
+  assert.equal(isStreamReasoningEvent(STREAM_RETRY_EVENT), false);
 });
