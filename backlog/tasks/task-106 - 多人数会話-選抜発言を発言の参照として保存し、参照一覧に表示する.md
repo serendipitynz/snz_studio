@@ -4,8 +4,9 @@ title: '多人数会話: 選抜発言と末尾の発言の切り詰めを発言�
 status: Done
 assignee: []
 created_date: '2026-10-17 19:25'
-updated_date: '2026-11-07 05:05'
+updated_date: '2026-11-08 21:43'
 labels: []
+milestone: m-4
 dependencies:
   - TASK-104
 references:

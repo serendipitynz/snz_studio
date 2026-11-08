@@ -4,8 +4,9 @@ title: '多人数会話: 本文が空の応答でターンが失敗するのを�
 status: Done
 assignee: []
 created_date: '2026-11-01 21:53'
-updated_date: '2026-11-07 21:01'
+updated_date: '2026-11-08 21:43'
 labels: []
+milestone: m-4
 dependencies: []
 references:
   - internal/service/llmclient.go
