@@ -4,8 +4,9 @@ title: 'プリセット: 同梱 trpg-table に日本語で書く指示を足し�
 status: Done
 assignee: []
 created_date: '2026-10-17 23:35'
-updated_date: '2026-11-01 21:52'
+updated_date: '2026-11-08 21:43'
 labels: []
+milestone: m-4
 dependencies: []
 references:
   - internal/preset/bundled/25-trpg-table.json

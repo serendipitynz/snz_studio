@@ -4,8 +4,9 @@ title: '多人数会話: 観戦ビューで発言をピン留めでき、ピン�
 status: Done
 assignee: []
 created_date: '2026-10-17 19:25'
-updated_date: '2026-11-03 08:48'
+updated_date: '2026-11-08 21:43'
 labels: []
+milestone: m-4
 dependencies:
   - TASK-104
 references:

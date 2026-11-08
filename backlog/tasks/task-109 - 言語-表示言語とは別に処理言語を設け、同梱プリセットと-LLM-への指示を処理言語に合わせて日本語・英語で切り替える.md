@@ -4,8 +4,9 @@ title: '言語: 表示言語とは別に処理言語を設け、同梱プリセ�
 status: Done
 assignee: []
 created_date: '2026-10-25 08:51'
-updated_date: '2026-11-01 11:22'
+updated_date: '2026-11-08 21:43'
 labels: []
+milestone: m-4
 dependencies: []
 references:
   - frontend/src/i18n/index.tsx

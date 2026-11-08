@@ -4,8 +4,9 @@ title: '多人数会話: ターンの履歴を、件数ではなく履歴予算�
 status: Done
 assignee: []
 created_date: '2026-10-17 19:24'
-updated_date: '2026-11-03 00:53'
+updated_date: '2026-11-08 21:43'
 labels: []
+milestone: m-4
 dependencies:
   - TASK-103
 references:
