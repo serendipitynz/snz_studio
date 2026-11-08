@@ -1,10 +1,10 @@
 ---
 id: TASK-113
 title: 'リリース: v0.4.0 としてバージョンを上げ、次のマイルストーン v0.5.0 を用意する'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-08 21:42'
-updated_date: '2026-11-08 22:07'
+updated_date: '2026-11-08 22:20'
 labels: []
 milestone: m-4
 dependencies: []
@@ -37,8 +37,8 @@ TASK-103〜109 と TASK-112 はマイルストーンが付かないまま Done �
 <!-- AC:BEGIN -->
 - [x] #1 package.json の version と wails.json の info.productVersion が 0.4.0 になっている
 - [x] #2 マイルストーン v0.5.0 があり、TASK-52 と TASK-60 が割り当てられている
-- [ ] #3 v0.4.0 タグの release.yml の実行が通り、下書きのリリースに dmg・app.zip・Windows amd64 / arm64 インストーラ・latest.json・SHA256SUMS.txt が添付されている
-- [ ] #4 下書きのノートが和英で書かれ、tag_name が v0.4.0 のままになっている
+- [x] #3 v0.4.0 タグの release.yml の実行が通り、下書きのリリースに dmg・app.zip・Windows amd64 / arm64 インストーラ・latest.json・SHA256SUMS.txt が添付されている
+- [x] #4 下書きのノートが和英で書かれ、tag_name が v0.4.0 のままになっている
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -49,4 +49,8 @@ TASK-103〜109 と TASK-112 はマイルストーンが付かないまま Done �
 - マイルストーンが付いていなかった TASK-103〜109 と TASK-112 を m-4 に割り当てた。
 - go vet / go test ./... / pnpm check:client / pnpm test:client (37 件) が通る。
 - AC #3・#4 はマージ後に v0.4.0 タグを push してから確かめる。
+
+- マージコミット c83898e に v0.4.0 タグを打って push した。release.yml の実行 42528973931 は prepare / build (macOS・Windows amd64・Windows arm64) / attach がすべて success。ノート生成は v0.3.0...v0.4.0 で比べている。
+- 下書き (release id 438557094) には latest.json・SHA256SUMS.txt・macOS の .app.zip と .dmg・Windows amd64 / arm64 インストーラの 6 つが付いている。6 つを手元にダウンロードし、SHA256SUMS.txt と照合して全件一致した。latest.json の version は 0.4.0、platforms は darwin-universal・windows-amd64・windows-arm64 の 3 つで、URL はどれも releases/download/v0.4.0/ を指す。手元でも `go run ./tools/updatesig verify` で 3 つの署名がコミット済みの公開鍵で通り、`xcrun stapler validate` で dmg の公証が通った。
+- ノートは v0.3.0 と同じ英語 → === → 日本語の書式で書き、生成された PR の一覧は英語の半分の末尾に残した (生成時の HTML コメント行は v0.3.0 と同じく外した)。PATCH は tag_name=v0.4.0 と body を一緒に送り、その後も下書きの tag_name が v0.4.0 のままであることを確かめた。公開はオーナーが行う。
 <!-- SECTION:NOTES:END -->
